@@ -43,6 +43,20 @@ int rq_skill_install(struct ain *ain);
 int rq_skill_syscall(int code);
 int rq_lua_skill_on_describe(struct lua_State *L);
 int rq_lua_skill_get(struct lua_State *L);
+int rq_lua_skill_define(struct lua_State *L);
+int rq_chara_install(struct ain *ain);
+int rq_chara_syscall(int code);
+int rq_lua_chara_grant(struct lua_State *L);
+int rq_lua_chara_rank(struct lua_State *L);
+int rq_lua_chara_slots(struct lua_State *L);
+int rq_lua_chara_set_slot(struct lua_State *L);
+int rq_lua_chara_set_flavor(struct lua_State *L);
+int rq_lua_chara_weapon_detail(struct lua_State *L);
+int rq_lua_chara_apply_mod(struct lua_State *L);
+int rq_lua_chara_on_recalc(struct lua_State *L);
+int rq_lua_chara_on_offer(struct lua_State *L);
+int rq_lua_combat_on_physical(struct lua_State *L);
+int rq_lua_combat_on_accuracy(struct lua_State *L);
 int rq_counter_install(struct ain *ain);
 int rq_counter_syscall(int code);
 int rq_lua_counter_on_guard_counter(struct lua_State *L);
@@ -122,6 +136,7 @@ static inline int rq_counter_install(struct ain *ain) { (void)ain; return 0; }
 static inline int rq_counter_syscall(int code) { (void)code; return 0; }
 static inline int rq_battle_install(struct ain *ain) { (void)ain; return 0; }
 static inline int rq_battle_syscall(int code) { (void)code; return 0; }
+static inline int rq_chara_syscall(int code) { (void)code; return 0; }
 static inline int rq_hud_syscall(int code) { (void)code; return 0; }
 static inline int rq_hud_tick(void) { return 0; }
 static inline void rq_hud_draw(void) {}

@@ -750,6 +750,18 @@ static int l_orb_install(lua_State *L)
 	return 1;
 }
 
+static int l_chara_install(lua_State *L)
+{
+	int ok;
+	if (!g_ain)
+		return luaL_error(L, "AIN not loaded");
+	ok = rq_chara_install(g_ain);
+	if (!ok)
+		return luaL_error(L, "chara.install failed (see mods/rqmod.log)");
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
 static int l_skill_install(lua_State *L)
 {
 	int ok;
@@ -878,7 +890,27 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "install", l_skill_install);
 	set_cfn(L, "on_describe", rq_lua_skill_on_describe);
 	set_cfn(L, "get", rq_lua_skill_get);
+	set_cfn(L, "define", rq_lua_skill_define);
 	lua_setfield(L, -2, "skill");
+
+	lua_newtable(L);
+	set_cfn(L, "install", l_chara_install);
+	set_cfn(L, "grant", rq_lua_chara_grant);
+	set_cfn(L, "rank", rq_lua_chara_rank);
+	set_cfn(L, "slots", rq_lua_chara_slots);
+	set_cfn(L, "set_slot", rq_lua_chara_set_slot);
+	set_cfn(L, "set_flavor", rq_lua_chara_set_flavor);
+	set_cfn(L, "weapon_detail", rq_lua_chara_weapon_detail);
+	set_cfn(L, "apply_mod", rq_lua_chara_apply_mod);
+	set_cfn(L, "on_recalc", rq_lua_chara_on_recalc);
+	set_cfn(L, "on_offer", rq_lua_chara_on_offer);
+	lua_setfield(L, -2, "chara");
+
+	lua_newtable(L);
+	set_cfn(L, "install", l_chara_install);
+	set_cfn(L, "on_physical", rq_lua_combat_on_physical);
+	set_cfn(L, "on_accuracy", rq_lua_combat_on_accuracy);
+	lua_setfield(L, -2, "combat");
 
 	lua_newtable(L);
 	set_cfn(L, "install", l_counter_install);
