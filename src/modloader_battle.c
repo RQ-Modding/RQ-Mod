@@ -6,6 +6,9 @@
  * Prefer returning a real skill-button id so vanilla execSkill runs. Pending
  * @exec is a fallback that only does uses− / nRet / target-self via safe
  * primitives — no nested T_BattleSkill method calls (those AVd after claim).
+ *
+ * Space uses rising-edge only (was up → down) after select is ready; a key
+ * held into battle is armed as already-down so it cannot claim until release.
  */
 
 #ifdef RQ_MODLOADER
@@ -38,7 +41,8 @@ static int g_in_ally_select;
 static int g_actor_no = -1;
 static int g_actor_chara = -1;
 static int g_select_this = -1;
-static int g_space_latched;
+/* Rising-edge tracker: claim only on was-up → now-down while select is ready. */
+static int g_space_down_prev = 1;
 static int g_pending_skill;
 static int g_hook_ref = LUA_NOREF;
 
@@ -269,6 +273,16 @@ static int lua_select_key(int key)
 	return skill > 0 ? skill : 0;
 }
 
+static int select_ready(void)
+{
+	return g_in_ally_select
+		&& g_actor_no > 0
+		&& g_actor_chara > 0
+		&& g_select_this >= 0
+		&& page_index_valid(g_select_this)
+		&& skill_page_slot() >= 0;
+}
+
 static void battle_select_enter(void)
 {
 	g_in_ally_select = 1;
@@ -277,7 +291,11 @@ static void battle_select_enter(void)
 	if (g_select_this < 0 || !page_index_valid(g_select_this))
 		g_select_this = -1;
 	g_actor_chara = call_i(g_fno_iic, g_actor_no);
-	g_space_latched = 0;
+	/*
+	 * Arm as already-down so a Space held into battle never counts as a
+	 * press until the player releases and taps again.
+	 */
+	g_space_down_prev = 1;
 	g_pending_skill = 0;
 }
 
@@ -287,7 +305,7 @@ static void battle_select_exit(void)
 	g_actor_no = -1;
 	g_actor_chara = -1;
 	g_select_this = -1;
-	g_space_latched = 0;
+	g_space_down_prev = 1;
 	g_pending_skill = 0;
 }
 
@@ -295,6 +313,7 @@ static void battle_select_key(void)
 {
 	int skill, btn;
 	int this_slot;
+	int down, edge;
 
 	/* Prefer stable select `this` from ENTER; refresh if still unset. */
 	this_slot = current_struct_slot();
@@ -302,6 +321,10 @@ static void battle_select_key(void)
 		g_select_this = this_slot;
 	if (skill_page_slot() >= 0)
 		g_in_ally_select = 1;
+
+	down = key_is_down_raw(VK_SPACE) ? 1 : 0;
+	edge = down && !g_space_down_prev;
+	g_space_down_prev = down;
 
 	if (g_pending_skill > 0) {
 		stack_push(BATTLE_SENTINEL_ID);
@@ -311,13 +334,8 @@ static void battle_select_key(void)
 		stack_push(0);
 		return;
 	}
-	if (g_space_latched) {
-		if (!key_is_down_raw(VK_SPACE))
-			g_space_latched = 0;
-		stack_push(0);
-		return;
-	}
-	if (!key_is_down_raw(VK_SPACE)) {
+	/* Half-init select (no skill card yet) or held key — never claim. */
+	if (!select_ready() || !edge) {
 		stack_push(0);
 		return;
 	}
@@ -328,8 +346,9 @@ static void battle_select_key(void)
 		return;
 	}
 
+	/* Swallow so Cancel/moveCursor do not also see Space this frame. */
 	key_set_state(VK_SPACE, 0);
-	g_space_latched = 1;
+	g_space_down_prev = 1;
 
 	btn = button_for_skill(skill);
 	if (btn > 0) {
