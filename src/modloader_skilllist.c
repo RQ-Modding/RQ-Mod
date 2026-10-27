@@ -34,6 +34,13 @@
 #define BTN_PREV 200037
 #define BTN_NEXT 200038
 #define CG_SKILL_BTN 11153
+/*
+ * Skill rows are y = 127 + 26*row and 24px tall, so row 17 ends at 593.
+ * The yellow help text and stored-points band on CG 11551 starts on the
+ * next line and runs to about y = 634. The town system bar starts at 736.
+ * 601 (one row under the grid) sits on that band. 652 is the gap under it.
+ */
+#define BTN_Y 652
 
 static int g_on;
 static int g_page = 1;
@@ -66,6 +73,9 @@ static int g_f_active = -1;
 static int g_f_sound = -1;
 static int g_f_show = -1;
 static int g_f_create_skill = -1;
+static int g_f_set_show = -1;
+static int g_f_sprite_show = -1;
+static int g_f_update = -1;
 static int g_f_click_snd = -1;
 static int g_f_error_snd = -1;
 
@@ -807,7 +817,7 @@ static void skilllist_buttons(void)
 	int group = member_get(0).i;
 	int prev_ok, next_ok, w = 0;
 	int x2;
-	const int y = 127 + 26 * 18 + 6;
+	const int y = BTN_Y;
 
 	if (!page_index_valid(group)) {
 		rq_log("skilllist: button group missing");
@@ -851,9 +861,31 @@ static void skilllist_click(void)
 	obj = vm_frame_struct(0);
 	if (obj < 1 || g_f_create_skill < 0)
 		return;
-	stack_push(g_chara);
-	stack_push(-1);
-	call_method(g_f_create_skill, obj);
+	/*
+	 * Same sequence as T_SkillPoint::addNewSkill after the purchase.
+	 * createSkill deletes the grid and builds the next slice with buttons
+	 * hidden (T_Button::clear sets show off, and スキルボタン_登録 never
+	 * turns it on). The menu only becomes visible again in setShow, which
+	 * create() does once on open and addNewSkill repeats after a buy.
+	 * Skipping it left the new 36-slice allocated and invisible.
+	 */
+	{
+		int sp = member_get(2).i;
+		int shown = 1;
+		if (g_f_sprite_show >= 0 && page_index_valid(sp))
+			shown = call_method(g_f_sprite_show, sp) ? 1 : 0;
+		stack_push(g_chara);
+		stack_push(-1);
+		call_method(g_f_create_skill, obj);
+		if (g_f_set_show >= 0) {
+			stack_push(shown);
+			call_method(g_f_set_show, obj);
+		}
+		if (g_f_update >= 0) {
+			stack_push(1);
+			call_func(g_f_update);
+		}
+	}
 }
 
 int rq_skilllist_syscall(int code)
@@ -943,6 +975,9 @@ int rq_skilllist_install(struct ain *ain)
 	    || !need_fn(ain, "T_NewSkillManager@create", &f_mgr)
 	    || !need_fn(ain, "T_SkillPoint@exec", &f_exec)
 	    || !need_fn(ain, "T_SkillPoint@createSkill", &g_f_create_skill)
+	    || !need_fn(ain, "T_SkillPoint@setShow", &g_f_set_show)
+	    || !need_fn(ain, "T_Sprite@getShow", &g_f_sprite_show)
+	    || !need_fn(ain, "UPDATE", &g_f_update)
 	    || !need_fn(ain, "ＣＧ_分割_横", &g_f_split)
 	    || !need_fn(ain, "T_Sprite@detach", &g_f_detach)
 	    || !need_fn(ain, "T_TextSprite@attachSp", &g_f_attach)
