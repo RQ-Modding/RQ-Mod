@@ -940,6 +940,9 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "offers", rq_lua_chara_offers);
 	set_cfn(L, "set_offer", rq_lua_chara_set_offer);
 	set_cfn(L, "max_uses", rq_lua_chara_max_uses);
+	set_cfn(L, "set_uses", rq_lua_chara_set_uses);
+	set_cfn(L, "set_bar", rq_lua_chara_set_bar);
+	set_cfn(L, "clear_slot", rq_lua_chara_clear_slot);
 	lua_setfield(L, -2, "chara");
 
 	lua_newtable(L);

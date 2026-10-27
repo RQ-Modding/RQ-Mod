@@ -1072,4 +1072,36 @@ int rq_lua_skilllist_page_count(lua_State *L)
 	return 1;
 }
 
+int rq_skilllist_active(void)
+{
+	return g_on ? 1 : 0;
+}
+
+/* The buy list UI reads g_id / g_pt, not the globals スキルポン mirrored.
+ * A later set_offer has to update this cache or the buttons stay stale. */
+int rq_skilllist_note_offer(int index, int skill, int has_points, int points)
+{
+	if (!g_on || index < 0 || index >= SLOTS)
+		return 0;
+	g_id[index] = skill;
+	if (has_points)
+		g_pt[index] = points;
+	if (skill <= 0) {
+		free(g_desc[index]);
+		g_desc[index] = NULL;
+	}
+	return 1;
+}
+
+int rq_skilllist_offer_at(int index, int *skill, int *points)
+{
+	if (!g_on || index < 0 || index >= SLOTS)
+		return 0;
+	if (skill)
+		*skill = g_id[index];
+	if (points)
+		*points = g_pt[index];
+	return 1;
+}
+
 #endif /* RQ_MODLOADER */

@@ -66,6 +66,10 @@ static int g_gi_dm = -1;
 static int g_gi_offers = -1;
 static int g_gi_offer_pts = -1;
 static int g_f_max_uses = -1;
+static int g_f_uses = -1;
+static int g_f_uses_max = -1;
+static int g_f_hotbar = -1;
+static int g_f_clear = -1;
 static int g_final_pct = 100;
 
 static uint16_t rd16(const uint8_t *p)
@@ -538,6 +542,10 @@ int rq_chara_install(struct ain *a)
 	g_gi_offers = find_global(a, "取得可能スキル");
 	g_gi_offer_pts = find_global(a, "取得可能スキルポイント");
 	g_f_max_uses = find_fn(a, "ＣＳ有無／最大回数");
+	g_f_uses = find_fn(a, "ＣＳ使用回数");
+	g_f_uses_max = find_fn(a, "ＣＳ使用回数最大");
+	g_f_hotbar = find_fn(a, "ＣＳ実装中");
+	g_f_clear = find_fn(a, "ＣＳ初期化");
 
 	if (f_recalc < 0 || f_offer < 0 || f_phys < 0 || f_hit < 0 || f_final < 0
 	    || g_f_add < 0 || g_f_rank < 0 || g_f_slot < 0 || g_f_owned < 0
@@ -545,7 +553,8 @@ int rq_chara_install(struct ain *a)
 	    || g_f_detail < 0 || g_f_mod < 0 || g_f_offer < 0 || g_f_no < 0
 	    || g_f_lv < 0 || g_f_class < 0 || g_f_def < 0 || g_f_magic < 0
 	    || g_f_race < 0 || g_gi_dm < 0 || g_gi_offers < 0
-	    || g_gi_offer_pts < 0 || g_f_max_uses < 0) {
+	    || g_gi_offer_pts < 0 || g_f_max_uses < 0
+	    || g_f_uses < 0 || g_f_uses_max < 0 || g_f_hotbar < 0 || g_f_clear < 0) {
 		rq_log("chara: missing AIN symbol (recalc=%d offer=%d phys=%d hit=%d final=%d dm=%d offers=%d pts=%d uses=%d)",
 		       f_recalc, f_offer, f_phys, f_hit, f_final, g_gi_dm,
 		       g_gi_offers, g_gi_offer_pts, g_f_max_uses);
@@ -657,6 +666,12 @@ int rq_lua_chara_slots(lua_State *L)
 		lua_setfield(L, -2, "slot");
 		lua_pushinteger(L, skill);
 		lua_setfield(L, -2, "skill");
+		lua_pushinteger(L, call_ints(g_f_uses, args, 3));
+		lua_setfield(L, -2, "uses");
+		lua_pushinteger(L, call_ints(g_f_uses_max, args, 3));
+		lua_setfield(L, -2, "max");
+		lua_pushinteger(L, call_ints(g_f_hotbar, args, 3));
+		lua_setfield(L, -2, "bar");
 		lua_rawseti(L, -2, n);
 	}
 	return 1;
@@ -724,6 +739,21 @@ static struct page *offer_page(void)
 	return global_array(g_gi_offers);
 }
 
+static void push_offer_row(lua_State *L, int *n, int index, int skill, int points)
+{
+	if (skill == 0)
+		return;
+	(*n)++;
+	lua_newtable(L);
+	lua_pushinteger(L, index);
+	lua_setfield(L, -2, "index");
+	lua_pushinteger(L, skill);
+	lua_setfield(L, -2, "skill");
+	lua_pushinteger(L, points);
+	lua_setfield(L, -2, "points");
+	lua_rawseti(L, -2, *n);
+}
+
 int rq_lua_chara_offers(lua_State *L)
 {
 	struct page *arr = offer_page();
@@ -731,24 +761,24 @@ int rq_lua_chara_offers(lua_State *L)
 	int i, n = 0;
 
 	lua_newtable(L);
+	/* Paged buy list reads its own cache. That is the list the buttons use. */
+	if (rq_skilllist_active()) {
+		for (i = 0; i < 144; i++) {
+			int skill = 0, points = 0;
+			if (!rq_skilllist_offer_at(i, &skill, &points))
+				break;
+			push_offer_row(L, &n, i, skill, points);
+		}
+		return 1;
+	}
 	if (!arr)
 		return 1;
 	for (i = 0; i < arr->nr_vars; i++) {
 		int skill = page_get_var(arr, i).i;
 		int points = 0;
-		if (skill == 0)
-			continue;
 		if (pts && i < pts->nr_vars)
 			points = page_get_var(pts, i).i;
-		n++;
-		lua_newtable(L);
-		lua_pushinteger(L, i);
-		lua_setfield(L, -2, "index");
-		lua_pushinteger(L, skill);
-		lua_setfield(L, -2, "skill");
-		lua_pushinteger(L, points);
-		lua_setfield(L, -2, "points");
-		lua_rawseti(L, -2, n);
+		push_offer_row(L, &n, i, skill, points);
 	}
 	return 1;
 }
@@ -759,15 +789,54 @@ int rq_lua_chara_set_offer(lua_State *L)
 	struct page *pts = global_array(g_gi_offer_pts);
 	int index = (int)luaL_checkinteger(L, 1);
 	int skill = (int)luaL_checkinteger(L, 2);
+	int has_pts = lua_isnumber(L, 3);
+	int points = has_pts ? (int)lua_tointeger(L, 3) : 0;
+	int wrote = 0;
 
-	if (!arr || index < 0 || index >= arr->nr_vars)
-		return luaL_error(L, "offer index out of range");
-	page_set_var(arr, index, skill);
-	if (lua_isnumber(L, 3)) {
-		if (!pts || index >= pts->nr_vars)
-			return luaL_error(L, "offer points missing");
-		page_set_var(pts, index, (int)lua_tointeger(L, 3));
+	if (arr && index >= 0 && index < arr->nr_vars) {
+		page_set_var(arr, index, skill);
+		wrote = 1;
+		if (has_pts) {
+			if (!pts || index >= pts->nr_vars)
+				return luaL_error(L, "offer points missing");
+			page_set_var(pts, index, points);
+		}
 	}
+	if (rq_skilllist_note_offer(index, skill, has_pts, points))
+		wrote = 1;
+	if (!wrote)
+		return luaL_error(L, "offer index out of range");
+	return 0;
+}
+
+int rq_lua_chara_set_uses(lua_State *L)
+{
+	int args[3];
+	args[0] = (int)luaL_checkinteger(L, 1);
+	args[1] = (int)luaL_checkinteger(L, 2);
+	args[2] = (int)luaL_checkinteger(L, 4);
+	call_ints(g_f_uses_max, args, 3);
+	args[2] = (int)luaL_checkinteger(L, 3);
+	call_ints(g_f_uses, args, 3);
+	return 0;
+}
+
+int rq_lua_chara_set_bar(lua_State *L)
+{
+	int args[3];
+	args[0] = (int)luaL_checkinteger(L, 1);
+	args[1] = (int)luaL_checkinteger(L, 2);
+	args[2] = (int)luaL_checkinteger(L, 3);
+	call_ints(g_f_hotbar, args, 3);
+	return 0;
+}
+
+int rq_lua_chara_clear_slot(lua_State *L)
+{
+	int args[2];
+	args[0] = (int)luaL_checkinteger(L, 1);
+	args[1] = (int)luaL_checkinteger(L, 2);
+	call_ints(g_f_clear, args, 2);
 	return 0;
 }
 
