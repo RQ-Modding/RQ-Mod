@@ -774,6 +774,18 @@ static int l_skill_install(lua_State *L)
 	return 1;
 }
 
+static int l_skilllist_install(lua_State *L)
+{
+	int ok;
+	if (!g_ain)
+		return luaL_error(L, "AIN not loaded");
+	ok = rq_skilllist_install(g_ain);
+	if (!ok)
+		return luaL_error(L, "skilllist.install failed (see mods/rqmod.log)");
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
 static int l_counter_install(lua_State *L)
 {
 	int ok;
@@ -905,6 +917,14 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "define", rq_lua_skill_define);
 	set_cfn(L, "sort_as", rq_lua_skill_sort_as);
 	lua_setfield(L, -2, "skill");
+
+	lua_newtable(L);
+	set_cfn(L, "install", l_skilllist_install);
+	set_cfn(L, "on_open", rq_lua_skilllist_on_open);
+	set_cfn(L, "on_page", rq_lua_skilllist_on_page);
+	set_cfn(L, "set_page", rq_lua_skilllist_set_page);
+	set_cfn(L, "page_count", rq_lua_skilllist_page_count);
+	lua_setfield(L, -2, "skilllist");
 
 	lua_newtable(L);
 	set_cfn(L, "install", l_chara_install);

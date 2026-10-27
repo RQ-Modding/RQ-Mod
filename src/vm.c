@@ -506,6 +506,36 @@ void vm_call(int fno, int struct_page)
 	instr_ptr = saved_ip;
 }
 
+void vm_call_method(int fno, int struct_page)
+{
+	size_t saved_ip = instr_ptr;
+	int nargs;
+	int i;
+
+	if (!ain || fno < 0 || fno >= ain->nr_functions)
+		VM_ERROR("vm_call_method: bad function %d", fno);
+	nargs = ain->functions[fno].nr_args;
+	if (nargs < 0)
+		nargs = 0;
+	/* [arg0, ..., argN-1] -> [struct, arg0, ..., argN-1] */
+	stack_push(0);
+	for (i = 0; i < nargs; i++)
+		stack[stack_ptr - 1 - i] = stack[stack_ptr - 2 - i];
+	stack[stack_ptr - 1 - nargs].i = struct_page;
+
+	rq_mods_on_vm_call(fno, struct_page);
+	method_call(fno, VM_RETURN);
+	vm_execute();
+	instr_ptr = saved_ip;
+}
+
+int vm_frame_struct(int frame_no)
+{
+	if (frame_no < 0 || frame_no >= call_stack_ptr)
+		return -1;
+	return call_stack[call_stack_ptr - (frame_no + 1)].struct_page;
+}
+
 static void function_return(void)
 {
 	unref_call_frame(&call_stack[call_stack_ptr-1]);
@@ -805,7 +835,7 @@ static void system_call(enum syscall_code code)
 			    || rq_chest_syscall(code) || rq_orb_syscall(code)
 			    || rq_skill_syscall(code) || rq_counter_syscall(code)
 			    || rq_battle_syscall(code) || rq_chara_syscall(code)
-			    || rq_shop_syscall(code))
+			    || rq_shop_syscall(code) || rq_skilllist_syscall(code))
 				break;
 #endif
 			VM_ERROR("Unimplemented syscall: 0x%X", code);

@@ -64,6 +64,19 @@ enum vm_extra_syscall {
 	VM_XSYS_COUNTER_ACTOR = 0x80000021,
 	VM_XSYS_SKILL_SORT = 0x80000022,
 	VM_XSYS_SHOP_STOCK = 0x80000023,
+	VM_XSYS_SKILLLIST_CLEAR = 0x80000024,
+	VM_XSYS_SKILLLIST_STORE_ID = 0x80000025,
+	VM_XSYS_SKILLLIST_STORE_PT = 0x80000026,
+	VM_XSYS_SKILLLIST_STORE_DESC = 0x80000027,
+	VM_XSYS_SKILLLIST_NUM = 0x80000028,
+	VM_XSYS_SKILLLIST_AT = 0x80000029,
+	VM_XSYS_SKILLLIST_PT = 0x8000002A,
+	VM_XSYS_SKILLLIST_DESC = 0x8000002B,
+	VM_XSYS_SKILLLIST_FIND = 0x8000002C,
+	VM_XSYS_SKILLLIST_SLICE = 0x8000002D,
+	VM_XSYS_SKILLLIST_OPEN = 0x8000002E,
+	VM_XSYS_SKILLLIST_BUTTONS = 0x8000002F,
+	VM_XSYS_SKILLLIST_CLICK = 0x80000030,
 };
 
 // Non-heap values. Stored in pages and on the stack.
@@ -145,6 +158,10 @@ union vm_value vm_copy(union vm_value v, enum ain_data_type type);
 
 int vm_execute_ain(struct ain *program);
 void vm_call(int fno, int struct_page);
+/* Args are already on the stack. Inserts struct_page under them, then runs the method. */
+void vm_call_method(int fno, int struct_page);
+/* Heap slot of the struct page for a call frame. 0 is the current frame. -1 if none. */
+int vm_frame_struct(int frame_no);
 int vm_time(void);
 void vm_sleep(int ms);
 #ifdef RQ_PROFILE
