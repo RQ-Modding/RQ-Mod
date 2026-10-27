@@ -55,6 +55,8 @@ int rq_lua_chara_weapon_detail(struct lua_State *L);
 int rq_lua_chara_apply_mod(struct lua_State *L);
 int rq_lua_chara_on_recalc(struct lua_State *L);
 int rq_lua_chara_on_offer(struct lua_State *L);
+int rq_lua_chara_offers(struct lua_State *L);
+int rq_lua_chara_set_offer(struct lua_State *L);
 int rq_lua_combat_on_physical(struct lua_State *L);
 int rq_lua_combat_on_accuracy(struct lua_State *L);
 int rq_counter_install(struct ain *ain);

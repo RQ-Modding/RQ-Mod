@@ -904,6 +904,8 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "apply_mod", rq_lua_chara_apply_mod);
 	set_cfn(L, "on_recalc", rq_lua_chara_on_recalc);
 	set_cfn(L, "on_offer", rq_lua_chara_on_offer);
+	set_cfn(L, "offers", rq_lua_chara_offers);
+	set_cfn(L, "set_offer", rq_lua_chara_set_offer);
 	lua_setfield(L, -2, "chara");
 
 	lua_newtable(L);

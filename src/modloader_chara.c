@@ -63,6 +63,7 @@ static int g_loc_hi1 = -1;
 static int g_loc_hi2 = -1;
 static int g_loc_his = -1;
 static int g_gi_dm = -1;
+static int g_gi_offers = -1;
 static int g_final_pct = 100;
 
 static uint16_t rd16(const uint8_t *p)
@@ -532,15 +533,16 @@ int rq_chara_install(struct ain *a)
 	g_f_magic = find_fn(a, "Ｃ魔法力");
 	g_f_race = find_fn(a, "Ｃ種族");
 	g_gi_dm = find_global(a, "◆戦闘／ＤＭ");
+	g_gi_offers = find_global(a, "取得可能スキル");
 
 	if (f_recalc < 0 || f_offer < 0 || f_phys < 0 || f_hit < 0 || f_final < 0
 	    || g_f_add < 0 || g_f_rank < 0 || g_f_slot < 0 || g_f_owned < 0
 	    || g_f_cflavor < 0 || g_f_sflavor < 0 || g_f_weapon < 0
 	    || g_f_detail < 0 || g_f_mod < 0 || g_f_offer < 0 || g_f_no < 0
 	    || g_f_lv < 0 || g_f_class < 0 || g_f_def < 0 || g_f_magic < 0
-	    || g_f_race < 0 || g_gi_dm < 0) {
-		rq_log("chara: missing AIN symbol (recalc=%d offer=%d phys=%d hit=%d final=%d dm=%d)",
-		       f_recalc, f_offer, f_phys, f_hit, f_final, g_gi_dm);
+	    || g_f_race < 0 || g_gi_dm < 0 || g_gi_offers < 0) {
+		rq_log("chara: missing AIN symbol (recalc=%d offer=%d phys=%d hit=%d final=%d dm=%d offers=%d)",
+		       f_recalc, f_offer, f_phys, f_hit, f_final, g_gi_dm, g_gi_offers);
 		return 0;
 	}
 
@@ -693,6 +695,57 @@ int rq_lua_chara_weapon_detail(lua_State *L)
 	args[1] = -1;
 	lua_pushinteger(L, call_ints(g_f_detail, args, 2));
 	return 1;
+}
+
+static struct page *offer_page(void)
+{
+	int slot;
+	struct page *arr;
+
+	if (g_gi_offers < 0)
+		return NULL;
+	slot = global_get(g_gi_offers).i;
+	if (!heap_index_valid(slot))
+		return NULL;
+	arr = heap_get_page(slot);
+	if (!arr || arr->nr_vars <= 0)
+		return NULL;
+	return arr;
+}
+
+int rq_lua_chara_offers(lua_State *L)
+{
+	struct page *arr = offer_page();
+	int i, n = 0;
+
+	lua_newtable(L);
+	if (!arr)
+		return 1;
+	for (i = 0; i < arr->nr_vars; i++) {
+		int skill = page_get_var(arr, i).i;
+		if (skill == 0)
+			continue;
+		n++;
+		lua_newtable(L);
+		lua_pushinteger(L, i);
+		lua_setfield(L, -2, "index");
+		lua_pushinteger(L, skill);
+		lua_setfield(L, -2, "skill");
+		lua_rawseti(L, -2, n);
+	}
+	return 1;
+}
+
+int rq_lua_chara_set_offer(lua_State *L)
+{
+	struct page *arr = offer_page();
+	int index = (int)luaL_checkinteger(L, 1);
+	int skill = (int)luaL_checkinteger(L, 2);
+
+	if (!arr || index < 0 || index >= arr->nr_vars)
+		return luaL_error(L, "offer index out of range");
+	page_set_var(arr, index, skill);
+	return 0;
 }
 
 int rq_lua_chara_apply_mod(lua_State *L)
