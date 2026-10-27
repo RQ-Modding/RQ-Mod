@@ -798,6 +798,18 @@ static int l_battle_install(lua_State *L)
 	return 1;
 }
 
+static int l_shop_install(lua_State *L)
+{
+	int ok;
+	if (!g_ain)
+		return luaL_error(L, "AIN not loaded");
+	ok = rq_shop_install(g_ain);
+	if (!ok)
+		return luaL_error(L, "shop.install failed (see mods/rqmod.log)");
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
 static void set_cfn(lua_State *L, const char *name, lua_CFunction fn)
 {
 	lua_pushcfunction(L, fn);
@@ -920,6 +932,13 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "install", l_counter_install);
 	set_cfn(L, "on_guard_counter", rq_lua_counter_on_guard_counter);
 	lua_setfield(L, -2, "counter");
+
+	lua_newtable(L);
+	set_cfn(L, "install", l_shop_install);
+	set_cfn(L, "on_stock", rq_lua_shop_on_stock);
+	set_cfn(L, "in_stock", rq_lua_shop_in_stock);
+	set_cfn(L, "stock", rq_lua_shop_stock);
+	lua_setfield(L, -2, "shop");
 
 	lua_newtable(L);
 	set_cfn(L, "install", l_battle_install);

@@ -255,7 +255,7 @@ if get_option('modloader')
     xsystem4 += ['modloader.c', 'modloader_agent.c', 'modloader_loot.c',
                  'modloader_hud.c', 'modloader_orb.c', 'modloader_skill.c',
                  'modloader_counter.c', 'modloader_battle.c',
-                 'modloader_chara.c',
+                 'modloader_chara.c', 'modloader_shop.c',
                  rq_stamp]
     exe_inc += lua_inc
     exe_link += lua_lib

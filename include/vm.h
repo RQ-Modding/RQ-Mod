@@ -63,6 +63,7 @@ enum vm_extra_syscall {
 	VM_XSYS_COUNTER_ACTOR_RESET = 0x80000020,
 	VM_XSYS_COUNTER_ACTOR = 0x80000021,
 	VM_XSYS_SKILL_SORT = 0x80000022,
+	VM_XSYS_SHOP_STOCK = 0x80000023,
 };
 
 // Non-heap values. Stored in pages and on the stack.
