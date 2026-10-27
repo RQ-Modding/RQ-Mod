@@ -28,6 +28,12 @@
 static int g_on;
 static int g_boot;
 static int g_boot_done;
+static int g_sort_on;
+#define SKILL_SORT_MAX 32
+static int g_sort_id[SKILL_SORT_MAX];
+static int g_sort_as[SKILL_SORT_MAX];
+static int g_sort_n;
+static void skill_sort_args(void);
 static int g_describe_ref = LUA_NOREF;
 #define SKILL_DEF_MAX 32
 static int g_def_refs[SKILL_DEF_MAX];
@@ -358,6 +364,9 @@ int rq_skill_syscall(int code)
 	case VM_XSYS_SKILL_BOOT:
 		skill_boot();
 		return 1;
+	case VM_XSYS_SKILL_SORT:
+		skill_sort_args();
+		return 1;
 	default:
 		return 0;
 	}
@@ -376,6 +385,44 @@ static int wrap_boot(struct ain *ain, int fno)
 	emit1(&out, ENDFUNC, fno);
 	commit_wrap(ain, fno, &out);
 	rq_log("skill: wrapped Ｓ起動時登録 tail (define flush)");
+	return 1;
+}
+
+static int sort_key(int id)
+{
+	int i;
+	for (i = 0; i < g_sort_n; i++) {
+		if (g_sort_id[i] == id)
+			return g_sort_as[i];
+	}
+	return id;
+}
+
+/* compSkill compares panel color, then skill id. Map stand-in ids so a
+ * rewritten attack keeps Melee's place in the known and potential lists. */
+static void skill_sort_args(void)
+{
+	int b = stack_pop().i;
+	int a = stack_pop().i;
+	stack_push(sort_key(a));
+	stack_push(sort_key(b));
+}
+
+static int wrap_sort(struct ain *ain, int fno)
+{
+	int dup = ain_dup_function(ain, fno);
+	struct buffer out;
+
+	buffer_init(&out, NULL, 0);
+	emit1(&out, FUNC, fno);
+	emit1(&out, SH_LOCALREF, 0);
+	emit1(&out, SH_LOCALREF, 1);
+	emit1(&out, CALLSYS, VM_XSYS_SKILL_SORT);
+	emit1(&out, CALLFUNC, dup);
+	emit0(&out, RETURN);
+	emit1(&out, ENDFUNC, fno);
+	commit_wrap(ain, fno, &out);
+	rq_log("skill: wrapped compSkill (sort_as)");
 	return 1;
 }
 
@@ -440,6 +487,14 @@ int rq_skill_install(struct ain *ain)
 			return 0;
 		g_boot = 1;
 	}
+	if (!g_sort_on) {
+		int f_cmp = find_fn(ain, "compSkill");
+		if (f_cmp < 0) {
+			rq_log("skill: compSkill not found");
+		} else if (wrap_sort(ain, f_cmp)) {
+			g_sort_on = 1;
+		}
+	}
 	return 1;
 }
 
@@ -460,6 +515,42 @@ int rq_lua_skill_define(lua_State *L)
 		lua_pop(L, 1);
 	}
 	return 0;
+}
+
+int rq_lua_skill_sort_as(lua_State *L)
+{
+	int id = (int)luaL_checkinteger(L, 1);
+	int as_id = (int)luaL_checkinteger(L, 2);
+	int i;
+
+	if (!g_sort_on) {
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+	for (i = 0; i < g_sort_n; i++) {
+		if (g_sort_id[i] != id)
+			continue;
+		if (as_id <= 0 || as_id == id) {
+			g_sort_id[i] = g_sort_id[g_sort_n - 1];
+			g_sort_as[i] = g_sort_as[g_sort_n - 1];
+			g_sort_n--;
+		} else {
+			g_sort_as[i] = as_id;
+		}
+		lua_pushboolean(L, 1);
+		return 1;
+	}
+	if (as_id <= 0 || as_id == id) {
+		lua_pushboolean(L, 1);
+		return 1;
+	}
+	if (g_sort_n >= SKILL_SORT_MAX)
+		return luaL_error(L, "too many skill.sort_as");
+	g_sort_id[g_sort_n] = id;
+	g_sort_as[g_sort_n] = as_id;
+	g_sort_n++;
+	lua_pushboolean(L, 1);
+	return 1;
 }
 
 int rq_lua_skill_on_describe(lua_State *L)

@@ -891,6 +891,7 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "on_describe", rq_lua_skill_on_describe);
 	set_cfn(L, "get", rq_lua_skill_get);
 	set_cfn(L, "define", rq_lua_skill_define);
+	set_cfn(L, "sort_as", rq_lua_skill_sort_as);
 	lua_setfield(L, -2, "skill");
 
 	lua_newtable(L);
@@ -906,6 +907,7 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "on_offer", rq_lua_chara_on_offer);
 	set_cfn(L, "offers", rq_lua_chara_offers);
 	set_cfn(L, "set_offer", rq_lua_chara_set_offer);
+	set_cfn(L, "max_uses", rq_lua_chara_max_uses);
 	lua_setfield(L, -2, "chara");
 
 	lua_newtable(L);

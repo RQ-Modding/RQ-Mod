@@ -17,6 +17,7 @@
 
 #include "system4.h"
 #include "system4/ain.h"
+#include "system4/buffer.h"
 #include "system4/instructions.h"
 #include "system4/utfsjis.h"
 
@@ -38,6 +39,8 @@
 static int g_on;
 static int g_hook_ref = LUA_NOREF;
 static int g_gi_fa = -1;
+static int g_f_battle_no = -1;
+static int g_guard_iic;
 
 static uint16_t ctr_rd16(const uint8_t *p)
 {
@@ -168,6 +171,10 @@ static void counter_guard_check(void)
 	if (fa77 != 1)
 		return;
 
+	/* This hit was redirected onto the guard. Counter's actor must be
+	 * that defender, not the battle slot the enemy originally targeted. */
+	g_guard_iic = local_get(CTR_LOC_IIC2).i;
+
 	rate = local_get(CTR_LOC_AA).i;
 	if (lua_allow_guard_counter(1, rate))
 		return;
@@ -282,11 +289,81 @@ static int patch_fa77_counter(struct ain *ain, int dmg_fno, int fa_gi)
 	return 0;
 }
 
+static void emit0(struct buffer *out, enum opcode op)
+{
+	buffer_write_int16(out, (uint16_t)op);
+}
+
+static void emit1(struct buffer *out, enum opcode op, int32_t arg)
+{
+	buffer_write_int16(out, (uint16_t)op);
+	buffer_write_int32(out, (uint32_t)arg);
+}
+
+static void commit_wrap(struct ain *ain, int fno, struct buffer *out)
+{
+	ain->functions[fno].address = (uint32_t)(ain->code_size + 6);
+	ain->code = xrealloc(ain->code, ain->code_size + out->index);
+	memcpy(ain->code + ain->code_size, out->buf, out->index);
+	ain->code_size += out->index;
+}
+
+static int wrap_call(struct ain *ain, int fno, int sys_first, int push_args)
+{
+	int dup = ain_dup_function(ain, fno);
+	int nargs = ain->functions[fno].nr_args;
+	int i;
+	struct buffer out;
+
+	buffer_init(&out, NULL, 0);
+	emit1(&out, FUNC, fno);
+	emit1(&out, CALLSYS, sys_first);
+	if (push_args) {
+		for (i = 0; i < nargs; i++)
+			emit1(&out, SH_LOCALREF, i);
+		emit1(&out, CALLFUNC, dup);
+	}
+	emit0(&out, RETURN);
+	emit1(&out, ENDFUNC, fno);
+	commit_wrap(ain, fno, &out);
+	return 1;
+}
+
+static void counter_retarget(void)
+{
+	int iic, bno, was;
+	struct page *lp;
+
+	iic = g_guard_iic;
+	g_guard_iic = 0;
+	if (iic <= 0 || g_f_battle_no < 0)
+		return;
+	stack_push(iic);
+	vm_call(g_f_battle_no, -1);
+	if (ain->functions[g_f_battle_no].return_type.data == AIN_VOID)
+		return;
+	bno = stack_pop().i;
+	was = local_get(0).i;
+	if (bno <= 0 || bno == was)
+		return;
+	lp = local_page();
+	if (lp)
+		page_set_var(lp, 0, bno);
+	rq_log("counter: actor battle-slot %d -> guard slot %d (iic %d)",
+	       was, bno, iic);
+}
+
 int rq_counter_syscall(int code)
 {
 	switch ((enum vm_extra_syscall)code) {
 	case VM_XSYS_COUNTER_GUARD:
 		counter_guard_check();
+		return 1;
+	case VM_XSYS_COUNTER_ACTOR_RESET:
+		g_guard_iic = 0;
+		return 1;
+	case VM_XSYS_COUNTER_ACTOR:
+		counter_retarget();
 		return 1;
 	default:
 		return 0;
@@ -305,13 +382,29 @@ int rq_counter_install(struct ain *ain)
 	f_dmg = find_fn(ain, "ダメージ後計算");
 	fa_gi = find_global(ain, "FA");
 	g_gi_fa = fa_gi;
+	g_f_battle_no = find_fn(ain, "戦闘番号_取得");
 
-	if (f_dmg < 0 || fa_gi < 0) {
-		rq_log("counter: missing AIN (ダメージ後計算=%d FA=%d)", f_dmg, fa_gi);
+	if (f_dmg < 0 || fa_gi < 0 || g_f_battle_no < 0) {
+		rq_log("counter: missing AIN (ダメージ後計算=%d FA=%d battle_no=%d)",
+		       f_dmg, fa_gi, g_f_battle_no);
 		return 0;
 	}
 	if (!patch_fa77_counter(ain, f_dmg, fa_gi))
 		return 0;
+	{
+		int f_exec = find_fn(ain, "戦闘_カウンター実行");
+		if (f_exec < 0) {
+			rq_log("counter: 戦闘_カウンター実行 not found");
+			return 0;
+		}
+		/* Clear the remembered guard at the start of each post-damage
+		 * pass, then the FA[77] site records this hit's defender. */
+		if (!wrap_call(ain, f_dmg, VM_XSYS_COUNTER_ACTOR_RESET, 1))
+			return 0;
+		if (!wrap_call(ain, f_exec, VM_XSYS_COUNTER_ACTOR, 1))
+			return 0;
+		rq_log("counter: guard who took the hit speaks and swings the counter");
+	}
 
 	g_on = 1;
 	rq_log("counter: FA[77] Counter gate hooked (Lua on_guard_counter; other FA[77] vanilla)");

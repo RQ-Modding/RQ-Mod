@@ -64,6 +64,8 @@ static int g_loc_hi2 = -1;
 static int g_loc_his = -1;
 static int g_gi_dm = -1;
 static int g_gi_offers = -1;
+static int g_gi_offer_pts = -1;
+static int g_f_max_uses = -1;
 static int g_final_pct = 100;
 
 static uint16_t rd16(const uint8_t *p)
@@ -534,15 +536,19 @@ int rq_chara_install(struct ain *a)
 	g_f_race = find_fn(a, "Ｃ種族");
 	g_gi_dm = find_global(a, "◆戦闘／ＤＭ");
 	g_gi_offers = find_global(a, "取得可能スキル");
+	g_gi_offer_pts = find_global(a, "取得可能スキルポイント");
+	g_f_max_uses = find_fn(a, "ＣＳ有無／最大回数");
 
 	if (f_recalc < 0 || f_offer < 0 || f_phys < 0 || f_hit < 0 || f_final < 0
 	    || g_f_add < 0 || g_f_rank < 0 || g_f_slot < 0 || g_f_owned < 0
 	    || g_f_cflavor < 0 || g_f_sflavor < 0 || g_f_weapon < 0
 	    || g_f_detail < 0 || g_f_mod < 0 || g_f_offer < 0 || g_f_no < 0
 	    || g_f_lv < 0 || g_f_class < 0 || g_f_def < 0 || g_f_magic < 0
-	    || g_f_race < 0 || g_gi_dm < 0 || g_gi_offers < 0) {
-		rq_log("chara: missing AIN symbol (recalc=%d offer=%d phys=%d hit=%d final=%d dm=%d offers=%d)",
-		       f_recalc, f_offer, f_phys, f_hit, f_final, g_gi_dm, g_gi_offers);
+	    || g_f_race < 0 || g_gi_dm < 0 || g_gi_offers < 0
+	    || g_gi_offer_pts < 0 || g_f_max_uses < 0) {
+		rq_log("chara: missing AIN symbol (recalc=%d offer=%d phys=%d hit=%d final=%d dm=%d offers=%d pts=%d uses=%d)",
+		       f_recalc, f_offer, f_phys, f_hit, f_final, g_gi_dm,
+		       g_gi_offers, g_gi_offer_pts, g_f_max_uses);
 		return 0;
 	}
 
@@ -697,14 +703,14 @@ int rq_lua_chara_weapon_detail(lua_State *L)
 	return 1;
 }
 
-static struct page *offer_page(void)
+static struct page *global_array(int gi)
 {
 	int slot;
 	struct page *arr;
 
-	if (g_gi_offers < 0)
+	if (gi < 0)
 		return NULL;
-	slot = global_get(g_gi_offers).i;
+	slot = global_get(gi).i;
 	if (!heap_index_valid(slot))
 		return NULL;
 	arr = heap_get_page(slot);
@@ -713,9 +719,15 @@ static struct page *offer_page(void)
 	return arr;
 }
 
+static struct page *offer_page(void)
+{
+	return global_array(g_gi_offers);
+}
+
 int rq_lua_chara_offers(lua_State *L)
 {
 	struct page *arr = offer_page();
+	struct page *pts = global_array(g_gi_offer_pts);
 	int i, n = 0;
 
 	lua_newtable(L);
@@ -723,14 +735,19 @@ int rq_lua_chara_offers(lua_State *L)
 		return 1;
 	for (i = 0; i < arr->nr_vars; i++) {
 		int skill = page_get_var(arr, i).i;
+		int points = 0;
 		if (skill == 0)
 			continue;
+		if (pts && i < pts->nr_vars)
+			points = page_get_var(pts, i).i;
 		n++;
 		lua_newtable(L);
 		lua_pushinteger(L, i);
 		lua_setfield(L, -2, "index");
 		lua_pushinteger(L, skill);
 		lua_setfield(L, -2, "skill");
+		lua_pushinteger(L, points);
+		lua_setfield(L, -2, "points");
 		lua_rawseti(L, -2, n);
 	}
 	return 1;
@@ -739,13 +756,29 @@ int rq_lua_chara_offers(lua_State *L)
 int rq_lua_chara_set_offer(lua_State *L)
 {
 	struct page *arr = offer_page();
+	struct page *pts = global_array(g_gi_offer_pts);
 	int index = (int)luaL_checkinteger(L, 1);
 	int skill = (int)luaL_checkinteger(L, 2);
 
 	if (!arr || index < 0 || index >= arr->nr_vars)
 		return luaL_error(L, "offer index out of range");
 	page_set_var(arr, index, skill);
+	if (lua_isnumber(L, 3)) {
+		if (!pts || index >= pts->nr_vars)
+			return luaL_error(L, "offer points missing");
+		page_set_var(pts, index, (int)lua_tointeger(L, 3));
+	}
 	return 0;
+}
+
+int rq_lua_chara_max_uses(lua_State *L)
+{
+	int args[3];
+	args[0] = (int)luaL_checkinteger(L, 1);
+	args[1] = (int)luaL_checkinteger(L, 2);
+	args[2] = 0;
+	lua_pushinteger(L, call_ints(g_f_max_uses, args, 3));
+	return 1;
 }
 
 int rq_lua_chara_apply_mod(lua_State *L)
