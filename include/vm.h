@@ -53,6 +53,7 @@ enum vm_extra_syscall {
 	VM_XSYS_BATTLE_SELECT_ENTER = 0x80000016,
 	VM_XSYS_BATTLE_SELECT_EXIT = 0x80000017,
 	VM_XSYS_BATTLE_SELECT_KEY = 0x80000018,
+	VM_XSYS_BATTLE_SELECT_EXEC = 0x80000019,
 };
 
 // Non-heap values. Stored in pages and on the stack.
