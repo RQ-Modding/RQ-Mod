@@ -1,13 +1,11 @@
 /* Copyright (C) 2026 Rance Quest modding fork
  *
  * Ally skill select: wrap T_BattleSelect@select / @checkKey / @exec so Lua can
- * claim Space and complete select like execSkill (countdown + nRet + target self).
- * Policy (Standby 384, etc.) lives in Lua via rq.battle.on_select_key.
+ * claim Space and finish the choice like clicking a skill (execSkill).
  *
- * Important: returning a skill-button id alone was fragile; when lookup failed,
- * Space fell through to キャンセル_確認 → moveCursor (Cancel remap). On claim we
- * now set a pending skill, swallow Space, break checkSelect with a sentinel id,
- * and apply the skill in @exec.
+ * Prefer returning a real skill-button id so vanilla execSkill runs. Pending
+ * @exec is a fallback that only does uses− / nRet / target-self via safe
+ * primitives — no nested T_BattleSkill method calls (those AVd after claim).
  */
 
 #ifdef RQ_MODLOADER
@@ -33,14 +31,13 @@
 #include "vm/page.h"
 #include "input.h"
 
-/* Dummy skill-button id so checkSelect breaks; @exec ignores it when pending. */
 #define BATTLE_SENTINEL_ID 200001
 
 static int g_on;
 static int g_in_ally_select;
 static int g_actor_no = -1;
 static int g_actor_chara = -1;
-static int g_this_slot = -1;
+static int g_select_this = -1;
 static int g_space_latched;
 static int g_pending_skill;
 static int g_hook_ref = LUA_NOREF;
@@ -50,10 +47,7 @@ static int g_memb_nTargetNo = -1;
 static int g_fno_getSkillIndex = -1;
 static int g_fno_getButtonID = -1;
 static int g_fno_getSkillStatus = -1;
-static int g_fno_getNo = -1;
-static int g_fno_getCharaNo = -1;
-static int g_fno_countDown = -1;
-static int g_fno_setTargetShow = -1;
+static int g_fno_updateSkillStatus = -1;
 static int g_fno_iic = -1;
 static int g_fno_equip = -1;
 static int g_fno_uses = -1;
@@ -160,7 +154,7 @@ static int call_ii(int fno, int a, int b)
 static int call_method_i(int fno, int this_slot, int arg)
 {
 	int r;
-	if (fno < 0 || this_slot < 0)
+	if (fno < 0 || this_slot < 0 || !page_index_valid(this_slot))
 		return -1;
 	stack_push(arg);
 	vm_call(fno, this_slot);
@@ -168,12 +162,10 @@ static int call_method_i(int fno, int this_slot, int arg)
 	return r;
 }
 
-static void call_method_ii(int fno, int this_slot, int a, int b)
+static void call_method_0(int fno, int this_slot)
 {
-	if (fno < 0 || this_slot < 0)
+	if (fno < 0 || this_slot < 0 || !page_index_valid(this_slot))
 		return;
-	stack_push(a);
-	stack_push(b);
 	vm_call(fno, this_slot);
 }
 
@@ -188,57 +180,17 @@ static int current_struct_slot(void)
 static int skill_page_slot(void)
 {
 	struct page *sel;
+	int slot;
 
-	if (g_this_slot < 0 || !heap_index_valid(g_this_slot) || g_memb_rfsSkill < 0)
+	if (g_select_this < 0 || !page_index_valid(g_select_this) || g_memb_rfsSkill < 0)
 		return -1;
-	sel = heap_get_page(g_this_slot);
+	sel = heap_get_page(g_select_this);
 	if (!sel || g_memb_rfsSkill >= sel->nr_vars)
 		return -1;
-	return page_get_var(sel, g_memb_rfsSkill).i;
-}
-
-static int call_method_0(int fno, int this_slot)
-{
-	int r;
-	if (fno < 0 || this_slot < 0)
+	slot = page_get_var(sel, g_memb_rfsSkill).i;
+	if (slot < 0 || !page_index_valid(slot))
 		return -1;
-	vm_call(fno, this_slot);
-	r = stack_pop().i;
-	return r;
-}
-
-static void refresh_actor_from_skill(void)
-{
-	int skill_slot = skill_page_slot();
-	int no, chara;
-
-	if (skill_slot < 0 || !heap_index_valid(skill_slot))
-		return;
-	no = call_method_0(g_fno_getNo, skill_slot);
-	chara = call_method_0(g_fno_getCharaNo, skill_slot);
-	if (chara <= 0 && no > 0)
-		chara = call_i(g_fno_iic, no);
-	if (no > 0)
-		g_actor_no = no;
-	if (chara > 0)
-		g_actor_chara = chara;
-}
-
-static int button_for_skill(int skill_no)
-{
-	int skill_slot, idx, status, btn;
-
-	skill_slot = skill_page_slot();
-	if (skill_slot < 0 || !heap_index_valid(skill_slot))
-		return -1;
-	idx = call_method_i(g_fno_getSkillIndex, skill_slot, skill_no);
-	if (idx < 0)
-		return -1;
-	status = call_method_i(g_fno_getSkillStatus, skill_slot, idx);
-	if (status <= 0)
-		return -1;
-	btn = call_method_i(g_fno_getButtonID, skill_slot, idx);
-	return btn > 0 ? btn : -1;
+	return slot;
 }
 
 static int skill_usable_chara(int chara, int skill_no)
@@ -254,10 +206,33 @@ static int skill_usable_chara(int chara, int skill_no)
 	if (uses <= 0)
 		return 0;
 	lock = call_ii(g_fno_lock, chara, skill_no);
-	/* -1 = not found / error; only positive means locked. */
 	if (lock > 0)
 		return 0;
 	return 1;
+}
+
+/*
+ * Real skill-row button id (200001+index). status == 0 is still a listed
+ * action skill; vanilla getSkillNoFromIndex only rejects status < 0.
+ * Requiring status > 0 left button=-1 and forced the crashing pending path.
+ */
+static int button_for_skill(int skill_no)
+{
+	int skill_slot, idx, status, btn;
+
+	skill_slot = skill_page_slot();
+	if (skill_slot < 0)
+		return -1;
+	if (g_fno_updateSkillStatus >= 0)
+		call_method_0(g_fno_updateSkillStatus, skill_slot);
+	idx = call_method_i(g_fno_getSkillIndex, skill_slot, skill_no);
+	if (idx < 0)
+		return -1;
+	status = call_method_i(g_fno_getSkillStatus, skill_slot, idx);
+	if (status < 0)
+		return -1;
+	btn = call_method_i(g_fno_getButtonID, skill_slot, idx);
+	return btn > 0 ? btn : -1;
 }
 
 static int lua_select_key(int key)
@@ -298,11 +273,12 @@ static void battle_select_enter(void)
 {
 	g_in_ally_select = 1;
 	g_actor_no = local_get(0).i;
-	g_this_slot = current_struct_slot();
+	g_select_this = current_struct_slot();
+	if (g_select_this < 0 || !page_index_valid(g_select_this))
+		g_select_this = -1;
 	g_actor_chara = call_i(g_fno_iic, g_actor_no);
 	g_space_latched = 0;
 	g_pending_skill = 0;
-	refresh_actor_from_skill();
 }
 
 static void battle_select_exit(void)
@@ -310,24 +286,22 @@ static void battle_select_exit(void)
 	g_in_ally_select = 0;
 	g_actor_no = -1;
 	g_actor_chara = -1;
-	g_this_slot = -1;
+	g_select_this = -1;
 	g_space_latched = 0;
 	g_pending_skill = 0;
 }
 
-/*
- * Start of T_BattleSelect@checkKey. Push sentinel (>0) to break checkSelect
- * when Lua claims a skill; 0 = fall through to vanilla key / Cancel.
- */
 static void battle_select_key(void)
 {
 	int skill, btn;
+	int this_slot;
 
-	g_this_slot = current_struct_slot();
-	if (skill_page_slot() >= 0) {
+	/* Prefer stable select `this` from ENTER; refresh if still unset. */
+	this_slot = current_struct_slot();
+	if (page_index_valid(this_slot))
+		g_select_this = this_slot;
+	if (skill_page_slot() >= 0)
 		g_in_ally_select = 1;
-		refresh_actor_from_skill();
-	}
 
 	if (g_pending_skill > 0) {
 		stack_push(BATTLE_SENTINEL_ID);
@@ -354,57 +328,61 @@ static void battle_select_key(void)
 		return;
 	}
 
-	/* Swallow Space so キャンセル_確認 / moveCursor do not also run. */
 	key_set_state(VK_SPACE, 0);
 	g_space_latched = 1;
-	g_pending_skill = skill;
 
 	btn = button_for_skill(skill);
-	rq_log("battle: Space claimed skill %d (button=%d) → execSkill path",
-	       skill, btn);
-	stack_push(btn > 0 ? btn : BATTLE_SENTINEL_ID);
+	if (btn > 0) {
+		/* Vanilla execSkill path — no pending apply. */
+		g_pending_skill = 0;
+		rq_log("battle: Space → skill %d via button %d (vanilla execSkill)",
+		       skill, btn);
+		stack_push(btn);
+		return;
+	}
+
+	/* Fallback: complete in @exec without T_BattleSkill method calls. */
+	if (!skill_usable_chara(g_actor_chara, skill)) {
+		rq_log("battle: Space skill %d has no button and not usable — Cancel",
+		       skill);
+		stack_push(0);
+		return;
+	}
+	g_pending_skill = skill;
+	rq_log("battle: Space → skill %d via pending exec (no button id)", skill);
+	stack_push(BATTLE_SENTINEL_ID);
 }
 
 /*
- * Start of T_BattleSelect@exec. Returns:
- *   1 = pending applied, return true (nRet set)
- *   2 = pending failed, return false (do not run original with sentinel)
- *   0 = no pending, call original
+ * Safe pending apply (no nested BattleSkill methods).
+ * Returns 1=done true, 2=fail false, 0=call original.
  */
 static void battle_select_exec(void)
 {
-	int skill, skill_slot, cd;
-	struct page *sel;
+	int skill = g_pending_skill;
 	int ref_page, ref_idx;
+	struct page *sel;
 
-	skill = g_pending_skill;
 	if (skill <= 0) {
 		stack_push(0);
 		return;
 	}
 	g_pending_skill = 0;
 
-	g_this_slot = current_struct_slot();
-	refresh_actor_from_skill();
-	skill_slot = skill_page_slot();
+	rq_log("battle: pending apply skill=%d chara=%d select_this=%d",
+	       skill, g_actor_chara, g_select_this);
 
-	if (skill_slot >= 0 && heap_index_valid(skill_slot) && g_fno_countDown >= 0) {
-		cd = call_method_i(g_fno_countDown, skill_slot, skill);
-		if (cd < 0 && g_fno_uses_dec >= 0 && g_actor_chara > 0)
-			call_ii(g_fno_uses_dec, g_actor_chara, skill);
-		if (g_fno_setTargetShow >= 0)
-			call_method_ii(g_fno_setTargetShow, skill_slot, -1, -1);
-	} else if (g_fno_uses_dec >= 0 && g_actor_chara > 0) {
-		call_ii(g_fno_uses_dec, g_actor_chara, skill);
-	} else {
-		rq_log("battle: cannot apply skill %d (no skill page/chara)", skill);
+	if (g_actor_chara <= 0 || g_fno_uses_dec < 0) {
+		rq_log("battle: pending apply aborted (chara/uses_dec)");
 		stack_push(2);
 		return;
 	}
 
-	/* Target self (Standby type 10); unset also falls back in 戦闘_通常行動. */
-	if (g_this_slot >= 0 && heap_index_valid(g_this_slot) && g_memb_nTargetNo >= 0) {
-		sel = heap_get_page(g_this_slot);
+	call_ii(g_fno_uses_dec, g_actor_chara, skill);
+
+	if (g_select_this >= 0 && page_index_valid(g_select_this)
+	    && g_memb_nTargetNo >= 0) {
+		sel = heap_get_page(g_select_this);
 		if (sel && g_memb_nTargetNo < sel->nr_vars)
 			page_set_var(sel, g_memb_nTargetNo,
 				     g_actor_no > 0 ? g_actor_no : 0);
@@ -413,14 +391,22 @@ static void battle_select_exec(void)
 	/* exec(int nID, ref int nRet): locals 1/2 = ref page + index. */
 	ref_page = local_get(1).i;
 	ref_idx = local_get(2).i;
-	if (heap_index_valid(ref_page)) {
-		sel = heap_get_page(ref_page);
-		if (sel && ref_idx >= 0 && ref_idx < sel->nr_vars)
-			page_set_var(sel, ref_idx, skill);
+	if (!page_index_valid(ref_page)) {
+		rq_log("battle: pending apply bad nRet ref page=%d idx=%d",
+		       ref_page, ref_idx);
+		stack_push(2);
+		return;
 	}
+	sel = heap_get_page(ref_page);
+	if (!sel || ref_idx < 0 || ref_idx >= sel->nr_vars) {
+		rq_log("battle: pending apply bad nRet idx=%d nr=%d",
+		       ref_idx, sel ? sel->nr_vars : -1);
+		stack_push(2);
+		return;
+	}
+	page_set_var(sel, ref_idx, skill);
 
-	rq_log("battle: execSkill-equivalent skill=%d target_no=%d",
-	       skill, g_actor_no);
+	rq_log("battle: pending apply ok skill=%d target_no=%d", skill, g_actor_no);
 	stack_push(1);
 }
 
@@ -483,17 +469,14 @@ static int wrap_exec(struct ain *ain, int fno)
 	struct buffer out;
 	uint32_t ifz_ok, ifz_fail;
 
-	/*
-	 * CALLSYS → 1: return true; 2: return false; 0: original exec.
-	 */
 	buffer_init(&out, NULL, 0);
 	emit1(&out, FUNC, fno);
 	emit1(&out, CALLSYS, VM_XSYS_BATTLE_SELECT_EXEC);
+	/* 1 → return true; 2 → return false; 0 → original */
 	emit0(&out, DUP);
 	emit1(&out, PUSH, 1);
 	emit0(&out, EQUALE);
 	ifz_ok = emit_ifz(&out);
-	/* code==1: leave 1 on stack as bool true */
 	emit0(&out, RETURN);
 	patch_j(&out, ifz_ok, ain);
 	emit0(&out, DUP);
@@ -512,7 +495,7 @@ static int wrap_exec(struct ain *ain, int fno)
 	emit0(&out, RETURN);
 	emit1(&out, ENDFUNC, fno);
 	commit_wrap(ain, fno, &out);
-	rq_log("battle: wrapped T_BattleSelect@exec (pending skill apply)");
+	rq_log("battle: wrapped T_BattleSelect@exec (safe pending apply)");
 	return 1;
 }
 
@@ -554,10 +537,7 @@ int rq_battle_install(struct ain *ain)
 	g_fno_getSkillIndex = find_fn(ain, "T_BattleSkill@getSkillIndex");
 	g_fno_getButtonID = find_fn(ain, "T_BattleSkill@getButtonID");
 	g_fno_getSkillStatus = find_fn(ain, "T_BattleSkill@getSkillStatus");
-	g_fno_getNo = find_fn(ain, "T_BattleSkill@getNo");
-	g_fno_getCharaNo = find_fn(ain, "T_BattleSkill@getCharaNo");
-	g_fno_countDown = find_fn(ain, "T_BattleSkill@countDown");
-	g_fno_setTargetShow = find_fn(ain, "T_BattleSkill@setTargetShow");
+	g_fno_updateSkillStatus = find_fn(ain, "T_BattleSkill@updateSkillStatus");
 	g_fno_iic = find_fn(ain, "戦闘番号_ＩＩＣ");
 	g_fno_equip = find_fn(ain, "キャラスキル_実装中");
 	g_fno_uses = find_fn(ain, "キャラスキル_使用回数");
@@ -565,14 +545,15 @@ int rq_battle_install(struct ain *ain)
 	g_fno_lock = find_fn(ain, "キャラスキル_使用禁止");
 
 	if (f_select < 0 || f_key < 0 || f_exec < 0 || g_memb_rfsSkill < 0
-	    || g_memb_nTargetNo < 0 || g_fno_countDown < 0 || g_fno_iic < 0
-	    || g_fno_equip < 0 || g_fno_uses < 0 || g_fno_lock < 0) {
+	    || g_memb_nTargetNo < 0 || g_fno_getSkillIndex < 0
+	    || g_fno_getButtonID < 0 || g_fno_iic < 0 || g_fno_equip < 0
+	    || g_fno_uses < 0 || g_fno_uses_dec < 0 || g_fno_lock < 0) {
 		rq_log("battle: missing AIN (select=%d checkKey=%d exec=%d "
-		       "m_rfsSkill=%d m_nTargetNo=%d countDown=%d iic=%d "
-		       "equip=%d uses=%d lock=%d)",
+		       "m_rfsSkill=%d m_nTargetNo=%d getSkillIndex=%d "
+		       "getButtonID=%d iic=%d equip=%d uses=%d uses_dec=%d lock=%d)",
 		       f_select, f_key, f_exec, g_memb_rfsSkill, g_memb_nTargetNo,
-		       g_fno_countDown, g_fno_iic, g_fno_equip, g_fno_uses,
-		       g_fno_lock);
+		       g_fno_getSkillIndex, g_fno_getButtonID, g_fno_iic,
+		       g_fno_equip, g_fno_uses, g_fno_uses_dec, g_fno_lock);
 		return 0;
 	}
 	if (!wrap_select(ain, f_select) || !wrap_check_key(ain, f_key)
@@ -580,7 +561,7 @@ int rq_battle_install(struct ain *ain)
 		return 0;
 
 	g_on = 1;
-	rq_log("battle: ally select hooked (claim → pending execSkill; Space swallow)");
+	rq_log("battle: ally select hooked (prefer vanilla button; safe pending fallback)");
 	return 1;
 }
 
