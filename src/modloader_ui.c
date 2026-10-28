@@ -240,6 +240,7 @@ struct vault_state {
 	int stock_top;
 	int open_flag;
 	int donation_flag;
+	int sell_flag;
 	int inv_count;
 	int stock_num;
 };
@@ -952,7 +953,8 @@ static void add_status_json(cJSON *root)
 	cJSON_AddNumberToObject(st, "resist", g_status.resist);
 	cJSON_AddNumberToObject(st, "spd", g_status.spd);
 	eq = cJSON_AddObjectToObject(o, "equipment");
-	cJSON_AddNumberToObject(eq, "option", g_status.equip[0]);
+	cJSON_AddNumberToObject(eq, "special", g_status.equip[0]);
+	cJSON_AddNumberToObject(eq, "option", g_status.equip[0]); /* alias: Special slot */
 	cJSON_AddNumberToObject(eq, "weapon", g_status.equip[1]);
 	cJSON_AddNumberToObject(eq, "armor", g_status.equip[2]);
 	cJSON_AddNumberToObject(eq, "item", g_status.equip[3]);
@@ -1100,6 +1102,7 @@ static int sn_cb, sn_cbwrap, sn_hslider, sn_vslider, sn_text, sn_btnsp;
 static int sn_cfgmsg, sn_cfgsnd, sn_cfgwin, sn_cfg3d, sn_cfgcfm, sn_cfgetc, sn_cfgetc2;
 static int sn_town, sn_sysbar, sn_sysmenu, sn_mini, sn_sysinfo, sn_pstatus;
 static int sn_party, sn_status, sn_storeitem, sn_select, sn_storestock;
+static int sn_shop, sn_equipdrag;
 static int snos_ready;
 
 static void snos_init(void)
@@ -1141,6 +1144,8 @@ static void snos_init(void)
 	sn_storeitem = sn_get("T_StoreItem");
 	sn_select = sn_get("T_Select");
 	sn_storestock = sn_get("T_StoreStock");
+	sn_shop = sn_get("T_Shop");
+	sn_equipdrag = sn_get("T_EquipDrag");
 	snos_ready = 1;
 }
 
@@ -1454,6 +1459,7 @@ static int fill_title(struct page *title)
 static int gi_town = -2, gi_bar = -2, gi_menu = -2, gi_mini = -2, gi_info = -2, gi_world = -2;
 static int gi_party = -2, gi_status = -2, gi_chara = -2, gi_skill = -2;
 static int gi_storeitem = -2, gi_select = -2, gi_storestock = -2, gi_selectdata = -2;
+static int gi_shop = -2, gi_equipdrag = -2;
 
 static int memb(struct page *p, const char *name)
 {
@@ -2964,6 +2970,13 @@ static void vault_main_namer(int id, char *idbuf, int idn, char *label, int ln, 
 		snprintf(value, vn, "item-%d", idx);
 		return;
 	}
+	if (id >= 552001 && id < 552001 + VAULT_VISIBLE) {
+		idx = id - 552001;
+		snprintf(idbuf, idn, "sell-%d", idx);
+		snprintf(label, ln, "SELL");
+		snprintf(value, vn, "item-%d", idx);
+		return;
+	}
 	if (id >= 553001 && id < 553001 + VAULT_VISIBLE) {
 		idx = id - 553001;
 		snprintf(idbuf, idn, "lock-%d", idx);
@@ -3149,6 +3162,7 @@ static void add_vault_json(cJSON *root)
 	cJSON_AddNumberToObject(o, "stockTop", g_vstate.stock_top);
 	cJSON_AddBoolToObject(o, "openFlag", g_vstate.open_flag ? 1 : 0);
 	cJSON_AddBoolToObject(o, "donationFlag", g_vstate.donation_flag ? 1 : 0);
+	cJSON_AddBoolToObject(o, "sellFlag", g_vstate.sell_flag ? 1 : 0);
 	cJSON_AddNumberToObject(o, "invCount", g_vstate.inv_count);
 	cJSON_AddNumberToObject(o, "stockNum", g_vstate.stock_num);
 	if (g_has_vitems) {
@@ -3253,6 +3267,8 @@ static int fill_select(struct page *sel)
 	return 1;
 }
 
+static void emit_equip_drag_drops(void);
+
 static int fill_vault(struct page *store)
 {
 	struct page *list_mgr, *ilist, *limit_item, *limit_ex, *limit_job, *limit_equip, *limit_lock, *sort;
@@ -3289,6 +3305,7 @@ static int fill_vault(struct page *store)
 	g_vstate.sort_mode = fint(ilist, "m_nSortMode");
 	g_vstate.open_flag = open_flag;
 	g_vstate.donation_flag = fint(store, "m_bDonationFlag") ? 1 : 0;
+	g_vstate.sell_flag = fint(store, "m_bSellFlag") ? 1 : 0;
 	g_vstate.inv_count = fint(fpage(store, "m_sItemCount"), "m_nValue");
 	g_vstate.stock_num = fint(fpage(store, "m_sStockCount"), "m_nValue");
 
@@ -3316,13 +3333,14 @@ static int fill_vault(struct page *store)
 	emit_btn_group(fpage(limit_equip, "m_sButton"), "vault", vault_filter_namer);
 	emit_btn_group(fpage(limit_lock, "m_sButton"), "vault", vault_filter_namer);
 	emit_btn_group(fpage(sort, "m_sButton"), "vault", vault_filter_namer);
+	emit_equip_drag_drops();
 
 	/* Mark selected filters */
 	{
 		int i;
 		for (i = n0; i < g_nctrls; i++) {
 			struct ui_ctrl *c = &g_ctrls[i];
-			if (strcmp(c->section, "vault") != 0) continue;
+			if (strcmp(c->section, "vault") != 0 && strcmp(c->section, "equip-drag") != 0) continue;
 			if (c->value[0] && !strcmp(c->value, "selected")) {
 				c->has_select = 1;
 				c->selected = 1;
@@ -3336,7 +3354,85 @@ static int fill_vault(struct page *store)
 	}
 
 	if (g_nctrls == n0) return 0;
-	snprintf(g_screen, sizeof g_screen, "%s", (open_flag || g_has_vstock) ? "vault-storage" : "vault");
+	if (g_vstate.store_type == 3)
+		snprintf(g_screen, sizeof g_screen, "shop-buy");
+	else
+		snprintf(g_screen, sizeof g_screen, "%s",
+			(open_flag || g_has_vstock) ? "vault-storage" : "vault");
+	hover_from_rects();
+	return 1;
+}
+
+static void equip_drop_namer(int id, char *idbuf, int idn, char *label, int ln,
+		char *value, int vn, int *hover_only)
+{
+	*hover_only = 0;
+	value[0] = 0;
+	if (id == 549999) {
+		snprintf(idbuf, idn, "drop-vault");
+		snprintf(label, ln, "Vault");
+		return;
+	}
+	if (id >= 540001 && id <= 540005) {
+		int idx = id - 540001;
+		snprintf(idbuf, idn, "drop-%d", idx);
+		snprintf(label, ln, "Party slot %d", idx + 1);
+		return;
+	}
+	snprintf(idbuf, idn, "b%d", id);
+	snprintf(label, ln, "b%d", id);
+}
+
+static void emit_equip_drag_drops(void)
+{
+	struct page *drag, *equip;
+	drag = global_struct(&gi_equipdrag, "g_sEquipDrag", sn_equipdrag);
+	if (!drag)
+		return;
+	equip = fpage(drag, "m_sEquip");
+	if (!equip || !sprite_live(fpage(equip, "m_spBase")))
+		return;
+	emit_btn_group(fpage(equip, "m_sButton"), "equip-drag", equip_drop_namer);
+}
+
+static const char *shop_rack_name(int id, const char **label)
+{
+	switch (id) {
+	case 110001: *label = "SPECIAL RACK"; return "rack-special";
+	case 110002: *label = "WEAPON RACK"; return "rack-weapon";
+	case 110003: *label = "ARMOR RACK"; return "rack-armor";
+	case 110004: *label = "ITEMS AND OTHER RACK"; return "rack-items";
+	default: *label = NULL; return NULL;
+	}
+}
+
+static const char *shop_btn_name(int id, const char **label)
+{
+	const char *t = town_name(id, label);
+	if (t) return t;
+	t = bar_name(id, label);
+	if (t) return t;
+	return shop_rack_name(id, label);
+}
+
+static int fill_shop(struct page *shop)
+{
+	struct page *bar = global_struct(&gi_bar, "g_sSystemBar", sn_sysbar);
+	struct page *mini = global_struct(&gi_mini, "g_sMiniStatus", sn_mini);
+	struct page *info = global_struct(&gi_info, "g_sSystemInfo", sn_sysinfo);
+	int n0 = g_nctrls;
+	if (!shop || !sprite_live(fpage(shop, "m_spBase")))
+		return 0;
+	emit_group(fpage(shop, "m_sButton"), "frostbuy", shop_btn_name);
+	if (mini && sprite_live(fpage(mini, "m_spBase")))
+		emit_party(mini);
+	if (bar && sprite_live(fpage(bar, "m_spBase")))
+		emit_group(fpage(bar, "m_sButton"), "system-bar", bar_name);
+	if (info)
+		emit_info(info, bar);
+	if (g_nctrls == n0)
+		return 0;
+	snprintf(g_screen, sizeof g_screen, "frostbuy");
 	hover_from_rects();
 	return 1;
 }
@@ -3709,6 +3805,15 @@ static void fill_status_from_chara(int chara)
 
 static const char *status_btn_name(int id, const char **label)
 {
+	static const char *equip_ids[] = {
+		"equip-special", "equip-weapon", "equip-armor", "equip-item"
+	};
+	static const char *equip_labs[] = {
+		"Special", "Weapon", "Armor", "Item"
+	};
+	static const char *remove_ids[] = {
+		"remove-special", "remove-weapon", "remove-armor", "remove-item"
+	};
 	*label = NULL;
 	switch (id) {
 	case 100002: *label = "Skills"; return "skills";
@@ -3717,8 +3822,37 @@ static const char *status_btn_name(int id, const char **label)
 	case 100012: *label = "Load profile"; return "load-profile";
 	case 100013: *label = "Clear profile"; return "clear-profile";
 	default:
-		return NULL;
+		break;
 	}
+	if (id >= 130001 && id <= 130004) {
+		int i = id - 130001;
+		*label = equip_labs[i];
+		return equip_ids[i];
+	}
+	if (id >= 139001 && id <= 139004) {
+		int i = id - 139001;
+		*label = "REMOVE";
+		return remove_ids[i];
+	}
+	return NULL;
+}
+
+static void status_equip_namer(int id, char *idbuf, int idn, char *label, int ln,
+		char *value, int vn, int *hover_only)
+{
+	const char *lab = NULL;
+	const char *name = status_btn_name(id, &lab);
+	*hover_only = 0;
+	value[0] = 0;
+	if (!name) {
+		snprintf(idbuf, idn, "b%d", id);
+		snprintf(label, ln, "b%d", id);
+		return;
+	}
+	snprintf(idbuf, idn, "%s", name);
+	snprintf(label, ln, "%s", lab ? lab : name);
+	if (id >= 139001 && id <= 139004)
+		*hover_only = 1;
 }
 
 static int fill_status(struct page *st)
@@ -3781,13 +3915,19 @@ static int fill_status(struct page *st)
 		for (i = 0; i < items->nr_vars && i < 4; i++) {
 			struct page *it = arr_at(items, i);
 			g_status.equip[i] = fint(it, "m_nItemNo");
+			if (g_status.equip[i] < 0)
+				g_status.equip[i] = 0;
 		}
 	}
 
 	fill_status_skills(card);
 	fill_status_from_chara(chara);
+	for (i = 0; i < 4; i++) {
+		if (g_status.equip[i] < 0)
+			g_status.equip[i] = 0;
+	}
 
-	emit_group(fpage(st, "m_sButton"), "status", status_btn_name);
+	emit_btn_group(fpage(st, "m_sButton"), "status", status_equip_namer);
 	if (g_nctrls == n0 && !g_status.name[0] && chara <= 0)
 		return 0;
 	snprintf(g_screen, sizeof g_screen, "status");
@@ -3849,6 +3989,11 @@ static int vm_fill(void)
 	if (menu && fint(menu, "m_nMode") > 0 && sprite_shown(fpage(menu, "m_spBase"))
 			&& fill_system_menu(menu))
 		return 1;
+	{
+		struct page *shop = global_struct(&gi_shop, "g_sShop", sn_shop);
+		if (shop && fill_shop(shop))
+			return 1;
+	}
 	if (title && !stack_has(U8_WARN))
 		return fill_title(title);
 	town = global_struct(&gi_town, "g_sTown", sn_town);
@@ -4258,11 +4403,13 @@ static int ctrl_xy(const char *id, int *cx, int *cy)
 }
 
 /* Hold-drag from one control onto another. Magnum party swap/remove
- * listens while LBUTTON stays down across presented frames. */
+ * and Frostbuy buy (equip-drag drop list) listen while LBUTTON stays
+ * down across presented frames. DST may appear only after the hold
+ * starts (shop buy → drop-vault), so resolve it again after press. */
 int rq_ui_cmd_drag(const char *src, const char *dst, char *err, int errsz)
 {
 	long long start;
-	int sx, sy, dx, dy, step, ok;
+	int sx, sy, dx, dy, step, ok, wait_i;
 	unsigned long long t0;
 
 	if (!src || !*src || !dst || !*dst) {
@@ -4282,11 +4429,14 @@ int rq_ui_cmd_drag(const char *src, const char *dst, char *err, int errsz)
 	}
 	if (!rq_ui_cmd_hover(src, err, errsz))
 		return 0;
-	if (!ctrl_xy(src, &sx, &sy) || !ctrl_xy(dst, &dx, &dy)) {
+	if (!ctrl_xy(src, &sx, &sy)) {
 		if (err)
 			snprintf(err, errsz, "unknown-control");
 		return 0;
 	}
+	dx = sx;
+	dy = sy;
+	ctrl_xy(dst, &dx, &dy);
 
 	wants(1);
 	key_set_state(VK_LBUTTON, 0);
@@ -4296,6 +4446,25 @@ int rq_ui_cmd_drag(const char *src, const char *dst, char *err, int errsz)
 		key_set_state(VK_LBUTTON, 1);
 		start = rd_ll(&g_present_gen);
 		ok = wait_frames_or_dialog(start, PRESS_FRAMES, FRAME_MS);
+	}
+	/* Shop buy creates the left drop list only after hold; wait for DST. */
+	if (ok && !ctrl_xy(dst, &dx, &dy)) {
+		for (wait_i = 0; wait_i < 45; wait_i++) {
+			start = rd_ll(&g_present_gen);
+			if (!wait_frames_or_dialog(start, 1, FRAME_MS)) {
+				ok = 0;
+				break;
+			}
+			if (ctrl_xy(dst, &dx, &dy))
+				break;
+		}
+		if (ok && !ctrl_xy(dst, &dx, &dy)) {
+			key_set_state(VK_LBUTTON, 0);
+			wants(0);
+			if (err)
+				snprintf(err, errsz, "unknown-control");
+			return 0;
+		}
 	}
 	if (ok) {
 		for (step = 1; step <= 8; step++) {
@@ -4319,7 +4488,7 @@ int rq_ui_cmd_drag(const char *src, const char *dst, char *err, int errsz)
 		start = rd_ll(&g_present_gen);
 		ok = wait_frames_or_dialog(start, PRESS_FRAMES, FRAME_MS);
 	}
-	/* Give the party drag callback a moment to settle. */
+	/* Give the party / shop drag callback a moment to settle. */
 	t0 = GetTickCount64();
 	while (GetTickCount64() - t0 < 200)
 		Sleep(10);
