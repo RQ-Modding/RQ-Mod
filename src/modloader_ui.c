@@ -214,6 +214,44 @@ static int g_has_units;
 static struct party_state g_pstate;
 static struct status_dump g_status;
 
+#define VAULT_ITEM_MAX 256
+#define VAULT_VISIBLE 6
+
+struct vault_item {
+	int index;
+	int item_no;
+	int locked;
+	int visible;
+	char name[80];
+};
+
+struct vault_state {
+	int ok;
+	int store_type;
+	int item_type;
+	int item_type_ex;
+	int job_type;
+	int equip_type;
+	int lock_type;
+	int sort_mode;
+	int top_index;
+	int list_count;
+	int stock_count;
+	int stock_top;
+	int open_flag;
+	int donation_flag;
+	int inv_count;
+	int stock_num;
+};
+
+static struct vault_item g_vitems[VAULT_ITEM_MAX];
+static int g_nvitems;
+static int g_has_vitems;
+static struct vault_item g_vstock[VAULT_ITEM_MAX];
+static int g_nvstock;
+static int g_has_vstock;
+static struct vault_state g_vstate;
+
 struct sp_note {
 	int sp;
 	char utf[NOTE_LEN];
@@ -776,7 +814,7 @@ static void classify(void)
 	}
 }
 
-/* Ｃ職業文字列(ii, 0) */
+/* ï¼£è·æ¥­æ–‡å­—åˆ—(ii, 0) */
 static const char *job_name(int job)
 {
 	static const char *names[] = {
@@ -878,6 +916,8 @@ static void add_skill_array(cJSON *parent, const char *key, struct skill_row *ro
 	}
 }
 
+static void add_vault_json(cJSON *root);
+
 static void add_status_json(cJSON *root)
 {
 	cJSON *o, *eq, *st;
@@ -977,6 +1017,8 @@ static void build_json(char *dst, int dstsz)
 		add_party_state_json(root);
 	if (g_status.ok)
 		add_status_json(root);
+	if (g_vstate.ok)
+		add_vault_json(root);
 	if (g_info.ok)
 		add_info_json(root);
 	printed = cJSON_PrintUnformatted(root);
@@ -1057,7 +1099,7 @@ static int sn_volume, sn_debug, sn_tabview, sn_tabbtn, sn_exit;
 static int sn_cb, sn_cbwrap, sn_hslider, sn_vslider, sn_text, sn_btnsp;
 static int sn_cfgmsg, sn_cfgsnd, sn_cfgwin, sn_cfg3d, sn_cfgcfm, sn_cfgetc, sn_cfgetc2;
 static int sn_town, sn_sysbar, sn_sysmenu, sn_mini, sn_sysinfo, sn_pstatus;
-static int sn_party, sn_status;
+static int sn_party, sn_status, sn_storeitem, sn_select, sn_storestock;
 static int snos_ready;
 
 static void snos_init(void)
@@ -1096,6 +1138,9 @@ static void snos_init(void)
 	sn_pstatus = sn_get("T_PartyStatus");
 	sn_party = sn_get("T_Party");
 	sn_status = sn_get("T_Status");
+	sn_storeitem = sn_get("T_StoreItem");
+	sn_select = sn_get("T_Select");
+	sn_storestock = sn_get("T_StoreStock");
 	snos_ready = 1;
 }
 
@@ -1408,6 +1453,7 @@ static int fill_title(struct page *title)
 
 static int gi_town = -2, gi_bar = -2, gi_menu = -2, gi_mini = -2, gi_info = -2, gi_world = -2;
 static int gi_party = -2, gi_status = -2, gi_chara = -2, gi_skill = -2;
+static int gi_storeitem = -2, gi_select = -2, gi_storestock = -2, gi_selectdata = -2;
 
 static int memb(struct page *p, const char *name)
 {
@@ -1731,7 +1777,7 @@ static void emit_party(struct page *mini)
 			c = emit_tbtn(btn, i, id, label, "party");
 			if (!c || !r)
 				continue;
-			/* ミニステータス_位置Ｙ: front row 592, back row 613 */
+			/* ãƒŸãƒ‹ã‚¹ãƒ†ãƒ¼ã‚¿ã‚¹_ä½ç½®ï¼¹: front row 592, back row 613 */
 			r->back_row = c->y >= 605;
 			if (r->no_limit)
 				snprintf(c->value, sizeof c->value, "%s Lv %d (no limit)",
@@ -2313,7 +2359,7 @@ static const char *cfg_check_label(int panel, int index)
 		}
 	}
 	if (panel == CFG_CONFIRM) {
-		/* Mark is shown when 確認なし(dialog) is false: the game still asks.
+		/* Mark is shown when ç¢ºèªãªã—(dialog) is false: the game still asks.
 		   Dialog ids are T_ConfigConfirm@getDialogID switch 757, index order. */
 		static const int dialog_ids[] = {
 			1, 2, 10, 11, 12, 13, 14, 31, 20, 21, 22, 30, 32, 40, 15
@@ -2604,7 +2650,7 @@ static int cfg_kind(int index)
 	return CFG_NONE;
 }
 
-/* Fullwidth Ｃ / Ｓ globals hold character and skill master data. */
+/* Fullwidth ï¼£ / ï¼³ globals hold character and skill master data. */
 #define U8_CHARA_ARR "\xEF\xBC\xA3"
 #define U8_SKILL_ARR "\xEF\xBC\xB3"
 
@@ -2640,7 +2686,7 @@ static void skill_name(int id, char *dst, int n)
 	dst[0] = 0;
 	sk = skill_def_page(id);
 	if (sk)
-		fstr_utf(sk, "\xE5\x90\x8D\xE5\x89\x8D", dst, n); /* 名前 */
+		fstr_utf(sk, "\xE5\x90\x8D\xE5\x89\x8D", dst, n); /* åå‰ */
 	if (!dst[0])
 		snprintf(dst, n, "skill-%d", id);
 }
@@ -2658,9 +2704,9 @@ static void read_unit_from_chara(struct unit_row *r, int chara)
 	if (!c)
 		return;
 	fstr_utf(c, "\xE5\x90\x8D\xE5\x89\x8D", r->name, (int)sizeof r->name);
-	r->job = fint_utf(c, "\xE8\x81\xB7\xE6\xA5\xAD"); /* 職業 */
-	r->level = fint_utf(c, "\xEF\xBC\xAC\xEF\xBC\xB6"); /* ＬＶ */
-	lv_max = fint_utf(c, "\xEF\xBC\xAC\xEF\xBC\xB6\xE6\x9C\x80\xE5\xA4\xA7"); /* ＬＶ最大 */
+	r->job = fint_utf(c, "\xE8\x81\xB7\xE6\xA5\xAD"); /* è·æ¥­ */
+	r->level = fint_utf(c, "\xEF\xBC\xAC\xEF\xBC\xB6"); /* ï¼¬ï¼¶ */
+	lv_max = fint_utf(c, "\xEF\xBC\xAC\xEF\xBC\xB6\xE6\x9C\x80\xE5\xA4\xA7"); /* ï¼¬ï¼¶æœ€å¤§ */
 	r->level_max = lv_max;
 	r->no_limit = (lv_max == 2147483647) ? 1 : 0;
 }
@@ -2738,6 +2784,563 @@ static void emit_named_btn(struct page *btn, int index, const char *id, const ch
 	if (hover_only)
 		c->hover_only = 1;
 }
+
+/* --- vault helpers (T_StoreItem / T_Select / T_StoreStock) --- */
+static const char *vault_sort_name(int mode)
+{
+	switch (mode) {
+	case 1: case 11: return "Attack";
+	case 12: return "Magic";
+	case 13: return "Accuracy";
+	case 14: return "Critical";
+	case 15: return "Stun";
+	case 16: return "Speed";
+	case 17: return "Defense";
+	case 18: return "Resistance";
+	case 19: return "Evasion";
+	case 20: return "Resilience";
+	case 21: return "HP";
+	case 22: return "Fire Damage Reduction";
+	case 23: return "Ice Damage Reduction";
+	case 24: return "Electric Damage Reduction";
+	case 25: return "Light Damage Reduction";
+	case 26: return "Darkness Damage Reduction";
+	case 27: return "Low Enhancement Rank";
+	case 28: return "High Enhancement Rank";
+	default: return "Default Sort";
+	}
+}
+
+static const char *vault_item_type_name(int t)
+{
+	switch (t) {
+	case 21: return "Special";
+	case 1: return "Weapon";
+	case 11: return "Armor";
+	case 17: return "Item Other";
+	default: return NULL;
+	}
+}
+
+static const char *vault_rank_name(int ex)
+{
+	switch (ex) {
+	case 1: return "Rank C";
+	case 2: return "Rank B";
+	case 3: return "Rank A";
+	case 4: return "Rank S";
+	case 5: return "Others";
+	default: return NULL;
+	}
+}
+
+static const char *vault_weapon_ex_name(int ex)
+{
+	switch (ex) {
+	case 1: return "Dagger";
+	case 2: return "Sword";
+	case 3: return "Hammer";
+	case 4: return "Spear";
+	case 5: return "Bow";
+	case 6: return "Glove";
+	case 7: return "Staff";
+	case 8: return "Other";
+	default: return NULL;
+	}
+}
+
+static const char *vault_armor_ex_name(int ex)
+{
+	switch (ex) {
+	case 1: return "Leather";
+	case 2: return "Plate";
+	case 3: return "Cloth";
+	case 4: return "Gi";
+	case 5: return "Other";
+	default: return NULL;
+	}
+}
+
+static void slugify(const char *src, char *dst, int n)
+{
+	int i = 0, j = 0;
+	if (!src || n <= 0) { if (n > 0) dst[0] = 0; return; }
+	while (src[i] && j < n - 1) {
+		unsigned char c = (unsigned char)src[i++];
+		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))
+			dst[j++] = (char)tolower(c);
+		else if (c == ' ' || c == '-' || c == '_' || c == '/')
+			if (j && dst[j - 1] != '-') dst[j++] = '-';
+	}
+	while (j > 0 && dst[j - 1] == '-') j--;
+	dst[j] = 0;
+	if (!dst[0]) snprintf(dst, n, "opt");
+}
+
+static void read_store_list_items(struct page *mgr, struct vault_item *dst, int *ndst, int max, int *top_out, int *count_out)
+{
+	struct page *ilist, *ids, *as_item;
+	int i, top, count;
+	*ndst = 0;
+	if (top_out) *top_out = 0;
+	if (count_out) *count_out = 0;
+	if (!mgr) return;
+	ilist = fpage(mgr, "m_sList");
+	top = fint(mgr, "m_nTopIndex");
+	ids = fpage(ilist, "m_anItemNo");
+	count = ids && ids->type == ARRAY_PAGE ? ids->nr_vars : 0;
+	if (top_out) *top_out = top;
+	if (count_out) *count_out = count;
+	for (i = 0; i < count && *ndst < max; i++) {
+		struct vault_item *r = &dst[(*ndst)++];
+		memset(r, 0, sizeof *r);
+		r->index = i;
+		r->item_no = ids->values[i].i;
+		r->visible = (i >= top && i < top + VAULT_VISIBLE);
+	}
+	as_item = fpage(mgr, "m_asItem");
+	if (as_item && as_item->type == ARRAY_PAGE) {
+		for (i = 0; i < as_item->nr_vars; i++) {
+			struct page *row = arr_at(as_item, i);
+			struct vault_item *r;
+			int list_i = top + i;
+			char name[80];
+			if (!row || list_i < 0 || list_i >= *ndst) continue;
+			r = &dst[list_i];
+			name[0] = 0;
+			fstr(fpage(row, "m_sName"), "m_szText", name, (int)sizeof name);
+			if (name[0]) snprintf(r->name, sizeof r->name, "%s", name);
+			r->locked = fint(row, "m_bLock") ? 1 : 0;
+			r->visible = 1;
+			if (!r->item_no) {
+				struct page *icon = fpage(row, "m_sIcon");
+				if (icon) r->item_no = fint(icon, "m_nItemNo");
+			}
+		}
+	}
+}
+
+static void emit_btn_group(struct page *group, const char *section,
+		void (*namer)(int id, char *idbuf, int idn, char *label, int ln, char *value, int vn, int *hover_only))
+{
+	struct page *arr;
+	int i;
+	if (!group) return;
+	arr = fpage(group, "m_asButton");
+	if (!arr || arr->type != ARRAY_PAGE) return;
+	for (i = 0; i < arr->nr_vars; i++) {
+		struct page *btn = arr_at(arr, i);
+		struct tbtn b;
+		char id[40], label[80], value[80];
+		int hover_only = 0;
+		if (!tbtn_read(btn, &b) || !b.show) continue;
+		id[0] = label[0] = value[0] = 0;
+		if (namer) namer(b.id, id, (int)sizeof id, label, (int)sizeof label, value, (int)sizeof value, &hover_only);
+		if (!id[0]) snprintf(id, sizeof id, "b%d", b.id);
+		if (!label[0]) snprintf(label, sizeof label, "%s", id);
+		emit_named_btn(btn, i, id, label, section, value, hover_only);
+	}
+}
+
+static void vault_main_namer(int id, char *idbuf, int idn, char *label, int ln, char *value, int vn, int *hover_only)
+{
+	int idx;
+	*hover_only = 0;
+	value[0] = 0;
+	if (id == 509991) { snprintf(idbuf, idn, "storage"); snprintf(label, ln, "STORAGE"); return; }
+	if (id == 509999) { snprintf(idbuf, idn, "close"); snprintf(label, ln, "Close"); return; }
+	if (id >= 500001 && id < 500001 + VAULT_VISIBLE) {
+		idx = id - 500001;
+		snprintf(idbuf, idn, "item-%d", idx);
+		if (g_vstate.top_index + idx < g_nvitems && g_vitems[g_vstate.top_index + idx].name[0])
+			snprintf(label, ln, "%s", g_vitems[g_vstate.top_index + idx].name);
+		else snprintf(label, ln, "item %d", idx);
+		return;
+	}
+	if (id >= 551001 && id < 551001 + VAULT_VISIBLE) {
+		idx = id - 551001;
+		snprintf(idbuf, idn, "donate-%d", idx);
+		snprintf(label, ln, "DONATE");
+		snprintf(value, vn, "item-%d", idx);
+		return;
+	}
+	if (id >= 553001 && id < 553001 + VAULT_VISIBLE) {
+		idx = id - 553001;
+		snprintf(idbuf, idn, "lock-%d", idx);
+		snprintf(label, ln, "Lock");
+		snprintf(value, vn, "item-%d", idx);
+		*hover_only = 1;
+		return;
+	}
+	if (id >= 554001 && id < 554001 + VAULT_VISIBLE) {
+		idx = id - 554001;
+		snprintf(idbuf, idn, "unlock-%d", idx);
+		snprintf(label, ln, "Unlock");
+		snprintf(value, vn, "item-%d", idx);
+		*hover_only = 1;
+		return;
+	}
+	if (id >= 555001 && id < 555001 + VAULT_VISIBLE) {
+		idx = id - 555001;
+		snprintf(idbuf, idn, "item-status-%d", idx);
+		snprintf(label, ln, "Status");
+		snprintf(value, vn, "item-%d", idx);
+		*hover_only = 1;
+		return;
+	}
+	if (id >= 580000 && id < 581000) {
+		int off = id - 580000;
+		if (off == 1) { snprintf(idbuf, idn, "scroll-up"); snprintf(label, ln, "Scroll up"); return; }
+		if (off == 2) { snprintf(idbuf, idn, "scroll-down"); snprintf(label, ln, "Scroll down"); return; }
+		snprintf(idbuf, idn, "scroll-%d", off);
+		snprintf(label, ln, "Scroll %d", off);
+		return;
+	}
+	snprintf(idbuf, idn, "b%d", id);
+	snprintf(label, ln, "b%d", id);
+}
+
+static void vault_filter_namer(int id, char *idbuf, int idn, char *label, int ln, char *value, int vn, int *hover_only)
+{
+	static const char *jobs[] = {
+		"filter-fighter", "filter-guard", "filter-gunner", "filter-sorcerer",
+		"filter-healer", "filter-ranger", "filter-brawler", "filter-civilian"
+	};
+	*hover_only = 0;
+	value[0] = 0;
+	/* LimitItem registers buttons as base(571000) + itemType, not index. */
+	if (id == 571021 || id == 571001 || id == 571011 || id == 571017) {
+		int typ = id - 571000;
+		const char *name = "filter-item-other";
+		const char *lab = "Item Other";
+		if (typ == 21) { name = "filter-special"; lab = "Special"; }
+		else if (typ == 1) { name = "filter-weapon"; lab = "Weapon"; }
+		else if (typ == 11) { name = "filter-armor"; lab = "Armor"; }
+		snprintf(idbuf, idn, "%s", name);
+		snprintf(label, ln, "%s", lab);
+		if (g_vstate.item_type == typ)
+			snprintf(value, vn, "selected");
+		return;
+	}
+	if (id >= 572001 && id <= 572008) {
+		int j = id - 572000;
+		snprintf(idbuf, idn, "%s", jobs[j - 1]);
+		snprintf(label, ln, "%s", job_name(j));
+		if (g_vstate.job_type == j) snprintf(value, vn, "selected");
+		return;
+	}
+	if (id >= 573001 && id <= 573008) {
+		int ex = id - 573000;
+		snprintf(idbuf, idn, "equip-%d", ex);
+		snprintf(label, ln, "Equip %d", ex);
+		if (g_vstate.equip_type == ex) snprintf(value, vn, "selected");
+		return;
+	}
+	if (id >= 574001 && id <= 574020) {
+		int ex = id - 574000;
+		const char *lab = NULL;
+		if (g_vstate.item_type == 21) {
+			lab = vault_rank_name(ex);
+			if (lab) {
+				if (ex == 1) snprintf(idbuf, idn, "rank-c");
+				else if (ex == 2) snprintf(idbuf, idn, "rank-b");
+				else if (ex == 3) snprintf(idbuf, idn, "rank-a");
+				else if (ex == 4) snprintf(idbuf, idn, "rank-s");
+				else if (ex == 5) snprintf(idbuf, idn, "rank-others");
+				else snprintf(idbuf, idn, "sub-%d", ex);
+			}
+		} else if (g_vstate.item_type == 1) {
+			lab = vault_weapon_ex_name(ex);
+			if (lab) {
+				if (ex == 5) snprintf(idbuf, idn, "weapon-bow");
+				else {
+					char slug[40];
+					slugify(lab, slug, (int)sizeof slug);
+					snprintf(idbuf, idn, "weapon-%s", slug);
+				}
+			}
+		} else if (g_vstate.item_type == 11) {
+			lab = vault_armor_ex_name(ex);
+			if (lab) {
+				if (ex == 2) snprintf(idbuf, idn, "armor-plate");
+				else {
+					char slug[40];
+					slugify(lab, slug, (int)sizeof slug);
+					snprintf(idbuf, idn, "armor-%s", slug);
+				}
+			}
+		}
+		if (!idbuf[0]) snprintf(idbuf, idn, "sub-%d", ex);
+		if (lab) snprintf(label, ln, "%s", lab);
+		else snprintf(label, ln, "Sub %d", ex);
+		if (g_vstate.item_type_ex == ex) snprintf(value, vn, "selected");
+		return;
+	}
+	if (id >= 575001 && id <= 575002) {
+		int t = id - 575000;
+		snprintf(idbuf, idn, "%s", t == 1 ? "filter-locked" : "filter-unlocked");
+		snprintf(label, ln, "%s", t == 1 ? "Locked" : "Unlocked");
+		if (g_vstate.lock_type == t) snprintf(value, vn, "selected");
+		return;
+	}
+	if (id >= 560001 && id <= 560020) {
+		int off = id - 560000;
+		if (off == 1) {
+			snprintf(idbuf, idn, "sort-default");
+			snprintf(label, ln, "Default Sort");
+			if (g_vstate.sort_mode <= 1) snprintf(value, vn, "selected");
+		} else if (off == 2) {
+			snprintf(idbuf, idn, "sort-current");
+			snprintf(label, ln, "%s", vault_sort_name(g_vstate.sort_mode));
+			if (g_vstate.sort_mode >= 11) snprintf(value, vn, "selected");
+		} else {
+			snprintf(idbuf, idn, "sort-%d", off);
+			snprintf(label, ln, "Sort %d", off);
+		}
+		return;
+	}
+	snprintf(idbuf, idn, "b%d", id);
+	snprintf(label, ln, "b%d", id);
+}
+
+static void stock_namer(int id, char *idbuf, int idn, char *label, int ln, char *value, int vn, int *hover_only)
+{
+	int idx;
+	*hover_only = 0;
+	value[0] = 0;
+	if (id == 590999) { snprintf(idbuf, idn, "stock-close"); snprintf(label, ln, "Close"); return; }
+	if (id >= 590001 && id < 590001 + VAULT_VISIBLE) {
+		idx = id - 590001;
+		snprintf(idbuf, idn, "stock-%d", idx);
+		if (g_vstate.stock_top + idx < g_nvstock && g_vstock[g_vstate.stock_top + idx].name[0])
+			snprintf(label, ln, "%s", g_vstock[g_vstate.stock_top + idx].name);
+		else snprintf(label, ln, "stock %d", idx);
+		return;
+	}
+	if (id >= 593000 && id < 594000) {
+		int off = id - 593000;
+		if (off == 1) { snprintf(idbuf, idn, "stock-scroll-up"); snprintf(label, ln, "Scroll up"); return; }
+		if (off == 2) { snprintf(idbuf, idn, "stock-scroll-down"); snprintf(label, ln, "Scroll down"); return; }
+		snprintf(idbuf, idn, "stock-scroll-%d", off);
+		snprintf(label, ln, "Scroll %d", off);
+		return;
+	}
+	snprintf(idbuf, idn, "b%d", id);
+	snprintf(label, ln, "b%d", id);
+}
+
+static void add_vault_json(cJSON *root)
+{
+	cJSON *o, *arr;
+	int i;
+	if (!g_vstate.ok) return;
+	o = cJSON_AddObjectToObject(root, "vaultState");
+	cJSON_AddNumberToObject(o, "storeType", g_vstate.store_type);
+	cJSON_AddNumberToObject(o, "itemType", g_vstate.item_type);
+	cJSON_AddNumberToObject(o, "itemTypeEx", g_vstate.item_type_ex);
+	cJSON_AddNumberToObject(o, "jobType", g_vstate.job_type);
+	cJSON_AddNumberToObject(o, "equipType", g_vstate.equip_type);
+	cJSON_AddNumberToObject(o, "lockType", g_vstate.lock_type);
+	cJSON_AddNumberToObject(o, "sortMode", g_vstate.sort_mode);
+	cJSON_AddStringToObject(o, "sortName", vault_sort_name(g_vstate.sort_mode));
+	cJSON_AddNumberToObject(o, "topIndex", g_vstate.top_index);
+	cJSON_AddNumberToObject(o, "listCount", g_vstate.list_count);
+	cJSON_AddNumberToObject(o, "stockCount", g_vstate.stock_count);
+	cJSON_AddNumberToObject(o, "stockTop", g_vstate.stock_top);
+	cJSON_AddBoolToObject(o, "openFlag", g_vstate.open_flag ? 1 : 0);
+	cJSON_AddBoolToObject(o, "donationFlag", g_vstate.donation_flag ? 1 : 0);
+	cJSON_AddNumberToObject(o, "invCount", g_vstate.inv_count);
+	cJSON_AddNumberToObject(o, "stockNum", g_vstate.stock_num);
+	if (g_has_vitems) {
+		arr = cJSON_AddArrayToObject(root, "items");
+		for (i = 0; i < g_nvitems; i++) {
+			struct vault_item *r = &g_vitems[i];
+			cJSON *it = cJSON_CreateObject();
+			cJSON_AddNumberToObject(it, "index", r->index);
+			cJSON_AddNumberToObject(it, "itemNo", r->item_no);
+			cJSON_AddStringToObject(it, "name", r->name);
+			cJSON_AddBoolToObject(it, "locked", r->locked ? 1 : 0);
+			cJSON_AddBoolToObject(it, "visible", r->visible ? 1 : 0);
+			cJSON_AddItemToArray(arr, it);
+		}
+	}
+	if (g_has_vstock) {
+		arr = cJSON_AddArrayToObject(root, "stock");
+		for (i = 0; i < g_nvstock; i++) {
+			struct vault_item *r = &g_vstock[i];
+			cJSON *it = cJSON_CreateObject();
+			cJSON_AddNumberToObject(it, "index", r->index);
+			cJSON_AddNumberToObject(it, "itemNo", r->item_no);
+			cJSON_AddStringToObject(it, "name", r->name);
+			cJSON_AddBoolToObject(it, "locked", r->locked ? 1 : 0);
+			cJSON_AddBoolToObject(it, "visible", r->visible ? 1 : 0);
+			cJSON_AddItemToArray(arr, it);
+		}
+	}
+}
+
+static int fill_select(struct page *sel)
+{
+	struct page *btns, *arr, *data_mgr, *datas;
+	int i, n0 = g_nctrls;
+	if (!sel || !sprite_live(fpage(sel, "m_spBase")))
+		return 0;
+	data_mgr = global_struct(&gi_selectdata, "g_sSelectData", -1);
+	datas = data_mgr ? fpage(data_mgr, "m_asData") : NULL;
+	btns = fpage(sel, "m_sButton");
+	arr = fpage(btns, "m_asButton");
+	if (arr && arr->type == ARRAY_PAGE) {
+		for (i = 0; i < arr->nr_vars; i++) {
+			struct page *btn = arr_at(arr, i);
+			struct tbtn b;
+			char id[40], label[80], value[40];
+			int bid, di;
+			if (!tbtn_read(btn, &b) || !b.show) continue;
+			bid = b.id;
+			label[0] = 0;
+			value[0] = 0;
+			if (datas && datas->type == ARRAY_PAGE) {
+				for (di = 0; di < datas->nr_vars; di++) {
+					struct page *d = arr_at(datas, di);
+					if (d && fint(d, "m_nID") == bid) {
+						fstr(d, "m_szText", label, (int)sizeof label);
+						break;
+					}
+				}
+			}
+			if (!label[0]) {
+				if (bid == 1) snprintf(label, sizeof label, "Yes");
+				else if (bid == 2) snprintf(label, sizeof label, "No");
+				else if (bid == 999) snprintf(label, sizeof label, "Return");
+				else if ((bid == 11 || bid == 12))
+					snprintf(label, sizeof label, "DON'T ASK AGAIN");
+				else if (bid >= 11 && bid <= 28)
+					snprintf(label, sizeof label, "%s", vault_sort_name(bid));
+				else
+					snprintf(label, sizeof label, "option-%d", bid);
+			}
+			/* Donate confirm: 1/2 = Yes/No; empty 11/12 = don't-ask checkbox.
+			 * Sort popup: 11=Attack .. 28=..., 999=Return (labels filled). */
+			if (bid == 1)
+				snprintf(id, sizeof id, "yes");
+			else if (bid == 2)
+				snprintf(id, sizeof id, "no");
+			else if (bid == 999)
+				snprintf(id, sizeof id, "return");
+			else if (strstr(label, "ASK") || strstr(label, "Ask")
+					|| ((bid == 11 || bid == 12) && !strcmp(label, "DON'T ASK AGAIN")))
+				snprintf(id, sizeof id, "dont-ask");
+			else if (bid == 12)
+				snprintf(id, sizeof id, "magic");
+			else if (bid == 11)
+				snprintf(id, sizeof id, "attack");
+			else if (bid >= 13 && bid <= 28) {
+				char slug[40];
+				slugify(label, slug, (int)sizeof slug);
+				snprintf(id, sizeof id, "sort-%s", slug);
+			} else {
+				char slug[40];
+				slugify(label, slug, (int)sizeof slug);
+				snprintf(id, sizeof id, "select-%s", slug);
+			}
+			snprintf(value, sizeof value, "%d", bid);
+			emit_named_btn(btn, i, id, label, "select", value, 0);
+		}
+	}
+	if (g_nctrls == n0) return 0;
+	snprintf(g_screen, sizeof g_screen, "select");
+	hover_from_rects();
+	return 1;
+}
+
+static int fill_vault(struct page *store)
+{
+	struct page *list_mgr, *ilist, *limit_item, *limit_ex, *limit_job, *limit_equip, *limit_lock, *sort;
+	struct page *stock;
+	int n0 = g_nctrls;
+	int open_flag;
+
+	if (!store || !sprite_live(fpage(fpage(store, "m_sList"), "m_spBase")))
+		return 0;
+
+	list_mgr = fpage(store, "m_sList");
+	ilist = fpage(list_mgr, "m_sList");
+	limit_item = fpage(store, "m_sLimitItem");
+	limit_ex = fpage(store, "m_sLimitItemEx");
+	limit_job = fpage(store, "m_sLimitJob");
+	limit_equip = fpage(store, "m_sLimitEquip");
+	limit_lock = fpage(store, "m_sLimitLock");
+	sort = fpage(store, "m_sSort");
+	open_flag = fint(store, "m_bOpenFlag") ? 1 : 0;
+
+	memset(&g_vstate, 0, sizeof g_vstate);
+	g_vstate.ok = 1;
+	g_vstate.store_type = fint(store, "m_nStoreType");
+	g_vstate.item_type = fint(ilist, "m_nItemType");
+	if (!g_vstate.item_type) g_vstate.item_type = fint(limit_item, "m_nItemType");
+	g_vstate.item_type_ex = fint(ilist, "m_nItemTypeEx");
+	if (!g_vstate.item_type_ex) g_vstate.item_type_ex = fint(limit_ex, "m_nItemTypeEx");
+	g_vstate.job_type = fint(ilist, "m_nJobType");
+	if (!g_vstate.job_type) g_vstate.job_type = fint(limit_job, "m_nJobType");
+	g_vstate.equip_type = fint(ilist, "m_nEquipType");
+	if (!g_vstate.equip_type) g_vstate.equip_type = fint(limit_equip, "m_nEquipType");
+	g_vstate.lock_type = fint(ilist, "m_nLockType");
+	if (!g_vstate.lock_type) g_vstate.lock_type = fint(limit_lock, "m_nLockType");
+	g_vstate.sort_mode = fint(ilist, "m_nSortMode");
+	g_vstate.open_flag = open_flag;
+	g_vstate.donation_flag = fint(store, "m_bDonationFlag") ? 1 : 0;
+	g_vstate.inv_count = fint(fpage(store, "m_sItemCount"), "m_nValue");
+	g_vstate.stock_num = fint(fpage(store, "m_sStockCount"), "m_nValue");
+
+	g_has_vitems = 1;
+	read_store_list_items(list_mgr, g_vitems, &g_nvitems, VAULT_ITEM_MAX,
+		&g_vstate.top_index, &g_vstate.list_count);
+
+	g_has_vstock = 0;
+	g_nvstock = 0;
+	stock = global_struct(&gi_storestock, "g_sStoreStock", sn_storestock);
+	if (stock && (open_flag || sprite_live(fpage(fpage(stock, "m_sList"), "m_spBase")))) {
+		read_store_list_items(fpage(stock, "m_sList"), g_vstock, &g_nvstock, VAULT_ITEM_MAX,
+			&g_vstate.stock_top, &g_vstate.stock_count);
+		g_has_vstock = 1;
+		emit_btn_group(fpage(stock, "m_sButton"), "vault", stock_namer);
+		emit_btn_group(fpage(stock, "m_sButtonLock"), "vault", stock_namer);
+		emit_btn_group(fpage(fpage(stock, "m_sScroll"), "m_sButton"), "vault", stock_namer);
+	}
+
+	emit_btn_group(fpage(store, "m_sButton"), "vault", vault_main_namer);
+	emit_btn_group(fpage(fpage(store, "m_sScroll"), "m_sButton"), "vault", vault_main_namer);
+	emit_btn_group(fpage(limit_item, "m_sButton"), "vault", vault_filter_namer);
+	emit_btn_group(fpage(limit_ex, "m_sButton"), "vault", vault_filter_namer);
+	emit_btn_group(fpage(limit_job, "m_sButton"), "vault", vault_filter_namer);
+	emit_btn_group(fpage(limit_equip, "m_sButton"), "vault", vault_filter_namer);
+	emit_btn_group(fpage(limit_lock, "m_sButton"), "vault", vault_filter_namer);
+	emit_btn_group(fpage(sort, "m_sButton"), "vault", vault_filter_namer);
+
+	/* Mark selected filters */
+	{
+		int i;
+		for (i = n0; i < g_nctrls; i++) {
+			struct ui_ctrl *c = &g_ctrls[i];
+			if (strcmp(c->section, "vault") != 0) continue;
+			if (c->value[0] && !strcmp(c->value, "selected")) {
+				c->has_select = 1;
+				c->selected = 1;
+			} else if (!strncmp(c->id, "filter-", 7) || !strncmp(c->id, "rank-", 5)
+					|| !strncmp(c->id, "weapon-", 7) || !strncmp(c->id, "armor-", 6)
+					|| !strcmp(c->id, "sort-default") || !strcmp(c->id, "sort-current")) {
+				c->has_select = 1;
+				c->selected = (c->value[0] && !strcmp(c->value, "selected"));
+			}
+		}
+	}
+
+	if (g_nctrls == n0) return 0;
+	snprintf(g_screen, sizeof g_screen, "%s", (open_flag || g_has_vstock) ? "vault-storage" : "vault");
+	hover_from_rects();
+	return 1;
+}
+
 
 static int fill_party_edit(struct page *party)
 {
@@ -3041,9 +3644,9 @@ static void fill_status_from_chara(int chara)
 	lv_max = fint_utf(c, "\xEF\xBC\xAC\xEF\xBC\xB6\xE6\x9C\x80\xE5\xA4\xA7");
 	g_status.level_max = lv_max;
 	g_status.no_limit = (lv_max == 2147483647);
-	g_status.exp = fint_utf(c, "\xEF\xBC\xA5\xEF\xBC\xB8\xEF\xBC\xB0"); /* ＥＸＰ */
+	g_status.exp = fint_utf(c, "\xEF\xBC\xA5\xEF\xBC\xB8\xEF\xBC\xB0"); /* ï¼¥ï¼¸ï¼° */
 	g_status.exp_max = fint_utf(c, "\xEF\xBC\xA5\xEF\xBC\xB8\xEF\xBC\xB0\xE6\x9C\x80\xE5\xA4\xA7");
-	g_status.hp = fint_utf(c, "\xE4\xBD\x93\xE5\x8A\x9B"); /* 体力 */
+	g_status.hp = fint_utf(c, "\xE4\xBD\x93\xE5\x8A\x9B"); /* ä½“åŠ› */
 	g_status.hp_max = fint_utf(c, "\xE4\xBD\x93\xE5\x8A\x9B\xE6\x9C\x80\xE5\xA4\xA7");
 	g_status.atk = fint_utf(c, "\xE6\x94\xBB\xE6\x92\x83\xE5\x8A\x9B");
 	g_status.def = fint_utf(c, "\xE9\x98\xB2\xE5\xBE\xA1\xE5\x8A\x9B");
@@ -3062,7 +3665,7 @@ static void fill_status_from_chara(int chara)
 	g_status.equip[3] = fint_utf(c, "\xE6\x8C\x81\xE3\x81\xA1\xE7\x89\xA9");
 
 	if (g_status.n_active == 0) {
-		active = fpage_utf(c, "\xE7\x99\xBB\xE9\x8C\xB2\xE3\x82\xB9\xE3\x82\xAD\xE3\x83\xAB"); /* 登録スキル */
+		active = fpage_utf(c, "\xE7\x99\xBB\xE9\x8C\xB2\xE3\x82\xB9\xE3\x82\xAD\xE3\x83\xAB"); /* ç™»éŒ²ã‚¹ã‚­ãƒ« */
 		if (active && active->type == ARRAY_PAGE) {
 			for (i = 0; i < active->nr_vars && g_status.n_active < 6; i++) {
 				int id = active->values[i].i;
@@ -3079,7 +3682,7 @@ static void fill_status_from_chara(int chara)
 		}
 	}
 	if (g_status.n_learned == 0) {
-		skills = fpage_utf(c, "\xE3\x82\xB9\xE3\x82\xAD\xE3\x83\xAB"); /* スキル */
+		skills = fpage_utf(c, "\xE3\x82\xB9\xE3\x82\xAD\xE3\x83\xAB"); /* ã‚¹ã‚­ãƒ« */
 		if (skills && skills->type == ARRAY_PAGE) {
 			for (i = 0; i < skills->nr_vars && g_status.n_learned < SKILL_MAX; i++) {
 				struct page *sk = slot_page(skills->values[i].i);
@@ -3087,8 +3690,8 @@ static void fill_status_from_chara(int chara)
 				int id, owned;
 				if (!sk)
 					continue;
-				id = fint_utf(sk, "\xE7\x95\xAA\xE5\x8F\xB7"); /* 番号 */
-				owned = fint_utf(sk, "\xE4\xBF\x9D\xE6\x9C\x89"); /* 保有 */
+				id = fint_utf(sk, "\xE7\x95\xAA\xE5\x8F\xB7"); /* ç•ªå· */
+				owned = fint_utf(sk, "\xE4\xBF\x9D\xE6\x9C\x89"); /* ä¿æœ‰ */
 				if (id <= 0 || !owned)
 					continue;
 				s = &g_status.learned[g_status.n_learned++];
@@ -3224,6 +3827,16 @@ static int vm_fill(void)
 		return fill_cfg_panel(cfg, kind);
 	if (view)
 		return fill_config(view);
+	{
+		struct page *sel = global_struct(&gi_select, "g_sSelect", sn_select);
+		if (sel && sprite_live(fpage(sel, "m_spBase")) && fill_select(sel))
+			return 1;
+	}
+	{
+		struct page *vault = global_struct(&gi_storeitem, "g_sStoreItem", sn_storeitem);
+		if (vault && fill_vault(vault))
+			return 1;
+	}
 	status = global_struct(&gi_status, "g_sStatus", sn_status);
 	if (status && sprite_live(fpage(status, "m_spBase")) && fill_status(status))
 		return 1;
@@ -3266,6 +3879,11 @@ static void publish(void)
 	memset(&g_info, 0, sizeof g_info);
 	memset(&g_pstate, 0, sizeof g_pstate);
 	memset(&g_status, 0, sizeof g_status);
+	memset(&g_vstate, 0, sizeof g_vstate);
+	g_nvitems = 0;
+	g_has_vitems = 0;
+	g_nvstock = 0;
+	g_has_vstock = 0;
 	collect_stack();
 
 	scene_for_each_sprite(on_scene_sprite, NULL);
@@ -3605,7 +4223,7 @@ int rq_ui_cmd_press(const char *id, char *err, int errsz)
 	 * decide key was down while the button was already selected.
 	 * T_SystemMenu::select presents twice per checkInput, so each edge
 	 * is held across PRESS_FRAMES presented frames. */
-	/* キー_決定 is left-click or Enter, and the click lands on release. */
+	/* ã‚­ãƒ¼_æ±ºå®š is left-click or Enter, and the click lands on release. */
 	wants(1);
 	key_set_state(VK_LBUTTON, 0);
 	key_set_state(VK_RETURN, 0);
