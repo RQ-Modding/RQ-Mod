@@ -178,6 +178,19 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 			free(json);
 		return 1;
 	}
+	if (!_stricmp(cmd, "mods")) {
+		char *json = NULL;
+		if (!rq_mods_json(&json)) {
+			if (err)
+				snprintf(err, errsz, "mods");
+			return 0;
+		}
+		if (extra)
+			*extra = json;
+		else
+			free(json);
+		return 1;
+	}
 	if (!_stricmp(cmd, "dialog")) {
 		char *json = NULL;
 		if (!rq_dialog_json(&json)) {
@@ -409,7 +422,7 @@ void rq_mods_agent_start(void)
 		return;
 	}
 	CloseHandle(th);
-	rq_log("agent: pipe %s  —  rqmod-ctl ui | hover ID | press ID | drag SRC DST | dialog", PIPE_NAME);
+	rq_log("agent: pipe %s  —  rqmod-ctl ui | mods | hover ID | press ID | drag SRC DST | dialog", PIPE_NAME);
 }
 
 #endif /* RQ_MODLOADER */

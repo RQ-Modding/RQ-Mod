@@ -66,7 +66,7 @@ __declspec(dllimport) unsigned long long __stdcall GetTickCount64(void);
 #define LABEL_LEN 280
 #define JSON_MAX (320 * 1024)
 #define UNIT_MAX 128
-#define SKILL_MAX 24
+#define SKILL_MAX 40
 #define NOTE_N 48
 #define NOTE_LEN 700
 #define FRAME_MS 4000
@@ -165,6 +165,8 @@ struct status_dump {
 	int n_learned;
 	struct skill_row active[6];
 	struct skill_row learned[SKILL_MAX];
+	int active_at[6];
+	int known_at[18];
 	char name[80];
 	char job_name[40];
 };
@@ -204,6 +206,7 @@ static int g_nctrls;
 static int g_hover_no;
 static char g_screen[24];
 static char g_hover[40];
+static int g_has_skillshop, g_skill_page, g_skill_pages, g_skill_points;
 static struct party_row g_party[5];
 static int g_nparty;
 static int g_has_party;
@@ -1023,6 +1026,12 @@ static void build_json(char *dst, int dstsz)
 		add_vault_json(root);
 	if (g_info.ok)
 		add_info_json(root);
+	if (g_has_skillshop) {
+		cJSON *sk = cJSON_AddObjectToObject(root, "skillShop");
+		cJSON_AddNumberToObject(sk, "page", g_skill_page);
+		cJSON_AddNumberToObject(sk, "pages", g_skill_pages);
+		cJSON_AddNumberToObject(sk, "storedPoints", g_skill_points);
+	}
 	printed = cJSON_PrintUnformatted(root);
 	cJSON_Delete(root);
 	if (!printed) {
@@ -1102,7 +1111,7 @@ static int sn_cb, sn_cbwrap, sn_hslider, sn_vslider, sn_text, sn_btnsp;
 static int sn_cfgmsg, sn_cfgsnd, sn_cfgwin, sn_cfg3d, sn_cfgcfm, sn_cfgetc, sn_cfgetc2;
 static int sn_town, sn_sysbar, sn_sysmenu, sn_mini, sn_sysinfo, sn_pstatus;
 static int sn_party, sn_status, sn_storeitem, sn_select, sn_storestock;
-static int sn_shop, sn_equipdrag;
+static int sn_shop, sn_equipdrag, sn_skillpoint;
 static int snos_ready;
 
 static void snos_init(void)
@@ -1146,6 +1155,7 @@ static void snos_init(void)
 	sn_storestock = sn_get("T_StoreStock");
 	sn_shop = sn_get("T_Shop");
 	sn_equipdrag = sn_get("T_EquipDrag");
+	sn_skillpoint = sn_get("T_SkillPoint");
 	snos_ready = 1;
 }
 
@@ -1459,7 +1469,20 @@ static int fill_title(struct page *title)
 static int gi_town = -2, gi_bar = -2, gi_menu = -2, gi_mini = -2, gi_info = -2, gi_world = -2;
 static int gi_party = -2, gi_status = -2, gi_chara = -2, gi_skill = -2;
 static int gi_storeitem = -2, gi_select = -2, gi_storestock = -2, gi_selectdata = -2;
-static int gi_shop = -2, gi_equipdrag = -2;
+static int gi_shop = -2, gi_equipdrag = -2, gi_skillpoint = -2;
+
+#define AGENT_MAX 32
+
+struct agent_reg {
+	int used;
+	char id[40];
+	char label[80];
+	int button;
+	int hover_only;
+	int slot;
+};
+
+static struct agent_reg g_agent[AGENT_MAX];
 
 static int memb(struct page *p, const char *name)
 {
@@ -3593,6 +3616,9 @@ static int fill_party_edit(struct page *party)
 				snprintf(id, sizeof id, "unit-status-%d", idx);
 				snprintf(value, sizeof value, "unit-%d", idx);
 				emit_named_btn(btn, i, id, "Status", "party-edit", value, 1);
+			} else if (town_name(bid, &label)) {
+				/* Same tab row as the hub (600011–600014), 256×45 at y=8. */
+				emit_named_btn(btn, i, town_name(bid, &label), label, "hub", "", 0);
 			} else if (name) {
 				if (bid == 100031)
 					snprintf(value, sizeof value, "%s", layout == 0 ? "selected" : "");
@@ -3670,11 +3696,57 @@ static int fill_party_edit(struct page *party)
 		}
 	}
 
+	/* Hub tabs and the system bar stay on screen under the roster. */
+	{
+		struct page *town = global_struct(&gi_town, "g_sTown", sn_town);
+		struct page *bar = global_struct(&gi_bar, "g_sSystemBar", sn_sysbar);
+		/* The roster covers the castle picture, so m_spBase may be hidden
+		 * while the tab buttons (Frostbuy, Party, …) stay shown. */
+		if (town)
+			emit_group(fpage(town, "m_sButton"), "hub", town_name);
+		if (bar && sprite_live(fpage(bar, "m_spBase")))
+			emit_group(fpage(bar, "m_sButton"), "system-bar", bar_name);
+	}
+
 	if (g_nctrls == n0)
 		return 0;
 	snprintf(g_screen, sizeof g_screen, "party-edit");
 	hover_from_rects();
 	return 1;
+}
+
+static void read_skill_slots(struct page *obj, int *dst, int n)
+{
+	struct page *arr;
+	int i;
+	for (i = 0; i < n; i++)
+		dst[i] = 0;
+	arr = fpage(obj, "m_asSkill");
+	if (!arr || arr->type != ARRAY_PAGE)
+		return;
+	for (i = 0; i < arr->nr_vars && i < n; i++) {
+		struct page *btn = arr_at(arr, i);
+		int id = fint(btn, "m_nSkillNo");
+		if (id > 0)
+			dst[i] = id;
+	}
+}
+
+static void pack_skill_slots(const int *ids, int n, struct skill_row *dst, int *ndst, int max)
+{
+	int i;
+	*ndst = 0;
+	for (i = 0; i < n && *ndst < max; i++) {
+		struct skill_row *s;
+		if (ids[i] <= 0)
+			continue;
+		s = &dst[(*ndst)++];
+		memset(s, 0, sizeof *s);
+		s->id = ids[i];
+		s->owned = 1;
+		s->active = 1;
+		skill_name(ids[i], s->name, (int)sizeof s->name);
+	}
 }
 
 static void fill_status_skills(struct page *card)
@@ -3684,27 +3756,11 @@ static void fill_status_skills(struct page *card)
 	struct page *arr;
 	int i;
 
+	read_skill_slots(equip, g_status.active_at, 6);
+	read_skill_slots(hold, g_status.known_at, 18);
 	g_status.n_active = 0;
 	g_status.n_learned = 0;
-	arr = fpage(equip, "m_asSkill");
-	if (arr && arr->type == ARRAY_PAGE) {
-		for (i = 0; i < arr->nr_vars && g_status.n_active < 6; i++) {
-			struct page *btn = arr_at(arr, i);
-			struct skill_row *s;
-			int id;
-			if (!btn)
-				continue;
-			id = fint(btn, "m_nSkillNo");
-			if (id <= 0)
-				continue;
-			s = &g_status.active[g_status.n_active++];
-			memset(s, 0, sizeof *s);
-			s->id = id;
-			s->active = 1;
-			s->owned = 1;
-			skill_name(id, s->name, (int)sizeof s->name);
-		}
-	}
+	pack_skill_slots(g_status.active_at, 6, g_status.active, &g_status.n_active, 6);
 	arr = fpage(hold, "m_asSkill");
 	if (arr && arr->type == ARRAY_PAGE) {
 		for (i = 0; i < arr->nr_vars && g_status.n_learned < SKILL_MAX; i++) {
@@ -3760,47 +3816,302 @@ static void fill_status_from_chara(int chara)
 	g_status.equip[2] = fint_utf(c, "\xE9\x98\xB2\xE5\x85\xB7");
 	g_status.equip[3] = fint_utf(c, "\xE6\x8C\x81\xE3\x81\xA1\xE7\x89\xA9");
 
-	if (g_status.n_active == 0) {
-		active = fpage_utf(c, "\xE7\x99\xBB\xE9\x8C\xB2\xE3\x82\xB9\xE3\x82\xAD\xE3\x83\xAB"); /* ç™»éŒ²ã‚¹ã‚­ãƒ« */
-		if (active && active->type == ARRAY_PAGE) {
-			for (i = 0; i < active->nr_vars && g_status.n_active < 6; i++) {
-				int id = active->values[i].i;
-				struct skill_row *s;
-				if (id <= 0)
-					continue;
-				s = &g_status.active[g_status.n_active++];
-				memset(s, 0, sizeof *s);
-				s->id = id;
-				s->active = 1;
-				s->owned = 1;
-				skill_name(id, s->name, (int)sizeof s->name);
+	active = fpage_utf(c, "\xE7\x99\xBB\xE9\x8C\xB2\xE3\x82\xB9\xE3\x82\xAD\xE3\x83\xAB"); /* 登録スキル */
+	if (active && active->type == ARRAY_PAGE) {
+		int any = 0;
+		struct skill_row tmp[6];
+		int ntmp = 0;
+		for (i = 0; i < active->nr_vars && i < 6; i++) {
+			int id = active->values[i].i;
+			if (id > 0) {
+				any = 1;
+				if (!g_status.active_at[i])
+					g_status.active_at[i] = id;
 			}
 		}
-	}
-	if (g_status.n_learned == 0) {
-		skills = fpage_utf(c, "\xE3\x82\xB9\xE3\x82\xAD\xE3\x83\xAB"); /* ã‚¹ã‚­ãƒ« */
-		if (skills && skills->type == ARRAY_PAGE) {
-			for (i = 0; i < skills->nr_vars && g_status.n_learned < SKILL_MAX; i++) {
-				struct page *sk = slot_page(skills->values[i].i);
-				struct skill_row *s;
-				int id, owned;
-				if (!sk)
-					continue;
-				id = fint_utf(sk, "\xE7\x95\xAA\xE5\x8F\xB7"); /* ç•ªå· */
-				owned = fint_utf(sk, "\xE4\xBF\x9D\xE6\x9C\x89"); /* ä¿æœ‰ */
-				if (id <= 0 || !owned)
-					continue;
-				s = &g_status.learned[g_status.n_learned++];
-				memset(s, 0, sizeof *s);
-				s->id = id;
-				s->owned = 1;
-				s->rank = fint_utf(sk, "\xE3\x83\xA9\xE3\x83\xB3\xE3\x82\xAF");
-				s->cost = fint_utf(sk, "\xE3\x82\xB3\xE3\x82\xB9\xE3\x83\x88");
-				s->active = fint_utf(sk, "\xE5\xAE\x9F\xE8\xA3\x85\xE4\xB8\xAD");
-				skill_name(id, s->name, (int)sizeof s->name);
-			}
+		for (i = 0; i < 6 && ntmp < 6; i++) {
+			struct skill_row *s;
+			int id = (i < active->nr_vars) ? active->values[i].i : 0;
+			if (id <= 0)
+				id = g_status.active_at[i];
+			if (id <= 0)
+				continue;
+			s = &tmp[ntmp++];
+			memset(s, 0, sizeof *s);
+			s->id = id;
+			s->active = 1;
+			s->owned = 1;
+			skill_name(id, s->name, (int)sizeof s->name);
+		}
+		if (any && ntmp > 0) {
+			memcpy(g_status.active, tmp, sizeof tmp);
+			g_status.n_active = ntmp;
 		}
 	}
+	skills = fpage_utf(c, "\xE3\x82\xB9\xE3\x82\xAD\xE3\x83\xAB"); /* スキル */
+	if (skills && skills->type == ARRAY_PAGE) {
+		struct skill_row tmp[SKILL_MAX];
+		int ntmp = 0;
+		for (i = 0; i < skills->nr_vars && ntmp < SKILL_MAX; i++) {
+			struct page *sk = slot_page(skills->values[i].i);
+			struct skill_row *s;
+			int id, owned;
+			if (!sk)
+				continue;
+			id = fint_utf(sk, "\xE7\x95\xAA\xE5\x8F\xB7"); /* 番号 */
+			owned = fint_utf(sk, "\xE4\xBF\x9D\xE6\x9C\x89"); /* 保有 */
+			if (id <= 0 || !owned)
+				continue;
+			s = &tmp[ntmp++];
+			memset(s, 0, sizeof *s);
+			s->id = id;
+			s->owned = 1;
+			s->rank = fint_utf(sk, "\xE3\x83\xA9\xE3\x83\xB3\xE3\x82\xAF");
+			s->cost = fint_utf(sk, "\xE3\x82\xB3\xE3\x82\xB9\xE3\x83\x88");
+			s->active = fint_utf(sk, "\xE5\xAE\x9F\xE8\xA3\x85\xE4\xB8\xAD");
+			skill_name(id, s->name, (int)sizeof s->name);
+		}
+		if (ntmp > 0) {
+			memcpy(g_status.learned, tmp, sizeof tmp);
+			g_status.n_learned = ntmp;
+		}
+	}
+}
+
+static int agent_id_ok(const char *id)
+{
+	int i, n;
+	if (!id || !id[0])
+		return 0;
+	n = (int)strlen(id);
+	if (n <= 0 || n >= 40)
+		return 0;
+	for (i = 0; i < n; i++) {
+		unsigned char c = (unsigned char)id[i];
+		if (c <= 32 || c >= 127)
+			return 0;
+	}
+	return 1;
+}
+
+static int agent_claims(int button)
+{
+	int i;
+	if (button <= 0)
+		return 0;
+	for (i = 0; i < AGENT_MAX; i++) {
+		if (g_agent[i].used && g_agent[i].button == button)
+			return 1;
+	}
+	return 0;
+}
+
+int rq_agent_set(const char *id, const char *label, int button, int hover_only)
+{
+	int i, free_i = -1;
+	if (!agent_id_ok(id) || button <= 0)
+		return 0;
+	ui_lock();
+	for (i = 0; i < AGENT_MAX; i++) {
+		if (g_agent[i].used && !strcmp(g_agent[i].id, id)) {
+			free_i = i;
+			break;
+		}
+		if (!g_agent[i].used && free_i < 0)
+			free_i = i;
+	}
+	if (free_i < 0) {
+		ui_unlock();
+		return 0;
+	}
+	g_agent[free_i].used = 1;
+	snprintf(g_agent[free_i].id, sizeof g_agent[free_i].id, "%s", id);
+	snprintf(g_agent[free_i].label, sizeof g_agent[free_i].label, "%s",
+		(label && label[0]) ? label : id);
+	g_agent[free_i].button = button;
+	g_agent[free_i].hover_only = hover_only ? 1 : 0;
+	g_agent[free_i].slot = 0;
+	ui_unlock();
+	return 1;
+}
+
+void rq_agent_clear(const char *id)
+{
+	int i;
+	if (!id || !id[0])
+		return;
+	ui_lock();
+	for (i = 0; i < AGENT_MAX; i++) {
+		if (g_agent[i].used && !strcmp(g_agent[i].id, id))
+			g_agent[i].used = 0;
+	}
+	ui_unlock();
+}
+
+static struct page *find_tbutton(int id, int *slot_io)
+{
+	struct page *p;
+	size_t i;
+	int slot;
+	if (id <= 0)
+		return NULL;
+	slot = slot_io ? *slot_io : 0;
+	if (slot > 0 && page_index_valid(slot)) {
+		p = heap_get_page(slot);
+		if (p && p->type == STRUCT_PAGE && p->index == sn_button
+				&& fint(p, "m_nID") == id)
+			return p;
+	}
+	if (!heap || !heap_size)
+		return NULL;
+	for (i = 1; i < heap_size; i++) {
+		if (!page_index_valid((int)i))
+			continue;
+		p = heap_get_page((int)i);
+		if (!p || p->type != STRUCT_PAGE || p->index != sn_button)
+			continue;
+		if (fint(p, "m_nID") != id)
+			continue;
+		if (slot_io)
+			*slot_io = (int)i;
+		return p;
+	}
+	if (slot_io)
+		*slot_io = 0;
+	return NULL;
+}
+
+/* Registered buttons are listed only while that T_Button is shown. */
+static void emit_agent_controls(void)
+{
+	struct agent_reg copy[AGENT_MAX];
+	int i, n = 0;
+	snos_init();
+	ui_lock();
+	memcpy(copy, g_agent, sizeof copy);
+	ui_unlock();
+	for (i = 0; i < AGENT_MAX; i++) {
+		struct page *btn;
+		struct tbtn b;
+		struct ui_ctrl *c;
+		if (!copy[i].used)
+			continue;
+		btn = find_tbutton(copy[i].button, &copy[i].slot);
+		if (!btn || !tbtn_read(btn, &b) || !b.show)
+			continue;
+		c = emit_tbtn(btn, n, copy[i].id, copy[i].label, "agent");
+		if (!c)
+			break;
+		if (copy[i].hover_only)
+			c->hover_only = 1;
+		ui_lock();
+		if (g_agent[i].used && g_agent[i].button == copy[i].button)
+			g_agent[i].slot = copy[i].slot;
+		ui_unlock();
+		n++;
+	}
+}
+
+static void hover_agent(void)
+{
+	int i, mx, my, active, best = -1, best_area = 0;
+	mouse_agent_pos(&mx, &my, &active);
+	if (!active)
+		return;
+	for (i = 0; i < g_nctrls; i++) {
+		struct ui_ctrl *c = &g_ctrls[i];
+		int area;
+		if (strcmp(c->section, "agent") != 0)
+			continue;
+		if (!c->enabled || !c->armed || c->w <= 0 || c->h <= 0)
+			continue;
+		if (mx < c->x || my < c->y || mx >= c->x + c->w || my >= c->y + c->h)
+			continue;
+		area = c->w * c->h;
+		if (best < 0 || area < best_area) {
+			best = i;
+			best_area = area;
+		}
+	}
+	if (best >= 0)
+		snprintf(g_hover, sizeof g_hover, "%s", g_ctrls[best].id);
+}
+
+static int skill_list_at(struct page *mgr, const char *list_member, int index)
+{
+	struct page *list, *arr;
+	list = fpage(mgr, list_member);
+	arr = fpage(list, "m_anSkillNo");
+	if (!arr || arr->type != ARRAY_PAGE || index < 0 || index >= arr->nr_vars)
+		return 0;
+	return arr->values[index].i;
+}
+
+static void emit_indexed_skills(struct page *group, struct page *mgr, const char *list_member,
+		int base, int count, const char *prefix)
+{
+	struct page *arr;
+	int i;
+	if (!group)
+		return;
+	arr = fpage(group, "m_asButton");
+	if (!arr || arr->type != ARRAY_PAGE)
+		return;
+	for (i = 0; i < arr->nr_vars; i++) {
+		struct page *btn = arr_at(arr, i);
+		struct tbtn b;
+		char id[40], label[80], value[32];
+		int idx, skill;
+		if (!tbtn_read(btn, &b) || !b.show)
+			continue;
+		if (agent_claims(b.id))
+			continue;
+		idx = b.id - base;
+		id[0] = label[0] = value[0] = 0;
+		if (idx >= 0 && idx < count) {
+			skill = skill_list_at(mgr, list_member, idx);
+			snprintf(id, sizeof id, "%s-%d", prefix, idx);
+			skill_name(skill, label, (int)sizeof label);
+			if (!label[0])
+				snprintf(label, sizeof label, "%s", id);
+			snprintf(value, sizeof value, "%d", skill);
+		} else if (b.id == 109999) {
+			snprintf(id, sizeof id, "close");
+			snprintf(label, sizeof label, "Close");
+		} else if (b.id >= 110001 && b.id <= 110017) {
+			idx = b.id - 110001;
+			skill = skill_list_at(mgr, "m_rfsList", idx);
+			snprintf(id, sizeof id, "forget-%d", idx);
+			skill_name(skill, label, (int)sizeof label);
+			if (!label[0])
+				snprintf(label, sizeof label, "Forget %d", idx + 1);
+			if (skill > 0)
+				snprintf(value, sizeof value, "%d", skill);
+		} else {
+			snprintf(id, sizeof id, "b%d", b.id);
+			snprintf(label, sizeof label, "b%d", b.id);
+		}
+		emit_named_btn(btn, i, id, label, "skill-shop", value, 0);
+	}
+}
+
+static int fill_skillshop(struct page *sp)
+{
+	struct page *neu, *hold;
+	if (!sp || !sprite_live(fpage(sp, "m_spBase1")))
+		return 0;
+	neu = fpage(sp, "m_sNewSkill");
+	hold = fpage(sp, "m_sHoldSkill");
+	emit_indexed_skills(fpage(neu, "m_sButton"), neu, "m_sList", 200001, 36, "offer");
+	emit_indexed_skills(fpage(hold, "m_sButton"), hold, "m_rfsList", 300001, 17, "upgrade");
+	emit_indexed_skills(fpage(sp, "m_sButton"), hold, "m_rfsList", 0, 0, "forget");
+	g_has_skillshop = 1;
+	g_skill_page = rq_skilllist_page();
+	g_skill_pages = rq_skilllist_pages();
+	g_skill_points = fint(fpage(fpage(sp, "m_sCard"), "m_sPoint"), "m_nValue");
+	snprintf(g_screen, sizeof g_screen, "skill-shop");
+	hover_from_rects();
+	return 1;
 }
 
 static const char *status_btn_name(int id, const char **label)
@@ -3844,6 +4155,28 @@ static void status_equip_namer(int id, char *idbuf, int idn, char *label, int ln
 	const char *name = status_btn_name(id, &lab);
 	*hover_only = 0;
 	value[0] = 0;
+	if (id >= 110001 && id <= 110006) {
+		int slot = id - 110001;
+		int skill = (slot >= 0 && slot < 6) ? g_status.active_at[slot] : 0;
+		snprintf(idbuf, idn, "active-%d", slot);
+		if (skill > 0)
+			skill_name(skill, label, ln);
+		if (!label[0])
+			snprintf(label, ln, "Active %d", slot + 1);
+		snprintf(value, vn, "%d", skill);
+		return;
+	}
+	if (id >= 120001 && id <= 120018) {
+		int slot = id - 120001;
+		int skill = (slot >= 0 && slot < 18) ? g_status.known_at[slot] : 0;
+		snprintf(idbuf, idn, "known-%d", slot);
+		if (skill > 0)
+			skill_name(skill, label, ln);
+		if (!label[0])
+			snprintf(label, ln, "Known %d", slot + 1);
+		snprintf(value, vn, "%d", skill);
+		return;
+	}
 	if (!name) {
 		snprintf(idbuf, idn, "b%d", id);
 		snprintf(label, ln, "b%d", id);
@@ -3928,6 +4261,33 @@ static int fill_status(struct page *st)
 	}
 
 	emit_btn_group(fpage(st, "m_sButton"), "status", status_equip_namer);
+	/* Empty hotbar slots stay hidden. Drag still needs a rect. */
+	{
+		struct page *arr = fpage(fpage(st, "m_sButton"), "m_asButton");
+		int bi;
+		if (arr && arr->type == ARRAY_PAGE) {
+			for (bi = 0; bi < arr->nr_vars; bi++) {
+				struct page *btn = arr_at(arr, bi);
+				struct tbtn b;
+				char idbuf[40], label[80], value[32];
+				int slot, skill;
+				if (!tbtn_read(btn, &b) || b.show)
+					continue;
+				if (b.id < 110001 || b.id > 110006)
+					continue;
+				slot = b.id - 110001;
+				skill = g_status.active_at[slot];
+				snprintf(idbuf, sizeof idbuf, "active-%d", slot);
+				label[0] = 0;
+				if (skill > 0)
+					skill_name(skill, label, (int)sizeof label);
+				if (!label[0])
+					snprintf(label, sizeof label, "Active %d", slot + 1);
+				snprintf(value, sizeof value, "%d", skill);
+				emit_named_btn(btn, bi, idbuf, label, "status", value, 0);
+			}
+		}
+	}
 	if (g_nctrls == n0 && !g_status.name[0] && chara <= 0)
 		return 0;
 	snprintf(g_screen, sizeof g_screen, "status");
@@ -3975,6 +4335,11 @@ static int vm_fill(void)
 	{
 		struct page *vault = global_struct(&gi_storeitem, "g_sStoreItem", sn_storeitem);
 		if (vault && fill_vault(vault))
+			return 1;
+	}
+	{
+		struct page *sk = global_struct(&gi_skillpoint, "g_sSkillPoint", sn_skillpoint);
+		if (sk && fill_skillshop(sk))
 			return 1;
 	}
 	status = global_struct(&gi_status, "g_sStatus", sn_status);
@@ -4025,6 +4390,10 @@ static void publish(void)
 	memset(&g_pstate, 0, sizeof g_pstate);
 	memset(&g_status, 0, sizeof g_status);
 	memset(&g_vstate, 0, sizeof g_vstate);
+	g_has_skillshop = 0;
+	g_skill_page = 0;
+	g_skill_pages = 0;
+	g_skill_points = 0;
 	g_nvitems = 0;
 	g_has_vitems = 0;
 	g_nvstock = 0;
@@ -4092,6 +4461,8 @@ static void publish(void)
 		g_hover_no = g_sprite_hover;
 	classify();
 	}
+	emit_agent_controls();
+	hover_agent();
 	memset(&stage, 0, sizeof stage);
 	snprintf(stage.screen, sizeof stage.screen, "%s", g_screen);
 	snprintf(stage.hover, sizeof stage.hover, "%s", g_hover);

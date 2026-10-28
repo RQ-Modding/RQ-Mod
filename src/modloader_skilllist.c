@@ -49,6 +49,7 @@ static int g_chara;
 static int g_comp = -1;
 static int g_open_ref = LUA_NOREF;
 static int g_page_ref = LUA_NOREF;
+static int g_btn_ref = LUA_NOREF;
 
 static int g_id[SLOTS];
 static int g_pt[SLOTS];
@@ -812,29 +813,59 @@ done:
 	return ok;
 }
 
+/* prev/next are T_Button ids, or 0 when that arrow was not created. */
+static void call_lua_buttons(int prev, int next)
+{
+	lua_State *L = rq_lua();
+	int top;
+
+	if (!L || g_btn_ref == LUA_NOREF)
+		return;
+	top = lua_gettop(L);
+	lua_rawgeti(L, LUA_REGISTRYINDEX, g_btn_ref);
+	if (!lua_isfunction(L, -1)) {
+		lua_settop(L, top);
+		return;
+	}
+	lua_pushinteger(L, prev);
+	lua_pushinteger(L, next);
+	if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+		rq_log("skilllist: on_buttons error: %s", lua_tostring(L, -1));
+		lua_pop(L, 1);
+	}
+	lua_settop(L, top);
+}
+
 static void skilllist_buttons(void)
 {
 	int group = member_get(0).i;
 	int prev_ok, next_ok, w = 0;
 	int x2;
+	int prev_id = 0, next_id = 0;
 	const int y = BTN_Y;
 
 	if (!page_index_valid(group)) {
 		rq_log("skilllist: button group missing");
+		call_lua_buttons(0, 0);
 		return;
 	}
 	prev_ok = call_lua_page(-1, &w);
 	w = 0;
-	if (!make_button(group, BTN_PREV, "Previous Page", 531, y, prev_ok, &w)) {
+	if (!make_button(group, BTN_PREV, "Previous Page", 531, y, prev_ok, &w))
 		rq_log("skilllist: Previous Page button failed");
-		return;
+	else
+		prev_id = BTN_PREV;
+	if (prev_id) {
+		x2 = 531 + (w > 0 ? w + 8 : 199);
+		if (x2 < 730)
+			x2 = 730;
+		next_ok = call_lua_page(1, &w);
+		if (!make_button(group, BTN_NEXT, "Next Page", x2, y, next_ok, NULL))
+			rq_log("skilllist: Next Page button failed");
+		else
+			next_id = BTN_NEXT;
 	}
-	x2 = 531 + (w > 0 ? w + 8 : 199);
-	if (x2 < 730)
-		x2 = 730;
-	next_ok = call_lua_page(1, &w);
-	if (!make_button(group, BTN_NEXT, "Next Page", x2, y, next_ok, NULL))
-		rq_log("skilllist: Next Page button failed");
+	call_lua_buttons(prev_id, next_id);
 }
 
 static void skilllist_click(void)
@@ -1053,6 +1084,11 @@ int rq_lua_skilllist_on_page(lua_State *L)
 	return bind_fn(L, &g_page_ref);
 }
 
+int rq_lua_skilllist_on_buttons(lua_State *L)
+{
+	return bind_fn(L, &g_btn_ref);
+}
+
 int rq_lua_skilllist_set_page(lua_State *L)
 {
 	int p = (int)luaL_checkinteger(L, 1);
@@ -1075,6 +1111,16 @@ int rq_lua_skilllist_page_count(lua_State *L)
 int rq_skilllist_active(void)
 {
 	return g_on ? 1 : 0;
+}
+
+int rq_skilllist_page(void)
+{
+	return g_on ? g_page : 0;
+}
+
+int rq_skilllist_pages(void)
+{
+	return g_on ? g_pages : 0;
 }
 
 /* The buy list UI reads g_id / g_pt, not the globals スキルポン mirrored.

@@ -845,6 +845,30 @@ static int l_patch_float(lua_State *L)
 	return 1;
 }
 
+static int l_agent_control(lua_State *L)
+{
+	const char *id = luaL_checkstring(L, 1);
+	const char *label = NULL;
+	int button, hover = 0;
+
+	if (lua_isnoneornil(L, 2)) {
+		rq_agent_clear(id);
+		return 0;
+	}
+	luaL_checktype(L, 2, LUA_TTABLE);
+	lua_getfield(L, 2, "label");
+	if (lua_isstring(L, -1))
+		label = lua_tostring(L, -1);
+	lua_getfield(L, 2, "button");
+	button = (int)luaL_checkinteger(L, -1);
+	lua_getfield(L, 2, "hoverOnly");
+	hover = lua_toboolean(L, -1);
+	if (!rq_agent_set(id, label, button, hover))
+		return luaL_error(L, "agent.control: id or button rejected");
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
 static void open_rq(lua_State *L)
 {
 	lua_newtable(L);
@@ -922,9 +946,14 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "install", l_skilllist_install);
 	set_cfn(L, "on_open", rq_lua_skilllist_on_open);
 	set_cfn(L, "on_page", rq_lua_skilllist_on_page);
+	set_cfn(L, "on_buttons", rq_lua_skilllist_on_buttons);
 	set_cfn(L, "set_page", rq_lua_skilllist_set_page);
 	set_cfn(L, "page_count", rq_lua_skilllist_page_count);
 	lua_setfield(L, -2, "skilllist");
+
+	lua_newtable(L);
+	set_cfn(L, "control", l_agent_control);
+	lua_setfield(L, -2, "agent");
 
 	lua_newtable(L);
 	set_cfn(L, "install", l_chara_install);
@@ -981,7 +1010,73 @@ static void open_rq(lua_State *L)
 	lua_setglobal(L, "rq");
 }
 
-static int load_one_lua(lua_State *L, const char *path)
+#define RQ_MOD_MAX 64
+
+struct rq_loaded_mod {
+	char name[80];
+	char path[RQ_PATH_MAX];
+};
+
+static struct rq_loaded_mod g_loaded_mods[RQ_MOD_MAX];
+static int g_nloaded_mods;
+
+static void note_loaded_mod(const char *name, const char *path)
+{
+	struct rq_loaded_mod *m;
+	int i;
+	if (!name || !name[0] || !path || !path[0])
+		return;
+	i = g_nloaded_mods;
+	if (i >= RQ_MOD_MAX)
+		return;
+	m = &g_loaded_mods[i];
+	snprintf(m->name, sizeof m->name, "%s", name);
+	snprintf(m->path, sizeof m->path, "%s", path);
+	g_nloaded_mods = i + 1;
+}
+
+int rq_mods_json(char **json_out)
+{
+	cJSON *root, *arr;
+	char *printed;
+	int i, n;
+	size_t len;
+	if (!json_out)
+		return 0;
+	*json_out = NULL;
+	root = cJSON_CreateObject();
+	if (!root)
+		return 0;
+	arr = cJSON_AddArrayToObject(root, "mods");
+	n = g_nloaded_mods;
+	if (n < 0)
+		n = 0;
+	if (n > RQ_MOD_MAX)
+		n = RQ_MOD_MAX;
+	for (i = 0; i < n; i++) {
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddStringToObject(o, "name", g_loaded_mods[i].name);
+		cJSON_AddStringToObject(o, "path", g_loaded_mods[i].path);
+		cJSON_AddItemToArray(arr, o);
+	}
+	printed = cJSON_PrintUnformatted(root);
+	cJSON_Delete(root);
+	if (!printed)
+		return 0;
+	len = strlen(printed);
+	*json_out = malloc(len + 2);
+	if (!*json_out) {
+		free(printed);
+		return 0;
+	}
+	memcpy(*json_out, printed, len);
+	(*json_out)[len] = '\n';
+	(*json_out)[len + 1] = 0;
+	free(printed);
+	return 1;
+}
+
+static int load_one_lua(lua_State *L, const char *path, const char *name, const char *note_path)
 {
 	int err = luaL_loadfile(L, path);
 	if (err != LUA_OK) {
@@ -995,6 +1090,8 @@ static int load_one_lua(lua_State *L, const char *path)
 		return 0;
 	}
 	rq_log("Loaded mod file %s", path);
+	if (name && note_path)
+		note_loaded_mod(name, note_path);
 	return 1;
 }
 
@@ -1013,7 +1110,14 @@ static int load_mods(lua_State *L)
 			if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
 				continue;
 			snprintf(path, sizeof path, "%s\\%s", g_rq_mods_dir, fd.cFileName);
-			n += load_one_lua(L, path);
+			{
+				char base[80];
+				size_t len = strlen(fd.cFileName);
+				snprintf(base, sizeof base, "%s", fd.cFileName);
+				if (len > 4 && !_stricmp(base + len - 4, ".lua"))
+					base[len - 4] = 0;
+				n += load_one_lua(L, path, base, path);
+			}
 		} while (FindNextFileA(h, &fd));
 		FindClose(h);
 	}
@@ -1027,8 +1131,11 @@ static int load_mods(lua_State *L)
 			if (fd.cFileName[0] == '.')
 				continue;
 			snprintf(path, sizeof path, "%s\\%s\\init.lua", g_rq_mods_dir, fd.cFileName);
-			if (GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES)
-				n += load_one_lua(L, path);
+			if (GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES) {
+				char dir[RQ_PATH_MAX];
+				snprintf(dir, sizeof dir, "%s\\%s", g_rq_mods_dir, fd.cFileName);
+				n += load_one_lua(L, path, fd.cFileName, dir);
+			}
 		} while (FindNextFileA(h, &fd));
 		FindClose(h);
 	}
@@ -1375,17 +1482,18 @@ void rq_mods_init(struct ain *ain)
 	       g_rq_prof.csv, g_rq_prof.leftover_ain, g_rq_prof.hll, g_rq_prof.text_cache,
 	       g_rq_prof.update_split, g_rq_prof.vm_ops, g_rq_prof.ain_fn);
 
-	rq_mods_agent_start();
-
 	g_L = luaL_newstate();
 	if (!g_L) {
 		rq_log("luaL_newstate failed");
+		rq_mods_agent_start();
 		return;
 	}
 	luaL_openlibs(g_L);
 	open_rq(g_L);
 	n = load_mods(g_L);
 	rq_log("Loaded %d Lua mod(s). Ready.", n);
+	/* Pipe comes up after the mod list is finished, so `mods` is complete. */
+	rq_mods_agent_start();
 }
 
 #endif /* RQ_MODLOADER */
