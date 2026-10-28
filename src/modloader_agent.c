@@ -18,6 +18,7 @@
 #define PIPE_NAME         "\\\\.\\pipe\\rqmod"
 
 void mouse_force_pos(int x, int y);
+void mouse_release_agent(void);
 void key_set_state(int code, int down);
 void mouse_set_wheel(int dir);
 
@@ -162,6 +163,10 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 
 	if (!_stricmp(cmd, "ping") || !_stricmp(cmd, "ok"))
 		return 1;
+	if (!_stricmp(cmd, "ungrab")) {
+		mouse_release_agent();
+		return 1;
+	}
 
 	if (!_stricmp(cmd, "ui") || !_stricmp(cmd, "screen")) {
 		char *json = NULL;

@@ -215,12 +215,18 @@ bool key_is_down_raw(enum sact_keycode code)
 	return key_state[code];
 }
 
+static volatile int agent_input;
+
 bool key_is_down(enum sact_keycode code)
 {
 	if (code < 0 || code >= VK_NR_KEYCODES) {
 		return false;
 	}
 #ifdef RQ_MODLOADER
+	/* The agent owns these buttons until ungrab. A mod HUD or a queued
+	 * OS mouse-up must not swallow the click the pipe just set. */
+	if (agent_input && (code == VK_LBUTTON || code == VK_RBUTTON || code == VK_MBUTTON))
+		return key_state[code];
 	if (rq_hud_block_mouse() && (code == VK_LBUTTON || code == VK_RBUTTON))
 		return false;
 #endif
@@ -248,7 +254,6 @@ void key_clear_flag(bool no_ctrl)
 
 static volatile int forced_mouse;
 static volatile int forced_x, forced_y;
-static volatile int agent_input;
 
 static void agent_hold_focus(void)
 {
@@ -288,6 +293,15 @@ void mouse_force_pos(int x, int y)
 	forced_mouse = 1;
 	agent_hold_focus();
 	mouse_set_pos(x, y);
+}
+
+void mouse_release_agent(void)
+{
+	forced_mouse = 0;
+	agent_input = 0;
+	key_state[VK_LBUTTON] = false;
+	key_state[VK_RBUTTON] = false;
+	key_state[VK_MBUTTON] = false;
 }
 
 void mouse_agent_pos(int *x, int *y, int *active)
@@ -340,6 +354,8 @@ static void key_event(SDL_KeyboardEvent *e, bool pressed)
 static void mouse_event(SDL_MouseButtonEvent *e)
 {
 	enum sact_keycode code = sdl_to_sact_button(e->button);
+	if (agent_input)
+		return;
 	if (code)
 		key_state[code] = e->state == SDL_PRESSED;
 #ifdef DEBUGGER_ENABLED

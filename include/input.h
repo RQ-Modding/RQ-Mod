@@ -147,8 +147,10 @@ void joy_clear_flag(void);
 bool joy_get_stick_status(int controller, int type, float *deg, float *pow);
 void mouse_get_pos(int *x, int *y);
 void mouse_set_pos(int x, int y);
-/* Agent cursor. mouse_get_pos keeps returning this until the process exits. */
+/* Agent cursor. mouse_get_pos keeps returning this until mouse_release_agent. */
 void mouse_force_pos(int x, int y);
+/* Drop the forced cursor so the OS mouse moves the game cursor again. */
+void mouse_release_agent(void);
 /* Last agent position. Does not pump SDL. active is 0 until mouse_force_pos. */
 void mouse_agent_pos(int *x, int *y, int *active);
 void mouse_get_wheel(int *forward, int *back);
