@@ -61,8 +61,8 @@ __declspec(dllimport) unsigned long long __stdcall GetTickCount64(void);
 #define CTRL_MAX 128
 #define TEXT_MAX 48
 #define TEXT_LEN 200
-#define LABEL_LEN 160
-#define JSON_MAX (96 * 1024)
+#define LABEL_LEN 280
+#define JSON_MAX (160 * 1024)
 #define NOTE_N 48
 #define NOTE_LEN 700
 #define FRAME_MS 4000
@@ -73,7 +73,7 @@ struct ui_ctrl {
 	char label[LABEL_LEN];
 	char type[16];
 	char section[96];
-	char value[32];
+	char value[160];
 	int x, y, w, h;
 	int enabled;
 	int button;
@@ -795,7 +795,8 @@ static int sn_get(const char *utf)
 
 static int sn_title, sn_button, sn_msg, sn_speed, sn_window, sn_input;
 static int sn_volume, sn_debug, sn_tabview, sn_tabbtn, sn_exit;
-static int sn_cb, sn_cbwrap, sn_hslider, sn_vslider, sn_text, sn_btnsp, sn_cfgmsg;
+static int sn_cb, sn_cbwrap, sn_hslider, sn_vslider, sn_text, sn_btnsp;
+static int sn_cfgmsg, sn_cfgsnd, sn_cfgwin, sn_cfg3d, sn_cfgcfm, sn_cfgetc, sn_cfgetc2;
 static int snos_ready;
 
 static void snos_init(void)
@@ -820,6 +821,12 @@ static void snos_init(void)
 	sn_text = sn_get("CASTextSprite");
 	sn_btnsp = sn_get("CASButtonSprite");
 	sn_cfgmsg = sn_get("T_ConfigMessage");
+	sn_cfgsnd = sn_get("T_ConfigSound");
+	sn_cfgwin = sn_get("T_ConfigWindow");
+	sn_cfg3d = sn_get("T_Config3D");
+	sn_cfgcfm = sn_get("T_ConfigConfirm");
+	sn_cfgetc = sn_get("T_ConfigEtc");
+	sn_cfgetc2 = sn_get("T_ConfigEtc2");
 	snos_ready = 1;
 }
 
@@ -1402,24 +1409,174 @@ static int fill_config(struct page *view)
 	return 1;
 }
 
-static const char *cfg_check_label(int index)
+enum cfg_panel {
+	CFG_NONE = -1,
+	CFG_MSG = 0,
+	CFG_SOUND,
+	CFG_WIN,
+	CFG_3D,
+	CFG_CONFIRM,
+	CFG_ETC,
+	CFG_ETC2
+};
+
+static const char *cfg_section(int panel)
 {
-	switch (index) {
-	case 0: return "Do not start the screensaver during auto mode";
-	case 1: return "Leave message mode when the button is clicked";
-	case 2: return "Stop message skip when a choice menu opens";
-	case 3: return "Stop auto mode when a choice menu opens";
-	case 4: return "Skip frames while message skip is running";
-	case 5: return "Mouse wheel direction (stored flag 0)";
-	case 6: return "Mouse wheel direction (stored flag 1)";
-	case 7: return "Show the sample message";
-	default: return "Checkbox";
+	switch (panel) {
+	case CFG_MSG: return "message";
+	case CFG_SOUND: return "sound";
+	case CFG_WIN: return "window";
+	case CFG_3D: return "3d";
+	case CFG_CONFIRM: return "confirm";
+	case CFG_ETC: return "other";
+	case CFG_ETC2: return "other-2";
+	default: return "config";
 	}
 }
 
-static int cfg_check_on(int index)
+static void slot_str(int slot, char *dst, int n)
+{
+	struct string *s;
+	char *u;
+	dst[0] = 0;
+	if (n <= 0 || !string_index_valid(slot))
+		return;
+	s = heap_get_string(slot);
+	if (!s || s->size <= 0)
+		return;
+	u = sjis2utf(s->text, (size_t)s->size);
+	if (!u)
+		return;
+	clean_copy(dst, n, u);
+	free(u);
+}
+
+static void array_str(struct page *arr, int i, char *dst, int n)
+{
+	dst[0] = 0;
+	if (!arr || arr->type != ARRAY_PAGE || i < 0 || i >= arr->nr_vars)
+		return;
+	slot_str(arr->values[i].i, dst, n);
+}
+
+static void join_str_array(struct page *arr, char *dst, int n)
+{
+	int i, len = 0;
+	dst[0] = 0;
+	if (!arr || arr->type != ARRAY_PAGE)
+		return;
+	for (i = 0; i < arr->nr_vars && len < n - 1; i++) {
+		char piece[200];
+		array_str(arr, i, piece, (int)sizeof piece);
+		if (!piece[0])
+			continue;
+		if (len && len < n - 3) {
+			dst[len++] = ' ';
+			dst[len++] = '/';
+			dst[len++] = ' ';
+			dst[len] = 0;
+		}
+		snprintf(dst + len, (size_t)(n - len), "%s", piece);
+		len = (int)strlen(dst);
+	}
+}
+
+static int check_mark_on(struct page *checks, int index)
+{
+	struct page *sp;
+	if (!checks || checks->type != ARRAY_PAGE || index < 0 || index >= checks->nr_vars)
+		return 0;
+	sp = slot_page(checks->values[index].i);
+	return sp && mem_i(sp, 4) ? 1 : 0;
+}
+
+static const char *cfg_check_label(int panel, int index)
+{
+	if (panel == CFG_MSG) {
+		switch (index) {
+		case 0: return "Do not start the screensaver during auto mode";
+		case 1: return "Leave message mode when the button is clicked";
+		case 2: return "Stop message skip when a choice menu opens";
+		case 3: return "Stop auto mode when a choice menu opens";
+		case 4: return "Skip frames while message skip is running";
+		case 5: return "Mouse wheel direction (stored flag 0)";
+		case 6: return "Mouse wheel direction (stored flag 1)";
+		case 7: return "Show the sample message";
+		}
+	}
+	if (panel == CFG_SOUND) {
+		switch (index) {
+		case 0: return "Mute master";
+		case 1: return "Mute BGM";
+		case 2: return "Mute sound effects";
+		case 3: return "Mute jingle";
+		case 4: return "Mute system sounds";
+		case 5: return "Keep playing sound when the window is in the background";
+		}
+	}
+	if (panel == CFG_WIN) {
+		switch (index) {
+		case 0: return "Windowed";
+		case 1: return "Fullscreen";
+		case 2: return "Aspect ratio: normal";
+		case 3: return "Aspect ratio: fixed";
+		case 4: return "Scaling: standard";
+		case 5: return "Scaling: bicubic";
+		case 6: return "Remember window position and size";
+		case 7: return "Minimize when fullscreen loses focus";
+		case 8: return "Sleep while the window is inactive";
+		case 9: return "Sleep when the frame rate would go too high";
+		}
+	}
+	if (panel == CFG_3D) {
+		switch (index) {
+		case 0: return "3D preset 1";
+		case 1: return "3D preset 2";
+		case 2: return "3D preset 3";
+		case 3: return "3D preset 4";
+		case 4: return "3D preset 5";
+		}
+	}
+	if (panel == CFG_ETC) {
+		switch (index) {
+		case 0: return "Map move style 0";
+		case 1: return "Map move style 1";
+		case 2: return "Screen control mode 0";
+		case 3: return "Screen control mode 1";
+		case 4: return "Move the cursor back automatically";
+		case 5: return "Hide the cursor when the mouse stays still";
+		case 6: return "Battle speed 0";
+		case 7: return "Battle speed 1";
+		case 8: return "Battle speed 2";
+		}
+	}
+	if (panel == CFG_ETC2) {
+		switch (index) {
+		case 0: return "Allow the network connection";
+		case 1: return "Send the play log";
+		}
+	}
+	if (panel == CFG_CONFIRM) {
+		/* Mark is shown when 確認なし(dialog) is false: the game still asks.
+		   Dialog ids are T_ConfigConfirm@getDialogID switch 757, index order. */
+		static const int dialog_ids[] = {
+			1, 2, 10, 11, 12, 13, 14, 31, 20, 21, 22, 30, 32, 40, 15
+		};
+		static char buf[15][72];
+		if (index < 0 || index >= 15)
+			return "Ask before this action";
+		snprintf(buf[index], sizeof buf[index],
+			"Ask before this action (dialog %d)", dialog_ids[index]);
+		return buf[index];
+	}
+	return "Checkbox";
+}
+
+static int cfg_check_on(int panel, int index, struct page *checks)
 {
 	int g = 0;
+	if (panel != CFG_MSG)
+		return check_mark_on(checks, index);
 	switch (index) {
 	case 0: g = 133; break;
 	case 1: g = 130; break;
@@ -1429,13 +1586,22 @@ static int cfg_check_on(int index)
 	case 5: return global_get(138).i == 0;
 	case 6: return global_get(138).i == 1;
 	case 7: g = 128; break;
-	default: return 0;
+	default: return check_mark_on(checks, index);
 	}
 	return global_get(g).i != 0;
 }
 
-static const char *cfg_slider_label(int index)
+static const char *cfg_slider_label(int panel, int index)
 {
+	if (panel == CFG_SOUND) {
+		switch (index) {
+		case 0: return "Master volume";
+		case 1: return "BGM volume";
+		case 2: return "Sound effect volume";
+		case 3: return "Jingle volume";
+		case 4: return "System sound volume";
+		}
+	}
 	switch (index) {
 	case 0: return "Message speed";
 	case 1: return "Auto mode wait";
@@ -1445,9 +1611,11 @@ static const char *cfg_slider_label(int index)
 	}
 }
 
-static void describe_cfg_button(struct ui_ctrl *c, int id, struct page *sliders)
+static void describe_cfg_button(struct ui_ctrl *c, int id, int panel,
+		struct page *sliders, struct page *checks)
 {
 	struct page *sl;
+	const char *sec = cfg_section(panel);
 	if (id >= 100001 && id <= 100008) {
 		static const char *tabs[] = {
 			"message", "sound", "window", "3d", "confirm", "other", "other-2", "debug"
@@ -1456,7 +1624,8 @@ static void describe_cfg_button(struct ui_ctrl *c, int id, struct page *sliders)
 		snprintf(c->label, sizeof c->label, "%s", tabs[id - 100001]);
 		snprintf(c->type, sizeof c->type, "tab");
 		snprintf(c->section, sizeof c->section, "tabs");
-		snprintf(c->value, sizeof c->value, "%s", id == 100001 ? "true" : "false");
+		snprintf(c->value, sizeof c->value, "%s",
+			id == 100001 + panel ? "true" : "false");
 		return;
 	}
 	if (id == 100011) {
@@ -1487,16 +1656,17 @@ static void describe_cfg_button(struct ui_ctrl *c, int id, struct page *sliders)
 		snprintf(c->section, sizeof c->section, "window");
 		return;
 	}
-	if (id >= 220001 && id <= 220008) {
+	if (id >= 220001 && id <= 220008 && (panel == CFG_MSG || panel == CFG_SOUND)) {
 		int n = id - 220001;
 		snprintf(c->id, sizeof c->id, "check-%d", n);
-		snprintf(c->label, sizeof c->label, "%s", cfg_check_label(n));
+		snprintf(c->label, sizeof c->label, "%s", cfg_check_label(panel, n));
 		snprintf(c->type, sizeof c->type, "checkbox");
-		snprintf(c->section, sizeof c->section, "message");
-		snprintf(c->value, sizeof c->value, "%s", cfg_check_on(n) ? "true" : "false");
+		snprintf(c->section, sizeof c->section, "%s", sec);
+		snprintf(c->value, sizeof c->value, "%s",
+			cfg_check_on(panel, n, checks) ? "true" : "false");
 		return;
 	}
-	if (id >= 230001 && id <= 230004) {
+	if (id >= 230001 && id <= 230008 && (panel == CFG_MSG || panel == CFG_SOUND)) {
 		int n = id - 230001;
 		float rate = 0;
 		sl = NULL;
@@ -1505,34 +1675,129 @@ static void describe_cfg_button(struct ui_ctrl *c, int id, struct page *sliders)
 		if (sl && sl->nr_vars > 5)
 			rate = sl->values[5].f;
 		snprintf(c->id, sizeof c->id, "slider-%d", n);
-		snprintf(c->label, sizeof c->label, "%s", cfg_slider_label(n));
+		snprintf(c->label, sizeof c->label, "%s", cfg_slider_label(panel, n));
 		snprintf(c->type, sizeof c->type, "slider");
-		snprintf(c->section, sizeof c->section, "message");
+		snprintf(c->section, sizeof c->section, "%s", sec);
 		snprintf(c->value, sizeof c->value, "%.2f", rate);
 		return;
 	}
-	if (id >= 210001 && id < 220000) {
+	if (id >= 210001 && id < 220000 && (panel == CFG_MSG || panel == CFG_SOUND)) {
 		snprintf(c->id, sizeof c->id, "reset-%d", id - 210001);
 		snprintf(c->label, sizeof c->label, "Reset");
 		snprintf(c->type, sizeof c->type, "button");
-		snprintf(c->section, sizeof c->section, "message");
+		snprintf(c->section, sizeof c->section, "%s", sec);
+		return;
+	}
+	if (id >= 210001 && id <= 210020 && panel != CFG_MSG && panel != CFG_SOUND) {
+		int n = id - 210001;
+		snprintf(c->id, sizeof c->id, "check-%d", n);
+		snprintf(c->label, sizeof c->label, "%s", cfg_check_label(panel, n));
+		snprintf(c->type, sizeof c->type, "checkbox");
+		snprintf(c->section, sizeof c->section, "%s", sec);
+		snprintf(c->value, sizeof c->value, "%s",
+			check_mark_on(checks, n) ? "true" : "false");
+		return;
+	}
+	if (id == 200001) {
+		snprintf(c->id, sizeof c->id, "manual");
+		snprintf(c->label, sizeof c->label, "Manual");
+		snprintf(c->type, sizeof c->type, "button");
+		snprintf(c->section, sizeof c->section, "%s", sec);
 		return;
 	}
 	snprintf(c->id, sizeof c->id, "b%d", id);
 	snprintf(c->type, sizeof c->type, "button");
+	snprintf(c->section, sizeof c->section, "%s", sec);
 }
 
-static int fill_cfgmsg(struct page *msg)
+static void emit_text_ctrl(const char *id, const char *type, const char *section,
+		const char *label, const char *value)
 {
-	struct page *group, *arr, *sliders;
-	int i, n0;
-	group = mem_page(msg, 1);
+	struct ui_ctrl *c = ctrl_alloc();
+	if (!c)
+		return;
+	snprintf(c->id, sizeof c->id, "%s", id);
+	if (label)
+		snprintf(c->label, sizeof c->label, "%s", label);
+	snprintf(c->type, sizeof c->type, "%s", type);
+	if (section)
+		snprintf(c->section, sizeof c->section, "%s", section);
+	if (value)
+		snprintf(c->value, sizeof c->value, "%s", value);
+	c->enabled = 1;
+	c->armed = 0;
+	if (label && label[0])
+		text_add(label);
+}
+
+static void emit_3d_detail(struct page *d3)
+{
+	struct page *names, *opts, *comments, *chosen, *shown;
+	int i, n, cur;
+	names = mem_page(d3, 21);
+	opts = mem_page(d3, 23);
+	comments = mem_page(d3, 25);
+	chosen = mem_page(d3, 34);
+	shown = mem_page(d3, 22);
+	cur = mem_i(d3, 33);
+	n = names && names->type == ARRAY_PAGE ? names->nr_vars : 0;
+	if (n <= 0 && shown && shown->type == ARRAY_PAGE)
+		n = shown->nr_vars;
+	for (i = 0; i < n && i < 24; i++) {
+		struct page *wrap, *list, *cwrap, *clist;
+		char id[40], name[160], value[160], comment[400];
+		int pick = -1;
+		name[0] = value[0] = comment[0] = 0;
+		array_str(names, i, name, (int)sizeof name);
+		if (!name[0] && shown && shown->type == ARRAY_PAGE && i < shown->nr_vars) {
+			struct page *sp = slot_page(shown->values[i].i);
+			mem_str(sp, 4, name, (int)sizeof name);
+		}
+		if (chosen && chosen->type == ARRAY_PAGE && i < chosen->nr_vars)
+			pick = chosen->values[i].i;
+		wrap = opts && opts->type == ARRAY_PAGE && i < opts->nr_vars
+			? slot_page(opts->values[i].i) : NULL;
+		list = mem_page(wrap, 0);
+		if (pick >= 0)
+			array_str(list, pick, value, (int)sizeof value);
+		cwrap = comments && comments->type == ARRAY_PAGE && i < comments->nr_vars
+			? slot_page(comments->values[i].i) : NULL;
+		clist = mem_page(cwrap, 0);
+		join_str_array(clist, comment, (int)sizeof comment);
+		snprintf(id, sizeof id, "cat-%d", i);
+		emit_text_ctrl(id, "category", "3d / graphics",
+			name[0] ? name : "category", value);
+		if (i == cur && list && list->type == ARRAY_PAGE) {
+			int k;
+			for (k = 0; k < list->nr_vars && k < 12; k++) {
+				char cid[40], opt[160];
+				array_str(list, k, opt, (int)sizeof opt);
+				snprintf(cid, sizeof cid, "choice-%d", k);
+				emit_text_ctrl(cid, "choice", "3d / values",
+					opt[0] ? opt : "option", k == pick ? "true" : "false");
+			}
+		}
+		if (comment[0]) {
+			snprintf(id, sizeof id, i == cur ? "explain" : "explain-%d", i);
+			emit_text_ctrl(id, "text", "3d / explanation", comment,
+				i == cur ? "selected" : "other");
+		}
+	}
+}
+
+static int fill_cfg_panel(struct page *panel, int kind)
+{
+	struct page *group, *arr, *sliders, *checks;
+	int i, n0, check_member;
+	group = mem_page(panel, 1);
 	arr = mem_page(group, 0);
-	sliders = mem_page(msg, 2);
+	sliders = (kind == CFG_MSG || kind == CFG_SOUND) ? mem_page(panel, 2) : NULL;
+	check_member = (kind == CFG_MSG || kind == CFG_SOUND) ? 4 : 3;
+	checks = mem_page(panel, check_member);
 	if (!arr || arr->type != ARRAY_PAGE)
 		return 0;
 	n0 = g_nctrls;
-	text_add("message");
+	text_add(cfg_section(kind));
 	for (i = 0; i < arr->nr_vars; i++) {
 		struct page *btn = slot_page(arr->values[i].i);
 		struct ui_ctrl *c;
@@ -1545,7 +1810,7 @@ static int fill_cfgmsg(struct page *msg)
 		c = ctrl_alloc();
 		if (!c)
 			break;
-		describe_cfg_button(c, id, sliders);
+		describe_cfg_button(c, id, kind, sliders, checks);
 		c->button = id;
 		c->index = i;
 		c->x = x;
@@ -1562,6 +1827,8 @@ static int fill_cfgmsg(struct page *msg)
 		if (c->label[0])
 			text_add(c->label);
 	}
+	if (kind == CFG_3D)
+		emit_3d_detail(panel);
 	if (g_nctrls == n0)
 		return 0;
 	snprintf(g_screen, sizeof g_screen, "config");
@@ -1569,10 +1836,22 @@ static int fill_cfgmsg(struct page *msg)
 	return 1;
 }
 
+static int cfg_kind(int index)
+{
+	if (index == sn_cfgmsg) return CFG_MSG;
+	if (index == sn_cfgsnd) return CFG_SOUND;
+	if (index == sn_cfgwin) return CFG_WIN;
+	if (index == sn_cfg3d) return CFG_3D;
+	if (index == sn_cfgcfm) return CFG_CONFIRM;
+	if (index == sn_cfgetc) return CFG_ETC;
+	if (index == sn_cfgetc2) return CFG_ETC2;
+	return CFG_NONE;
+}
+
 static int vm_fill(void)
 {
 	struct page *view = NULL, *title = NULL, *cfg = NULL;
-	int i, view_at = 99, title_at = 99, cfg_at = 99;
+	int i, view_at = 99, title_at = 99, cfg_at = 99, kind = CFG_NONE;
 	snos_init();
 	if (!ain)
 		return 0;
@@ -1584,9 +1863,10 @@ static int vm_fill(void)
 			view = p;
 			view_at = i;
 		}
-		if (p->index == sn_cfgmsg && i < cfg_at) {
+		if (cfg_kind(p->index) != CFG_NONE && i < cfg_at) {
 			cfg = p;
 			cfg_at = i;
+			kind = cfg_kind(p->index);
 		}
 		if (p->index == sn_title && i < title_at) {
 			title = p;
@@ -1594,7 +1874,7 @@ static int vm_fill(void)
 		}
 	}
 	if (cfg)
-		return fill_cfgmsg(cfg);
+		return fill_cfg_panel(cfg, kind);
 	if (view)
 		return fill_config(view);
 	if (title && !stack_has(U8_WARN))
