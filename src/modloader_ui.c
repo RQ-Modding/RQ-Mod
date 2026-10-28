@@ -60,11 +60,13 @@ __declspec(dllimport) unsigned long long __stdcall GetTickCount64(void);
 #define U8_XSMALL       "\xEF\xBD\x98"
 #define U8_XBIG         "\xEF\xBC\xB8"
 
-#define CTRL_MAX 128
+#define CTRL_MAX 256
 #define TEXT_MAX 48
 #define TEXT_LEN 200
 #define LABEL_LEN 280
-#define JSON_MAX (160 * 1024)
+#define JSON_MAX (320 * 1024)
+#define UNIT_MAX 128
+#define SKILL_MAX 24
 #define NOTE_N 48
 #define NOTE_LEN 700
 #define FRAME_MS 4000
@@ -116,6 +118,68 @@ struct hub_info {
 	int trivia_new;
 };
 
+struct unit_row {
+	int index;
+	int chara;
+	int job;
+	int level;
+	int level_max;
+	int no_limit;
+	int visible;
+	char name[80];
+};
+
+struct skill_row {
+	int id;
+	int rank;
+	int owned;
+	int active;
+	int cost;
+	char name[80];
+};
+
+struct status_dump {
+	int ok;
+	int chara;
+	int job;
+	int level;
+	int level_max;
+	int no_limit;
+	int exp;
+	int exp_max;
+	int hp;
+	int hp_max;
+	int atk;
+	int def;
+	int mag;
+	int mdef;
+	int hit;
+	int eva;
+	int crit;
+	int impact;
+	int resist;
+	int spd;
+	int points;
+	int equip[4];
+	int n_active;
+	int n_learned;
+	struct skill_row active[6];
+	struct skill_row learned[SKILL_MAX];
+	char name[80];
+	char job_name[40];
+};
+
+struct party_state {
+	int ok;
+	int layout; /* 0=10, 1=32 */
+	int sort_mode;
+	int job_type;
+	int filter_on;
+	int open_flag;
+	int top_index;
+	int list_count;
+};
+
 struct ui_snap {
 	char screen[24];
 	char hover[40];
@@ -144,6 +208,11 @@ static struct party_row g_party[5];
 static int g_nparty;
 static int g_has_party;
 static struct hub_info g_info;
+static struct unit_row g_units[UNIT_MAX];
+static int g_nunits;
+static int g_has_units;
+static struct party_state g_pstate;
+static struct status_dump g_status;
 
 struct sp_note {
 	int sp;
@@ -757,6 +826,101 @@ static void add_info_json(cJSON *root)
 	cJSON_AddBoolToObject(o, "triviaNew", g_info.trivia_new ? 1 : 0);
 }
 
+static void add_units_json(cJSON *root)
+{
+	cJSON *arr = cJSON_AddArrayToObject(root, "units");
+	int i;
+	for (i = 0; i < g_nunits; i++) {
+		struct unit_row *r = &g_units[i];
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddNumberToObject(o, "index", r->index);
+		cJSON_AddNumberToObject(o, "chara", r->chara);
+		cJSON_AddStringToObject(o, "name", r->name);
+		cJSON_AddStringToObject(o, "class", job_name(r->job));
+		cJSON_AddNumberToObject(o, "classId", r->job);
+		cJSON_AddNumberToObject(o, "level", r->level);
+		if (r->no_limit)
+			cJSON_AddNullToObject(o, "levelLimit");
+		else
+			cJSON_AddNumberToObject(o, "levelLimit", r->level_max);
+		cJSON_AddBoolToObject(o, "noLimit", r->no_limit ? 1 : 0);
+		cJSON_AddBoolToObject(o, "visible", r->visible ? 1 : 0);
+		cJSON_AddItemToArray(arr, o);
+	}
+}
+
+static void add_party_state_json(cJSON *root)
+{
+	cJSON *o = cJSON_AddObjectToObject(root, "partyState");
+	cJSON_AddNumberToObject(o, "tableSize", g_pstate.layout == 1 ? 32 : 10);
+	cJSON_AddNumberToObject(o, "layout", g_pstate.layout);
+	cJSON_AddNumberToObject(o, "sortMode", g_pstate.sort_mode);
+	cJSON_AddNumberToObject(o, "jobType", g_pstate.job_type);
+	cJSON_AddBoolToObject(o, "filterOn", g_pstate.filter_on ? 1 : 0);
+	cJSON_AddBoolToObject(o, "openFlag", g_pstate.open_flag ? 1 : 0);
+	cJSON_AddNumberToObject(o, "topIndex", g_pstate.top_index);
+	cJSON_AddNumberToObject(o, "listCount", g_pstate.list_count);
+}
+
+static void add_skill_array(cJSON *parent, const char *key, struct skill_row *rows, int n)
+{
+	cJSON *arr = cJSON_AddArrayToObject(parent, key);
+	int i;
+	for (i = 0; i < n; i++) {
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddNumberToObject(o, "id", rows[i].id);
+		cJSON_AddStringToObject(o, "name", rows[i].name);
+		cJSON_AddNumberToObject(o, "rank", rows[i].rank);
+		cJSON_AddNumberToObject(o, "cost", rows[i].cost);
+		cJSON_AddBoolToObject(o, "owned", rows[i].owned ? 1 : 0);
+		cJSON_AddBoolToObject(o, "active", rows[i].active ? 1 : 0);
+		cJSON_AddItemToArray(arr, o);
+	}
+}
+
+static void add_status_json(cJSON *root)
+{
+	cJSON *o, *eq, *st;
+	int i;
+	if (!g_status.ok)
+		return;
+	o = cJSON_AddObjectToObject(root, "status");
+	cJSON_AddNumberToObject(o, "chara", g_status.chara);
+	cJSON_AddStringToObject(o, "name", g_status.name);
+	cJSON_AddStringToObject(o, "class", g_status.job_name[0] ? g_status.job_name : job_name(g_status.job));
+	cJSON_AddNumberToObject(o, "classId", g_status.job);
+	cJSON_AddNumberToObject(o, "level", g_status.level);
+	if (g_status.no_limit)
+		cJSON_AddNullToObject(o, "levelLimit");
+	else
+		cJSON_AddNumberToObject(o, "levelLimit", g_status.level_max);
+	cJSON_AddBoolToObject(o, "noLimit", g_status.no_limit ? 1 : 0);
+	cJSON_AddNumberToObject(o, "exp", g_status.exp);
+	cJSON_AddNumberToObject(o, "expMax", g_status.exp_max);
+	cJSON_AddNumberToObject(o, "storedPoints", g_status.points);
+	st = cJSON_AddObjectToObject(o, "stats");
+	cJSON_AddNumberToObject(st, "hp", g_status.hp);
+	cJSON_AddNumberToObject(st, "hpMax", g_status.hp_max);
+	cJSON_AddNumberToObject(st, "atk", g_status.atk);
+	cJSON_AddNumberToObject(st, "def", g_status.def);
+	cJSON_AddNumberToObject(st, "mag", g_status.mag);
+	cJSON_AddNumberToObject(st, "mdef", g_status.mdef);
+	cJSON_AddNumberToObject(st, "hit", g_status.hit);
+	cJSON_AddNumberToObject(st, "eva", g_status.eva);
+	cJSON_AddNumberToObject(st, "crit", g_status.crit);
+	cJSON_AddNumberToObject(st, "impact", g_status.impact);
+	cJSON_AddNumberToObject(st, "resist", g_status.resist);
+	cJSON_AddNumberToObject(st, "spd", g_status.spd);
+	eq = cJSON_AddObjectToObject(o, "equipment");
+	cJSON_AddNumberToObject(eq, "option", g_status.equip[0]);
+	cJSON_AddNumberToObject(eq, "weapon", g_status.equip[1]);
+	cJSON_AddNumberToObject(eq, "armor", g_status.equip[2]);
+	cJSON_AddNumberToObject(eq, "item", g_status.equip[3]);
+	add_skill_array(o, "activeSkills", g_status.active, g_status.n_active);
+	add_skill_array(o, "learnedSkills", g_status.learned, g_status.n_learned);
+	(void)i;
+}
+
 static void build_json(char *dst, int dstsz)
 {
 	cJSON *root, *text, *controls;
@@ -807,6 +971,12 @@ static void build_json(char *dst, int dstsz)
 		cJSON_AddNullToObject(root, "hover");
 	if (g_has_party)
 		add_party_json(root);
+	if (g_has_units)
+		add_units_json(root);
+	if (g_pstate.ok)
+		add_party_state_json(root);
+	if (g_status.ok)
+		add_status_json(root);
 	if (g_info.ok)
 		add_info_json(root);
 	printed = cJSON_PrintUnformatted(root);
@@ -887,6 +1057,7 @@ static int sn_volume, sn_debug, sn_tabview, sn_tabbtn, sn_exit;
 static int sn_cb, sn_cbwrap, sn_hslider, sn_vslider, sn_text, sn_btnsp;
 static int sn_cfgmsg, sn_cfgsnd, sn_cfgwin, sn_cfg3d, sn_cfgcfm, sn_cfgetc, sn_cfgetc2;
 static int sn_town, sn_sysbar, sn_sysmenu, sn_mini, sn_sysinfo, sn_pstatus;
+static int sn_party, sn_status;
 static int snos_ready;
 
 static void snos_init(void)
@@ -923,6 +1094,8 @@ static void snos_init(void)
 	sn_mini = sn_get("T_MiniStatusManager");
 	sn_sysinfo = sn_get("T_SystemInfo");
 	sn_pstatus = sn_get("T_PartyStatus");
+	sn_party = sn_get("T_Party");
+	sn_status = sn_get("T_Status");
 	snos_ready = 1;
 }
 
@@ -1234,6 +1407,7 @@ static int fill_title(struct page *title)
 #define U8_WORLD "\xE2\x97\x86\xE3\x83\xAF\xE3\x83\xBC\xE3\x83\xAB\xE3\x83\x89"
 
 static int gi_town = -2, gi_bar = -2, gi_menu = -2, gi_mini = -2, gi_info = -2, gi_world = -2;
+static int gi_party = -2, gi_status = -2, gi_chara = -2, gi_skill = -2;
 
 static int memb(struct page *p, const char *name)
 {
@@ -1263,6 +1437,39 @@ static int fint(struct page *p, const char *name)
 static void fstr(struct page *p, const char *name, char *dst, int n)
 {
 	mem_str(p, memb(p, name), dst, n);
+}
+
+/* AIN member names for Japanese fields are SJIS; accept UTF-8 too. */
+static int memb_utf(struct page *p, const char *utf)
+{
+	char *sj;
+	int m;
+	if (!utf)
+		return -1;
+	m = memb(p, utf);
+	if (m >= 0)
+		return m;
+	sj = utf2sjis(utf, 0);
+	if (!sj)
+		return -1;
+	m = memb(p, sj);
+	free(sj);
+	return m;
+}
+
+static int fint_utf(struct page *p, const char *utf)
+{
+	return mem_i(p, memb_utf(p, utf));
+}
+
+static void fstr_utf(struct page *p, const char *utf, char *dst, int n)
+{
+	mem_str(p, memb_utf(p, utf), dst, n);
+}
+
+static struct page *fpage_utf(struct page *p, const char *utf)
+{
+	return mem_page(p, memb_utf(p, utf));
 }
 
 static struct page *arr_at(struct page *arr, int i)
@@ -2397,9 +2604,598 @@ static int cfg_kind(int index)
 	return CFG_NONE;
 }
 
+/* Fullwidth Ｃ / Ｓ globals hold character and skill master data. */
+#define U8_CHARA_ARR "\xEF\xBC\xA3"
+#define U8_SKILL_ARR "\xEF\xBC\xB3"
+
+static struct page *chara_page(int no)
+{
+	struct page *arr;
+	if (no <= 0)
+		return NULL;
+	if (global_index(&gi_chara, U8_CHARA_ARR) < 0)
+		return NULL;
+	arr = slot_page(global_get(gi_chara).i);
+	if (!arr || arr->type != ARRAY_PAGE || no >= arr->nr_vars)
+		return NULL;
+	return slot_page(arr->values[no].i);
+}
+
+static struct page *skill_def_page(int no)
+{
+	struct page *arr;
+	if (no <= 0)
+		return NULL;
+	if (global_index(&gi_skill, U8_SKILL_ARR) < 0)
+		return NULL;
+	arr = slot_page(global_get(gi_skill).i);
+	if (!arr || arr->type != ARRAY_PAGE || no >= arr->nr_vars)
+		return NULL;
+	return slot_page(arr->values[no].i);
+}
+
+static void skill_name(int id, char *dst, int n)
+{
+	struct page *sk;
+	dst[0] = 0;
+	sk = skill_def_page(id);
+	if (sk)
+		fstr_utf(sk, "\xE5\x90\x8D\xE5\x89\x8D", dst, n); /* 名前 */
+	if (!dst[0])
+		snprintf(dst, n, "skill-%d", id);
+}
+
+static void read_unit_from_chara(struct unit_row *r, int chara)
+{
+	struct page *c = chara_page(chara);
+	int lv_max;
+	r->chara = chara;
+	r->name[0] = 0;
+	r->job = 0;
+	r->level = 0;
+	r->level_max = 0;
+	r->no_limit = 0;
+	if (!c)
+		return;
+	fstr_utf(c, "\xE5\x90\x8D\xE5\x89\x8D", r->name, (int)sizeof r->name);
+	r->job = fint_utf(c, "\xE8\x81\xB7\xE6\xA5\xAD"); /* 職業 */
+	r->level = fint_utf(c, "\xEF\xBC\xAC\xEF\xBC\xB6"); /* ＬＶ */
+	lv_max = fint_utf(c, "\xEF\xBC\xAC\xEF\xBC\xB6\xE6\x9C\x80\xE5\xA4\xA7"); /* ＬＶ最大 */
+	r->level_max = lv_max;
+	r->no_limit = (lv_max == 2147483647) ? 1 : 0;
+}
+
+static void read_card_job_level(struct page *card, struct unit_row *r)
+{
+	struct page *job;
+	if (!card)
+		return;
+	job = fpage(card, "m_sJob");
+	if (!job)
+		return;
+	if (!r->job)
+		r->job = fint(fpage(job, "m_sJob"), "m_nType");
+	if (!r->job)
+		r->job = fint(job, "m_nType");
+	r->level = fint(fpage(job, "m_sLevel"), "m_nValue");
+	r->level_max = fint(fpage(job, "m_sMax"), "m_nValue");
+	r->no_limit = fint(job, "m_bInfinity") ? 1 : 0;
+}
+
+static const char *party_btn_name(int id, const char **label)
+{
+	static const char *filters[] = {
+		"filter-fighter", "filter-guard", "filter-gunner", "filter-sorcerer",
+		"filter-healer", "filter-ranger", "filter-brawler", "filter-civilian"
+	};
+	*label = NULL;
+	switch (id) {
+	case 100001: *label = "Reset"; return "reset";
+	case 100002: *label = "Remove All"; return "remove-all";
+	case 100003: *label = "Open"; return "open";
+	case 100031: *label = "10"; return "size-10";
+	case 100032: *label = "32"; return "size-32";
+	case 109999: *label = "Close"; return "close";
+	case 170001: *label = "Join Order"; return "sort-join";
+	case 170002: *label = "High LV"; return "sort-high-lv";
+	case 170003: *label = "Low LV"; return "sort-low-lv";
+	case 170009: *label = "Custom"; return "sort-custom";
+	default:
+		break;
+	}
+	if (id > 180000 && id <= 180008) {
+		int j = id - 180000;
+		*label = job_name(j);
+		return filters[j - 1];
+	}
+	if (id > 130000 && id <= 130005) {
+		*label = "Party rank";
+		return NULL; /* filled as rank-N */
+	}
+	if (id > 120000 && id < 130000) {
+		*label = "Unit";
+		return NULL; /* filled as unit-N */
+	}
+	if (id > 119000 && id <= 119005) {
+		*label = "Status";
+		return NULL;
+	}
+	if (id > 114000 && id < 119000) {
+		*label = "Status";
+		return NULL;
+	}
+	return NULL;
+}
+
+static void emit_named_btn(struct page *btn, int index, const char *id, const char *label,
+		const char *section, const char *value, int hover_only)
+{
+	struct ui_ctrl *c = emit_tbtn(btn, index, id, label, section);
+	if (!c)
+		return;
+	if (value && value[0])
+		snprintf(c->value, sizeof c->value, "%s", value);
+	if (hover_only)
+		c->hover_only = 1;
+}
+
+static int fill_party_edit(struct page *party)
+{
+	struct page *btns, *arr, *list_mgr, *chara_list, *ids, *job, *sort, *chara_mgr;
+	struct page *as_chara;
+	int i, n0 = g_nctrls;
+	int layout, sort_mode, job_type, top, count;
+
+	if (!party || !sprite_live(fpage(party, "m_spBase")))
+		return 0;
+
+	list_mgr = fpage(party, "m_sList");
+	chara_list = fpage(list_mgr, "m_sList");
+	job = fpage(party, "m_sJob");
+	sort = fpage(party, "m_sSort");
+	chara_mgr = fpage(party, "m_sChara");
+	layout = fint(list_mgr, "m_nLayout");
+	sort_mode = fint(chara_list, "m_nSortMode");
+	job_type = fint(job, "m_nJobType");
+	if (!job_type)
+		job_type = fint(chara_list, "m_nJobType");
+	top = fint(list_mgr, "m_nTopIndex");
+	ids = fpage(chara_list, "m_anCharaNo");
+	count = ids && ids->type == ARRAY_PAGE ? ids->nr_vars : 0;
+
+	g_pstate.ok = 1;
+	g_pstate.layout = layout;
+	g_pstate.sort_mode = sort_mode;
+	g_pstate.job_type = job_type;
+	g_pstate.filter_on = job_type > 0;
+	g_pstate.open_flag = fint(party, "m_bOpenFlag") ? 1 : 0;
+	g_pstate.top_index = top;
+	g_pstate.list_count = count;
+
+	/* Owned units: full filtered/sorted list from T_CharaList. */
+	g_nunits = 0;
+	g_has_units = 1;
+	for (i = 0; i < count && g_nunits < UNIT_MAX; i++) {
+		struct unit_row *r = &g_units[g_nunits++];
+		memset(r, 0, sizeof *r);
+		r->index = i;
+		r->chara = ids->values[i].i;
+		read_unit_from_chara(r, r->chara);
+		r->visible = (i >= top && i < top + (layout == 1 ? 32 : 10));
+	}
+
+	/* Enrich visible cards (name text on layout 0). */
+	as_chara = fpage(list_mgr, "m_asChara");
+	if (as_chara && as_chara->type == ARRAY_PAGE) {
+		for (i = 0; i < as_chara->nr_vars; i++) {
+			struct page *pl = arr_at(as_chara, i);
+			struct page *card;
+			struct unit_row *r = NULL;
+			int chara, list_i, lay;
+			if (!pl)
+				continue;
+			lay = fint(pl, "m_nLayout");
+			card = (lay == 0) ? fpage(pl, "m_sMiniCard") : fpage(pl, "m_sMiniMiniCard");
+			chara = 0;
+			if (card) {
+				chara = fint(fpage(fpage(card, "m_sSkill"), "m_sList"), "m_nCharaNo");
+				if (!chara)
+					chara = fint(card, "m_nCharaNo");
+			}
+			list_i = top + i;
+			if (list_i >= 0 && list_i < g_nunits)
+				r = &g_units[list_i];
+			if (r && chara > 0)
+				r->chara = chara;
+			if (r && card) {
+				char name[80];
+				name[0] = 0;
+				fstr(fpage(card, "m_sName"), "m_szText", name, (int)sizeof name);
+				if (name[0])
+					snprintf(r->name, sizeof r->name, "%s", name);
+				read_card_job_level(card, r);
+				r->visible = 1;
+			}
+		}
+	}
+
+	/* Formation ranks from party manager / mini-like cards. */
+	g_nparty = 0;
+	g_has_party = 1;
+	if (chara_mgr) {
+		struct page *cards = fpage(chara_mgr, "m_asChara");
+		for (i = 0; i < 5; i++) {
+			struct page *card = arr_at(cards, i);
+			struct party_row *r;
+			int chara = 0;
+			if (card)
+				chara = fint(card, "m_nCharaNo");
+			if (!chara && card)
+				chara = fint(fpage(fpage(card, "m_sSkill"), "m_sList"), "m_nCharaNo");
+			r = &g_party[g_nparty++];
+			memset(r, 0, sizeof *r);
+			r->slot = i + 1;
+			r->chara = chara;
+			r->back_row = i >= 3;
+			if (chara > 0) {
+				struct unit_row tmp;
+				memset(&tmp, 0, sizeof tmp);
+				read_unit_from_chara(&tmp, chara);
+				snprintf(r->name, sizeof r->name, "%s", tmp.name);
+				r->job = tmp.job;
+				r->level = tmp.level;
+				r->level_max = tmp.level_max;
+				r->no_limit = tmp.no_limit;
+			}
+		}
+	}
+
+	btns = fpage(party, "m_sButton");
+	arr = fpage(btns, "m_asButton");
+	if (arr && arr->type == ARRAY_PAGE) {
+		for (i = 0; i < arr->nr_vars; i++) {
+			struct page *btn = arr_at(arr, i);
+			const char *label = NULL, *name;
+			char id[40], value[80];
+			int bid, slot, idx;
+			struct tbtn b;
+			if (!tbtn_read(btn, &b) || !b.show)
+				continue;
+			bid = b.id;
+			name = party_btn_name(bid, &label);
+			value[0] = 0;
+			if (bid > 130000 && bid <= 130005) {
+				slot = bid - 130000;
+				snprintf(id, sizeof id, "rank-%d", slot);
+				if (slot >= 1 && slot <= g_nparty && g_party[slot - 1].name[0])
+					label = g_party[slot - 1].name;
+				else if (!label)
+					label = "empty";
+				emit_named_btn(btn, i, id, label, "party-edit", value, 0);
+			} else if (bid > 119000 && bid <= 119005) {
+				slot = bid - 119000;
+				snprintf(id, sizeof id, "rank-status-%d", slot);
+				snprintf(value, sizeof value, "rank-%d", slot);
+				emit_named_btn(btn, i, id, "Status", "party-edit", value, 1);
+			} else if (bid > 120000 && bid < 130000) {
+				idx = bid - 120001;
+				snprintf(id, sizeof id, "unit-%d", idx);
+				if (top + idx < g_nunits && g_units[top + idx].name[0])
+					label = g_units[top + idx].name;
+				else if (!label)
+					label = "unit";
+				if (top + idx < g_nunits)
+					snprintf(value, sizeof value, "%s Lv %d",
+						 job_name(g_units[top + idx].job),
+						 g_units[top + idx].level);
+				emit_named_btn(btn, i, id, label, "party-edit", value, 0);
+			} else if (bid > 114000 && bid < 119000) {
+				idx = bid - 114001;
+				snprintf(id, sizeof id, "unit-status-%d", idx);
+				snprintf(value, sizeof value, "unit-%d", idx);
+				emit_named_btn(btn, i, id, "Status", "party-edit", value, 1);
+			} else if (name) {
+				if (bid == 100031)
+					snprintf(value, sizeof value, "%s", layout == 0 ? "selected" : "");
+				else if (bid == 100032)
+					snprintf(value, sizeof value, "%s", layout == 1 ? "selected" : "");
+				else if (bid >= 170001 && bid <= 170009)
+					snprintf(value, sizeof value, "%s",
+						 (sort_mode > 0 && bid == 170000 + sort_mode) ? "selected" : "");
+				else if (bid > 180000 && bid <= 180008)
+					snprintf(value, sizeof value, "%s",
+						 (job_type == bid - 180000) ? "selected" : "");
+				emit_named_btn(btn, i, name, label, "party-edit", value, 0);
+			}
+		}
+	}
+
+	/* Sort / filter buttons live in their own groups. */
+	{
+		struct page *groups[2];
+		int g;
+		groups[0] = sort ? fpage(sort, "m_sButton") : NULL;
+		groups[1] = job ? fpage(job, "m_sButton") : NULL;
+		for (g = 0; g < 2; g++) {
+			struct page *ga = fpage(groups[g], "m_asButton");
+			if (!ga || ga->type != ARRAY_PAGE)
+				continue;
+			for (i = 0; i < ga->nr_vars; i++) {
+				struct page *btn = arr_at(ga, i);
+				const char *label = NULL, *name;
+				int bid;
+				if (!btn)
+					continue;
+				bid = fint(btn, "m_nID");
+				name = party_btn_name(bid, &label);
+				if (!name)
+					continue;
+				emit_named_btn(btn, i, name, label, "party-edit", "", 0);
+			}
+		}
+	}
+
+	/* Mark selected sort/filter/size after emit_group (overwrite value). */
+	for (i = 0; i < g_nctrls; i++) {
+		struct ui_ctrl *c = &g_ctrls[i];
+		if (strcmp(c->section, "party-edit") != 0)
+			continue;
+		if (!strcmp(c->id, "size-10")) {
+			c->has_select = 1;
+			c->selected = layout == 0;
+			snprintf(c->value, sizeof c->value, "%s", layout == 0 ? "selected" : "");
+		} else if (!strcmp(c->id, "size-32")) {
+			c->has_select = 1;
+			c->selected = layout == 1;
+			snprintf(c->value, sizeof c->value, "%s", layout == 1 ? "selected" : "");
+		} else if (!strncmp(c->id, "sort-", 5)) {
+			int want = 0;
+			if (!strcmp(c->id, "sort-join")) want = 1;
+			else if (!strcmp(c->id, "sort-high-lv")) want = 2;
+			else if (!strcmp(c->id, "sort-low-lv")) want = 3;
+			else if (!strcmp(c->id, "sort-custom")) want = 9;
+			c->has_select = 1;
+			c->selected = (sort_mode == want);
+			snprintf(c->value, sizeof c->value, "%s", c->selected ? "selected" : "");
+		} else if (!strncmp(c->id, "filter-", 7)) {
+			int j;
+			for (j = 1; j <= 8; j++) {
+				if (!strcmp(c->label, job_name(j)) || c->button == 180000 + j) {
+					c->has_select = 1;
+					c->selected = (job_type == j);
+					snprintf(c->value, sizeof c->value, "%s",
+						 c->selected ? "selected" : "");
+					break;
+				}
+			}
+		}
+	}
+
+	if (g_nctrls == n0)
+		return 0;
+	snprintf(g_screen, sizeof g_screen, "party-edit");
+	hover_from_rects();
+	return 1;
+}
+
+static void fill_status_skills(struct page *card)
+{
+	struct page *equip = fpage(card, "m_sEquipSkill");
+	struct page *hold = fpage(card, "m_sHoldSkill");
+	struct page *arr;
+	int i;
+
+	g_status.n_active = 0;
+	g_status.n_learned = 0;
+	arr = fpage(equip, "m_asSkill");
+	if (arr && arr->type == ARRAY_PAGE) {
+		for (i = 0; i < arr->nr_vars && g_status.n_active < 6; i++) {
+			struct page *btn = arr_at(arr, i);
+			struct skill_row *s;
+			int id;
+			if (!btn)
+				continue;
+			id = fint(btn, "m_nSkillNo");
+			if (id <= 0)
+				continue;
+			s = &g_status.active[g_status.n_active++];
+			memset(s, 0, sizeof *s);
+			s->id = id;
+			s->active = 1;
+			s->owned = 1;
+			skill_name(id, s->name, (int)sizeof s->name);
+		}
+	}
+	arr = fpage(hold, "m_asSkill");
+	if (arr && arr->type == ARRAY_PAGE) {
+		for (i = 0; i < arr->nr_vars && g_status.n_learned < SKILL_MAX; i++) {
+			struct page *btn = arr_at(arr, i);
+			struct skill_row *s;
+			int id;
+			if (!btn)
+				continue;
+			id = fint(btn, "m_nSkillNo");
+			if (id <= 0)
+				continue;
+			s = &g_status.learned[g_status.n_learned++];
+			memset(s, 0, sizeof *s);
+			s->id = id;
+			s->owned = 1;
+			skill_name(id, s->name, (int)sizeof s->name);
+		}
+	}
+}
+
+static void fill_status_from_chara(int chara)
+{
+	struct page *c = chara_page(chara);
+	struct page *skills, *active;
+	int i, lv_max;
+	if (!c)
+		return;
+	g_status.chara = chara;
+	fstr_utf(c, "\xE5\x90\x8D\xE5\x89\x8D", g_status.name, (int)sizeof g_status.name);
+	g_status.job = fint_utf(c, "\xE8\x81\xB7\xE6\xA5\xAD");
+	snprintf(g_status.job_name, sizeof g_status.job_name, "%s", job_name(g_status.job));
+	g_status.level = fint_utf(c, "\xEF\xBC\xAC\xEF\xBC\xB6");
+	lv_max = fint_utf(c, "\xEF\xBC\xAC\xEF\xBC\xB6\xE6\x9C\x80\xE5\xA4\xA7");
+	g_status.level_max = lv_max;
+	g_status.no_limit = (lv_max == 2147483647);
+	g_status.exp = fint_utf(c, "\xEF\xBC\xA5\xEF\xBC\xB8\xEF\xBC\xB0"); /* ＥＸＰ */
+	g_status.exp_max = fint_utf(c, "\xEF\xBC\xA5\xEF\xBC\xB8\xEF\xBC\xB0\xE6\x9C\x80\xE5\xA4\xA7");
+	g_status.hp = fint_utf(c, "\xE4\xBD\x93\xE5\x8A\x9B"); /* 体力 */
+	g_status.hp_max = fint_utf(c, "\xE4\xBD\x93\xE5\x8A\x9B\xE6\x9C\x80\xE5\xA4\xA7");
+	g_status.atk = fint_utf(c, "\xE6\x94\xBB\xE6\x92\x83\xE5\x8A\x9B");
+	g_status.def = fint_utf(c, "\xE9\x98\xB2\xE5\xBE\xA1\xE5\x8A\x9B");
+	g_status.mag = fint_utf(c, "\xE9\xAD\x94\xE6\xB3\x95\xE5\x8A\x9B");
+	g_status.mdef = fint_utf(c, "\xE9\xAD\x94\xE6\x8A\xB5\xE5\x8A\x9B");
+	g_status.hit = fint_utf(c, "\xE5\x91\xBD\xE4\xB8\xAD\xE7\x8E\x87");
+	g_status.eva = fint_utf(c, "\xE5\x9B\x9E\xE9\x81\xBF\xE7\x8E\x87");
+	g_status.crit = fint_utf(c, "\xE5\xBF\x85\xE6\xAE\xBA\xE7\x8E\x87");
+	g_status.impact = fint_utf(c, "\xE8\xA1\x9D\xE6\x92\x83\xE7\x8E\x87");
+	g_status.resist = fint_utf(c, "\xE8\x80\x90\xE6\x80\xA7\xE7\x8E\x87");
+	g_status.spd = fint_utf(c, "\xE7\xB4\xA0\xE6\x97\xA9\xE3\x81\x95");
+	g_status.points = fint_utf(c, "\xE3\x82\xB9\xE3\x82\xAD\xE3\x83\xAB\xE3\x83\x9D\xE3\x82\xA4\xE3\x83\xB3\xE3\x83\x88");
+	g_status.equip[0] = fint_utf(c, "\xE3\x82\xAA\xE3\x83\x97\xE3\x82\xB7\xE3\x83\xA7\xE3\x83\xB3");
+	g_status.equip[1] = fint_utf(c, "\xE6\xAD\xA6\xE5\x99\xA8");
+	g_status.equip[2] = fint_utf(c, "\xE9\x98\xB2\xE5\x85\xB7");
+	g_status.equip[3] = fint_utf(c, "\xE6\x8C\x81\xE3\x81\xA1\xE7\x89\xA9");
+
+	if (g_status.n_active == 0) {
+		active = fpage_utf(c, "\xE7\x99\xBB\xE9\x8C\xB2\xE3\x82\xB9\xE3\x82\xAD\xE3\x83\xAB"); /* 登録スキル */
+		if (active && active->type == ARRAY_PAGE) {
+			for (i = 0; i < active->nr_vars && g_status.n_active < 6; i++) {
+				int id = active->values[i].i;
+				struct skill_row *s;
+				if (id <= 0)
+					continue;
+				s = &g_status.active[g_status.n_active++];
+				memset(s, 0, sizeof *s);
+				s->id = id;
+				s->active = 1;
+				s->owned = 1;
+				skill_name(id, s->name, (int)sizeof s->name);
+			}
+		}
+	}
+	if (g_status.n_learned == 0) {
+		skills = fpage_utf(c, "\xE3\x82\xB9\xE3\x82\xAD\xE3\x83\xAB"); /* スキル */
+		if (skills && skills->type == ARRAY_PAGE) {
+			for (i = 0; i < skills->nr_vars && g_status.n_learned < SKILL_MAX; i++) {
+				struct page *sk = slot_page(skills->values[i].i);
+				struct skill_row *s;
+				int id, owned;
+				if (!sk)
+					continue;
+				id = fint_utf(sk, "\xE7\x95\xAA\xE5\x8F\xB7"); /* 番号 */
+				owned = fint_utf(sk, "\xE4\xBF\x9D\xE6\x9C\x89"); /* 保有 */
+				if (id <= 0 || !owned)
+					continue;
+				s = &g_status.learned[g_status.n_learned++];
+				memset(s, 0, sizeof *s);
+				s->id = id;
+				s->owned = 1;
+				s->rank = fint_utf(sk, "\xE3\x83\xA9\xE3\x83\xB3\xE3\x82\xAF");
+				s->cost = fint_utf(sk, "\xE3\x82\xB3\xE3\x82\xB9\xE3\x83\x88");
+				s->active = fint_utf(sk, "\xE5\xAE\x9F\xE8\xA3\x85\xE4\xB8\xAD");
+				skill_name(id, s->name, (int)sizeof s->name);
+			}
+		}
+	}
+}
+
+static const char *status_btn_name(int id, const char **label)
+{
+	*label = NULL;
+	switch (id) {
+	case 100002: *label = "Skills"; return "skills";
+	case 100009: *label = "Close"; return "close";
+	case 100011: *label = "Store profile"; return "store-profile";
+	case 100012: *label = "Load profile"; return "load-profile";
+	case 100013: *label = "Clear profile"; return "clear-profile";
+	default:
+		return NULL;
+	}
+}
+
+static int fill_status(struct page *st)
+{
+	struct page *card, *params, *items, *point, *hp;
+	int i, n0 = g_nctrls;
+	int chara;
+
+	if (!st || !sprite_live(fpage(st, "m_spBase")))
+		return 0;
+	card = fpage(st, "m_sCard");
+	if (!card)
+		return 0;
+	chara = fint(fpage(card, "m_sEquipSkill"), "m_nCharaNo");
+	if (!chara)
+		chara = fint(card, "m_nCharaNo");
+
+	memset(&g_status, 0, sizeof g_status);
+	g_status.ok = 1;
+	g_status.chara = chara;
+	fstr(fpage(card, "m_sName"), "m_szText", g_status.name, (int)sizeof g_status.name);
+	fstr(fpage(card, "m_sJobName"), "m_szText", g_status.job_name, (int)sizeof g_status.job_name);
+	hp = fpage(card, "m_sHpBar");
+	g_status.hp = fint(hp, "m_nValue");
+	g_status.hp_max = fint(hp, "m_nMax");
+	point = fpage(card, "m_sPoint");
+	g_status.points = fint(point, "m_nValue");
+	g_status.no_limit = fint(card, "m_bInfinity") ? 1 : 0;
+
+	params = fpage(card, "m_asParam");
+	if (params && params->type == ARRAY_PAGE) {
+		int vals[16];
+		memset(vals, 0, sizeof vals);
+		for (i = 0; i < params->nr_vars && i < 16; i++) {
+			struct page *dn = arr_at(params, i);
+			vals[i] = fint(dn, "m_nValue");
+		}
+		g_status.level = vals[0];
+		g_status.level_max = vals[1];
+		g_status.exp = vals[2];
+		g_status.exp_max = vals[3];
+		if (!g_status.hp)
+			g_status.hp = vals[4];
+		if (!g_status.hp_max)
+			g_status.hp_max = vals[5];
+		g_status.atk = vals[6];
+		g_status.def = vals[7];
+		g_status.mag = vals[8];
+		g_status.mdef = vals[9];
+		g_status.hit = vals[10];
+		g_status.eva = vals[11];
+		g_status.impact = vals[12];
+		g_status.resist = vals[13];
+		g_status.crit = vals[14];
+		g_status.spd = vals[15];
+	}
+
+	items = fpage(card, "m_asItem");
+	if (items && items->type == ARRAY_PAGE) {
+		for (i = 0; i < items->nr_vars && i < 4; i++) {
+			struct page *it = arr_at(items, i);
+			g_status.equip[i] = fint(it, "m_nItemNo");
+		}
+	}
+
+	fill_status_skills(card);
+	fill_status_from_chara(chara);
+
+	emit_group(fpage(st, "m_sButton"), "status", status_btn_name);
+	if (g_nctrls == n0 && !g_status.name[0] && chara <= 0)
+		return 0;
+	snprintf(g_screen, sizeof g_screen, "status");
+	hover_from_rects();
+	return 1;
+}
+
 static int vm_fill(void)
 {
 	struct page *view = NULL, *title = NULL, *cfg = NULL, *pstatus = NULL, *menu, *town;
+	struct page *party, *status;
 	int i, view_at = 99, title_at = 99, cfg_at = 99, kind = CFG_NONE;
 	snos_init();
 	if (!ain)
@@ -2428,6 +3224,12 @@ static int vm_fill(void)
 		return fill_cfg_panel(cfg, kind);
 	if (view)
 		return fill_config(view);
+	status = global_struct(&gi_status, "g_sStatus", sn_status);
+	if (status && sprite_live(fpage(status, "m_spBase")) && fill_status(status))
+		return 1;
+	party = global_struct(&gi_party, "g_sParty", sn_party);
+	if (party && sprite_live(fpage(party, "m_spBase")) && fill_party_edit(party))
+		return 1;
 	if (pstatus && fill_party_summary(pstatus))
 		return 1;
 	menu = global_struct(&gi_menu, "g_sSystemMenu", sn_sysmenu);
@@ -2459,7 +3261,11 @@ static void publish(void)
 	g_hover[0] = 0;
 	g_nparty = 0;
 	g_has_party = 0;
+	g_nunits = 0;
+	g_has_units = 0;
 	memset(&g_info, 0, sizeof g_info);
+	memset(&g_pstate, 0, sizeof g_pstate);
+	memset(&g_status, 0, sizeof g_status);
 	collect_stack();
 
 	scene_for_each_sprite(on_scene_sprite, NULL);
@@ -2819,6 +3625,86 @@ int rq_ui_cmd_press(const char *id, char *err, int errsz)
 		start = rd_ll(&g_present_gen);
 		ok = wait_frames_or_dialog(start, PRESS_FRAMES, FRAME_MS);
 	}
+	wants(0);
+	if (!ok) {
+		if (err)
+			snprintf(err, errsz, "timeout");
+		return 0;
+	}
+	return 1;
+}
+
+static int ctrl_xy(const char *id, int *cx, int *cy)
+{
+	return ctrl_center(id, cx, cy);
+}
+
+/* Hold-drag from one control onto another. Magnum party swap/remove
+ * listens while LBUTTON stays down across presented frames. */
+int rq_ui_cmd_drag(const char *src, const char *dst, char *err, int errsz)
+{
+	long long start;
+	int sx, sy, dx, dy, step, ok;
+	unsigned long long t0;
+
+	if (!src || !*src || !dst || !*dst) {
+		if (err)
+			snprintf(err, errsz, "usage: drag SRC DST");
+		return 0;
+	}
+	if (!g_ready) {
+		if (err)
+			snprintf(err, errsz, "not-ready");
+		return 0;
+	}
+	if (rq_dialog_open()) {
+		if (err)
+			snprintf(err, errsz, "native-dialog-open");
+		return 0;
+	}
+	if (!rq_ui_cmd_hover(src, err, errsz))
+		return 0;
+	if (!ctrl_xy(src, &sx, &sy) || !ctrl_xy(dst, &dx, &dy)) {
+		if (err)
+			snprintf(err, errsz, "unknown-control");
+		return 0;
+	}
+
+	wants(1);
+	key_set_state(VK_LBUTTON, 0);
+	start = rd_ll(&g_present_gen);
+	ok = wait_frames_or_dialog(start, PRESS_FRAMES, FRAME_MS);
+	if (ok) {
+		key_set_state(VK_LBUTTON, 1);
+		start = rd_ll(&g_present_gen);
+		ok = wait_frames_or_dialog(start, PRESS_FRAMES, FRAME_MS);
+	}
+	if (ok) {
+		for (step = 1; step <= 8; step++) {
+			int x = sx + (dx - sx) * step / 8;
+			int y = sy + (dy - sy) * step / 8;
+			mouse_force_pos(x, y);
+			start = rd_ll(&g_present_gen);
+			if (!wait_frames_or_dialog(start, 1, FRAME_MS)) {
+				ok = 0;
+				break;
+			}
+		}
+	}
+	if (ok) {
+		mouse_force_pos(dx, dy);
+		start = rd_ll(&g_present_gen);
+		ok = wait_frames_or_dialog(start, PRESS_FRAMES, FRAME_MS);
+	}
+	key_set_state(VK_LBUTTON, 0);
+	if (ok) {
+		start = rd_ll(&g_present_gen);
+		ok = wait_frames_or_dialog(start, PRESS_FRAMES, FRAME_MS);
+	}
+	/* Give the party drag callback a moment to settle. */
+	t0 = GetTickCount64();
+	while (GetTickCount64() - t0 < 200)
+		Sleep(10);
 	wants(0);
 	if (!ok) {
 		if (err)

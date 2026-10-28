@@ -208,6 +208,16 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 		pulse_key(code);
 		return 1;
 	}
+	if (!_stricmp(cmd, "drag")) {
+		a = tok(&p);
+		b = tok(&p);
+		if (!*a || !*b) {
+			if (err)
+				snprintf(err, errsz, "usage: drag SRC DST");
+			return 0;
+		}
+		return rq_ui_cmd_drag(a, b, err, errsz);
+	}
 	if (!_stricmp(cmd, "key")) {
 		a = tok(&p);
 		code = key_code(a);
@@ -399,7 +409,7 @@ void rq_mods_agent_start(void)
 		return;
 	}
 	CloseHandle(th);
-	rq_log("agent: pipe %s  —  rqmod-ctl ui | hover ID | press ID | dialog", PIPE_NAME);
+	rq_log("agent: pipe %s  —  rqmod-ctl ui | hover ID | press ID | drag SRC DST | dialog", PIPE_NAME);
 }
 
 #endif /* RQ_MODLOADER */

@@ -123,6 +123,7 @@ int rq_ui_wants_frame(void);
 int rq_ui_cmd_ui(char **json_out, char *err, int errsz);
 int rq_ui_cmd_hover(const char *id, char *err, int errsz);
 int rq_ui_cmd_press(const char *id, char *err, int errsz);
+int rq_ui_cmd_drag(const char *src, const char *dst, char *err, int errsz);
 int rq_ui_has_control(const char *id);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
