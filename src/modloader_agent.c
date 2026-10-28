@@ -17,7 +17,7 @@
 #define VK_NR_KEYCODES    0x92
 #define PIPE_NAME         "\\\\.\\pipe\\rqmod"
 
-void mouse_set_pos(int x, int y);
+void mouse_force_pos(int x, int y);
 void key_set_state(int code, int down);
 void mouse_set_wheel(int dir);
 
@@ -142,11 +142,13 @@ static void pulse_key(int code)
 	set_key(code, 0);
 }
 
-static int rq_agent_do(const char *line_in, char *err, int errsz)
+static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 {
 	char buf[512], *p, *cmd, *a, *b, *c;
 	int code, x, y, btn;
 
+	if (extra)
+		*extra = NULL;
 	if (err && errsz)
 		err[0] = 0;
 	if (!line_in)
@@ -161,7 +163,34 @@ static int rq_agent_do(const char *line_in, char *err, int errsz)
 	if (!_stricmp(cmd, "ping") || !_stricmp(cmd, "ok"))
 		return 1;
 
-	if (!_stricmp(cmd, "key") || !_stricmp(cmd, "press")) {
+	if (!_stricmp(cmd, "ui") || !_stricmp(cmd, "screen")) {
+		char *json = NULL;
+		if (!rq_ui_cmd_ui(&json, err, errsz))
+			return 0;
+		if (extra)
+			*extra = json;
+		else
+			free(json);
+		return 1;
+	}
+	if (!_stricmp(cmd, "hover")) {
+		a = tok(&p);
+		return rq_ui_cmd_hover(a, err, errsz);
+	}
+	if (!_stricmp(cmd, "press")) {
+		a = tok(&p);
+		if (rq_ui_has_control(a))
+			return rq_ui_cmd_press(a, err, errsz);
+		code = key_code(a);
+		if (code < 0) {
+			if (err)
+				snprintf(err, errsz, "unknown-control");
+			return 0;
+		}
+		pulse_key(code);
+		return 1;
+	}
+	if (!_stricmp(cmd, "key")) {
 		a = tok(&p);
 		code = key_code(a);
 		if (code < 0) {
@@ -214,7 +243,7 @@ static int rq_agent_do(const char *line_in, char *err, int errsz)
 		}
 		x = atoi(a);
 		y = atoi(b);
-		mouse_set_pos(x, y);
+		mouse_force_pos(x, y);
 		return 1;
 	}
 	if (!_stricmp(cmd, "click")) {
@@ -234,7 +263,7 @@ static int rq_agent_do(const char *line_in, char *err, int errsz)
 				snprintf(err, errsz, "usage: click [left|right] X Y");
 			return 0;
 		}
-		mouse_set_pos(x, y);
+		mouse_force_pos(x, y);
 		Sleep(16);
 		set_key(btn, 1);
 		Sleep((DWORD)pulse_ms);
@@ -276,7 +305,7 @@ static int rq_agent_do(const char *line_in, char *err, int errsz)
 		return 1;
 	}
 	if (err)
-		snprintf(err, errsz, "unknown cmd '%s' (key|click|move|hold|release|type|wheel|ping)", cmd);
+		snprintf(err, errsz, "unknown cmd");
 	return 0;
 }
 
@@ -286,10 +315,11 @@ static DWORD WINAPI pipe_thread(LPVOID unused)
 	for (;;) {
 		HANDLE h;
 		char in[512], out[256], err[128];
+		char *extra;
 		DWORD n, w;
 		h = CreateNamedPipeA(PIPE_NAME, PIPE_ACCESS_DUPLEX,
 				     PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-				     PIPE_UNLIMITED_INSTANCES, 1024, 1024, 0, NULL);
+				     PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, NULL);
 		if (h == INVALID_HANDLE_VALUE) {
 			Sleep(500);
 			continue;
@@ -312,11 +342,25 @@ static DWORD WINAPI pipe_thread(LPVOID unused)
 					*end++ = 0;
 				while (*end == '\n' || *end == '\r')
 					end++;
-				if (rq_agent_do(nl, err, (int)sizeof err))
-					snprintf(out, sizeof out, "ok\n");
-				else
+				extra = NULL;
+				if (rq_agent_do(nl, err, (int)sizeof err, &extra)) {
+					if (extra) {
+						DWORD off = 0, len = (DWORD)strlen(extra);
+						while (off < len) {
+							if (!WriteFile(h, extra + off, len - off, &w, NULL) || !w)
+								break;
+							off += w;
+						}
+						free(extra);
+					} else {
+						snprintf(out, sizeof out, "ok\n");
+						WriteFile(h, out, (DWORD)strlen(out), &w, NULL);
+					}
+				} else {
 					snprintf(out, sizeof out, "err %s\n", err[0] ? err : "fail");
-				WriteFile(h, out, (DWORD)strlen(out), &w, NULL);
+					WriteFile(h, out, (DWORD)strlen(out), &w, NULL);
+					free(extra);
+				}
 				nl = end;
 			}
 		}
@@ -329,13 +373,15 @@ static DWORD WINAPI pipe_thread(LPVOID unused)
 
 void rq_mods_agent_start(void)
 {
-	HANDLE th = CreateThread(NULL, 0, pipe_thread, NULL, 0, NULL);
+	HANDLE th;
+	rq_ui_init();
+	th = CreateThread(NULL, 0, pipe_thread, NULL, 0, NULL);
 	if (!th) {
 		rq_log("agent: pipe thread failed");
 		return;
 	}
 	CloseHandle(th);
-	rq_log("agent: pipe %s  —  rqmod-ctl key enter | rqmod-ctl click X Y", PIPE_NAME);
+	rq_log("agent: pipe %s  —  rqmod-ctl ui | hover ID | press ID", PIPE_NAME);
 }
 
 #endif /* RQ_MODLOADER */

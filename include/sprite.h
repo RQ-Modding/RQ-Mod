@@ -78,6 +78,7 @@ struct sact_sprite {
  */
 void sprite_init_sact(void);
 void sprite_init_chipmunk(void);
+struct sact_sprite *sprite_as_sact(struct sprite *sp);
 
 static inline void sprite_dirty(struct sact_sprite *sp)
 {

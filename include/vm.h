@@ -192,6 +192,9 @@ _Noreturn void vm_reset(void);
 
 extern bool vm_reset_once;
 
+/* index 0 is the current frame. SJIS name, or NULL. */
+const char *vm_frame_name(int index);
+
 #if defined(__ANDROID__) || defined(RELEASE)
 // Report the error with a message box and exit.
 #define VM_ERROR ERROR

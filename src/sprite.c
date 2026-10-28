@@ -36,6 +36,7 @@
 #include "vm/page.h"
 #include "xsystem4.h"
 #include "profile.h"
+#include "modloader.h"
 
 bool sact_dirty = true;
 
@@ -64,6 +65,7 @@ static void sprite_drop_texture(struct sact_sprite *sp)
 
 void sprite_free(struct sact_sprite *sp)
 {
+	rq_ui_clear_sprite_text(sp->no);
 	scene_unregister_sprite(&sp->sp);
 	sprite_drop_texture(sp);
 	gfx_delete_texture(&sp->text.texture);
@@ -209,6 +211,13 @@ static void sprite_render(struct sprite *_sp)
 		glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
 	rq_prof_end(RQ_PROF_SPRITE);
 	rq_prof_count(RQ_PROF_SPRITE);
+}
+
+struct sact_sprite *sprite_as_sact(struct sprite *sp)
+{
+	if (sp && sp->render == sprite_render)
+		return (struct sact_sprite *)sp;
+	return NULL;
 }
 
 struct texture *sprite_get_texture(struct sact_sprite *sp)
@@ -447,6 +456,8 @@ void sprite_text_draw(struct sact_sprite *sp, struct string *text, struct text_s
 	}
 
 	ts->font_spacing = sp->text.char_space;
+	if (text && text->text)
+		rq_ui_note_sprite_text(sp->no, text->text);
 	sp->text.pos.x += gfx_render_text(&sp->text.texture, sp->text.pos.x, sp->text.pos.y, text->text, ts, false);
 	if (sp->text.current_line_height < ts->size)
 		sp->text.current_line_height = ts->size;
@@ -455,6 +466,7 @@ void sprite_text_draw(struct sact_sprite *sp, struct string *text, struct text_s
 
 void sprite_text_clear(struct sact_sprite *sp)
 {
+	rq_ui_clear_sprite_text(sp->no);
 	gfx_delete_texture(&sp->text.texture);
 	sprite_dirty(sp);
 }

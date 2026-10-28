@@ -575,6 +575,9 @@ void gfx_swap(void)
 
 	gfx_update_frame_rate_counter();
 	rq_prof_frame();
+#ifdef RQ_MODLOADER
+	rq_ui_on_present();
+#endif
 }
 
 void gfx_set_view(struct texture *t)

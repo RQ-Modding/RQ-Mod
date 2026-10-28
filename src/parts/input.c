@@ -20,6 +20,7 @@
 #include "audio.h"
 #include "input.h"
 #include "xsystem4.h"
+#include "modloader.h"
 #include "parts_internal.h"
 
 // true between calls to BeginClick and EndClick
@@ -241,6 +242,7 @@ void PE_UpdateInputState(int passed_time)
 
 	prev_clicking = cur_clicking;
 	parts_prev_pos = cur_pos;
+	rq_ui_on_parts_input();
 }
 
 void PE_SetPassCursor(int parts_no, bool pass)

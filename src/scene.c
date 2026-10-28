@@ -170,6 +170,15 @@ cJSON *scene_to_json(bool verbose)
 	return ar;
 }
 
+void scene_for_each_sprite(void (*fn)(struct sprite *sp, void *data), void *data)
+{
+	struct sprite *sp;
+	if (!fn)
+		return;
+	TAILQ_FOREACH(sp, &sprite_list, entry)
+		fn(sp, data);
+}
+
 struct sprite *scene_get(int id)
 {
 	struct sprite *p;

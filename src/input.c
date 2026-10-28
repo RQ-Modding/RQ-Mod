@@ -227,10 +227,13 @@ bool key_is_down(enum sact_keycode code)
 	return key_state[code];
 }
 
+static void agent_hold_focus(void);
+
 void key_set_state(int code, int down)
 {
 	if (code <= 0 || code >= VK_NR_KEYCODES)
 		return;
+	agent_hold_focus();
 	key_state[code] = down != 0;
 }
 
@@ -243,9 +246,25 @@ void key_clear_flag(bool no_ctrl)
 	}
 }
 
+static volatile int forced_mouse;
+static volatile int forced_x, forced_y;
+static volatile int agent_input;
+
+static void agent_hold_focus(void)
+{
+	agent_input = 1;
+	mouse_focus = true;
+	keyboard_focus = true;
+}
+
 void mouse_get_pos(int *x, int *y)
 {
 	int wx, wy;
+	if (forced_mouse) {
+		*x = forced_x;
+		*y = forced_y;
+		return;
+	}
 	SDL_PumpEvents();
 	SDL_GetMouseState(&wx, &wy);
 	*x = (wx - sdl.viewport.x) * sdl.w / sdl.viewport.w;
@@ -254,9 +273,31 @@ void mouse_get_pos(int *x, int *y)
 
 void mouse_set_pos(int x, int y)
 {
-	int wx = x * sdl.viewport.w / sdl.w + sdl.viewport.x;
-	int wy = y * sdl.viewport.h / sdl.h + sdl.viewport.y;
+	int wx, wy;
+	if (!sdl.window || sdl.w <= 0 || sdl.h <= 0 || sdl.viewport.w <= 0 || sdl.viewport.h <= 0)
+		return;
+	wx = x * sdl.viewport.w / sdl.w + sdl.viewport.x;
+	wy = y * sdl.viewport.h / sdl.h + sdl.viewport.y;
 	SDL_WarpMouseInWindow(sdl.window, wx, wy);
+}
+
+void mouse_force_pos(int x, int y)
+{
+	forced_x = x;
+	forced_y = y;
+	forced_mouse = 1;
+	agent_hold_focus();
+	mouse_set_pos(x, y);
+}
+
+void mouse_agent_pos(int *x, int *y, int *active)
+{
+	if (x)
+		*x = forced_x;
+	if (y)
+		*y = forced_y;
+	if (active)
+		*active = forced_mouse;
 }
 
 static int wheel_dir = 0;
@@ -628,13 +669,15 @@ static void handle_window_event(SDL_Event *e)
 		mouse_focus = true;
 		break;
 	case SDL_WINDOWEVENT_LEAVE:
-		mouse_focus = false;
+		if (!agent_input)
+			mouse_focus = false;
 		break;
 	case SDL_WINDOWEVENT_FOCUS_GAINED:
 		keyboard_focus = true;
 		break;
 	case SDL_WINDOWEVENT_FOCUS_LOST:
-		keyboard_focus = false;
+		if (!agent_input)
+			keyboard_focus = false;
 		break;
 	case SDL_WINDOWEVENT_SIZE_CHANGED:
 		gfx_update_screen_scale();

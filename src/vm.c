@@ -556,6 +556,17 @@ static const SDL_MessageBoxButtonData stop_continue_buttons[] = {
 	{ 0, 0, "Continue" },
 };
 
+const char *vm_frame_name(int index)
+{
+	int i;
+	if (index < 0 || !ain || call_stack_ptr <= 0)
+		return NULL;
+	i = call_stack_ptr - 1 - index;
+	if (i < 0 || i >= call_stack_ptr)
+		return NULL;
+	return ain->functions[call_stack[i].fno].name;
+}
+
 static struct string *get_func_stack_name(int index)
 {
 	int i = call_stack_ptr - (1 + index);

@@ -60,6 +60,7 @@ void scene_set_sprite_z2(struct sprite *sp, int z, int z2);
 void scene_print(void);
 cJSON *scene_to_json(bool verbose);
 struct sprite *scene_get(int id);
+void scene_for_each_sprite(void (*fn)(struct sprite *sp, void *data), void *data);
 
 static inline void scene_sprite_dirty(struct sprite *sp)
 {

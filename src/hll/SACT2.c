@@ -223,6 +223,10 @@ int sact_Update(void)
 		t0 = SDL_GetPerformanceCounter();
 #endif
 	handle_events();
+#ifdef RQ_MODLOADER
+	if (rq_ui_wants_frame())
+		scene_is_dirty = true;
+#endif
 #ifdef RQ_PROFILE
 	if (split)
 		t1 = SDL_GetPerformanceCounter();
