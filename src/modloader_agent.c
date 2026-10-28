@@ -178,13 +178,26 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 			free(json);
 		return 1;
 	}
+	if (!_stricmp(cmd, "dialog")) {
+		char *json = NULL;
+		if (!rq_dialog_json(&json)) {
+			if (err)
+				snprintf(err, errsz, "no-dialog");
+			return 0;
+		}
+		if (extra)
+			*extra = json;
+		else
+			free(json);
+		return 1;
+	}
 	if (!_stricmp(cmd, "hover")) {
 		a = tok(&p);
 		return rq_ui_cmd_hover(a, err, errsz);
 	}
 	if (!_stricmp(cmd, "press")) {
 		a = tok(&p);
-		if (rq_ui_has_control(a))
+		if (rq_dialog_has(a) || rq_ui_has_control(a))
 			return rq_ui_cmd_press(a, err, errsz);
 		code = key_code(a);
 		if (code < 0) {
@@ -386,7 +399,7 @@ void rq_mods_agent_start(void)
 		return;
 	}
 	CloseHandle(th);
-	rq_log("agent: pipe %s  —  rqmod-ctl ui | hover ID | press ID", PIPE_NAME);
+	rq_log("agent: pipe %s  —  rqmod-ctl ui | hover ID | press ID | dialog", PIPE_NAME);
 }
 
 #endif /* RQ_MODLOADER */

@@ -127,6 +127,12 @@ int rq_ui_has_control(const char *id);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
+int rq_dialog_open(void);
+int rq_dialog_has(const char *id);
+int rq_dialog_json(char **json_out);
+int rq_dialog_hover(const char *id, char *err, int errsz);
+int rq_dialog_press(const char *id, char *err, int errsz);
+
 #else
 
 static inline void rq_mods_early_init(void) {}

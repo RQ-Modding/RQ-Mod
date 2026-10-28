@@ -252,7 +252,8 @@ if get_option('modloader')
         output: 'rq_build_stamp.c',
         command: [py, meson.current_source_dir() / 'gen_build_stamp.py', '@OUTPUT@'],
         build_always_stale: true)
-    xsystem4 += ['modloader.c', 'modloader_agent.c', 'modloader_ui.c', 'modloader_loot.c',
+    xsystem4 += ['modloader.c', 'modloader_agent.c', 'modloader_ui.c', 'modloader_dialog.c',
+                 'modloader_loot.c',
                  'modloader_hud.c', 'modloader_orb.c', 'modloader_skill.c',
                  'modloader_counter.c', 'modloader_battle.c',
                  'modloader_chara.c', 'modloader_shop.c',

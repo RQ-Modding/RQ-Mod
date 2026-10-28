@@ -9,8 +9,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <limits.h>
 
 #include "system4.h"
+#include "system4/ain.h"
 #include "system4/string.h"
 #include "system4/utfsjis.h"
 
@@ -66,6 +68,7 @@ __declspec(dllimport) unsigned long long __stdcall GetTickCount64(void);
 #define NOTE_N 48
 #define NOTE_LEN 700
 #define FRAME_MS 4000
+#define PRESS_FRAMES 3
 
 struct ui_ctrl {
 	int parts_no;
@@ -85,6 +88,32 @@ struct ui_ctrl {
 	int armed;
 	int has_select;
 	int selected;
+	int has_visible;
+	int visible;
+};
+
+struct party_row {
+	int slot;
+	int chara;
+	int job;
+	int level;
+	int level_max;
+	int no_limit;
+	int hp;
+	int hp_max;
+	int back_row;
+	char name[80];
+};
+
+struct hub_info {
+	int ok;
+	int world;
+	int money;
+	int rank;
+	int points;
+	int points_max;
+	int donations;
+	int trivia_new;
 };
 
 struct ui_snap {
@@ -111,6 +140,10 @@ static int g_nctrls;
 static int g_hover_no;
 static char g_screen[24];
 static char g_hover[40];
+static struct party_row g_party[5];
+static int g_nparty;
+static int g_has_party;
+static struct hub_info g_info;
 
 struct sp_note {
 	int sp;
@@ -524,13 +557,13 @@ static int blob_has(const char *s)
 	return s && g_blob[0] && strstr(g_blob, s) != NULL;
 }
 
-static char g_stackblob[1600];
+static char g_stackblob[4096];
 
 static void collect_stack(void)
 {
 	int i, len = 0;
 	g_stackblob[0] = 0;
-	for (i = 0; i < 12; i++) {
+	for (i = 0; i < 40; i++) {
 		const char *sj = vm_frame_name(i);
 		char *u;
 		if (!sj)
@@ -674,6 +707,56 @@ static void classify(void)
 	}
 }
 
+/* Ｃ職業文字列(ii, 0) */
+static const char *job_name(int job)
+{
+	static const char *names[] = {
+		"-----", "Fighter", "Guard", "Gunner", "Sorcerer",
+		"Healer", "Ranger", "Brawler", "Civilian"
+	};
+	return job >= 1 && job <= 8 ? names[job] : names[0];
+}
+
+static void add_party_json(cJSON *root)
+{
+	cJSON *arr = cJSON_AddArrayToObject(root, "party");
+	int i;
+	for (i = 0; i < g_nparty; i++) {
+		struct party_row *r = &g_party[i];
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddNumberToObject(o, "slot", r->slot);
+		cJSON_AddStringToObject(o, "row", r->back_row ? "back" : "front");
+		cJSON_AddNumberToObject(o, "chara", r->chara);
+		cJSON_AddStringToObject(o, "name", r->name);
+		cJSON_AddStringToObject(o, "class", job_name(r->job));
+		cJSON_AddNumberToObject(o, "classId", r->job);
+		cJSON_AddNumberToObject(o, "level", r->level);
+		if (r->no_limit)
+			cJSON_AddNullToObject(o, "levelLimit");
+		else
+			cJSON_AddNumberToObject(o, "levelLimit", r->level_max);
+		cJSON_AddBoolToObject(o, "noLimit", r->no_limit ? 1 : 0);
+		cJSON_AddNumberToObject(o, "hp", r->hp);
+		cJSON_AddNumberToObject(o, "hpMax", r->hp_max);
+		cJSON_AddItemToArray(arr, o);
+	}
+}
+
+static void add_info_json(cJSON *root)
+{
+	cJSON *o = cJSON_AddObjectToObject(root, "info");
+	cJSON *ch;
+	cJSON_AddStringToObject(o, "title", "Rance VIII");
+	cJSON_AddNumberToObject(o, "world", g_info.world);
+	cJSON_AddNumberToObject(o, "money", g_info.money);
+	ch = cJSON_AddObjectToObject(o, "charisma");
+	cJSON_AddNumberToObject(ch, "level", g_info.rank);
+	cJSON_AddNumberToObject(ch, "points", g_info.points);
+	cJSON_AddNumberToObject(ch, "max", g_info.points_max);
+	cJSON_AddNumberToObject(o, "donations", g_info.donations);
+	cJSON_AddBoolToObject(o, "triviaNew", g_info.trivia_new ? 1 : 0);
+}
+
 static void build_json(char *dst, int dstsz)
 {
 	cJSON *root, *text, *controls;
@@ -708,6 +791,8 @@ static void build_json(char *dst, int dstsz)
 		cJSON_AddNumberToObject(c, "w", g_ctrls[i].w);
 		cJSON_AddNumberToObject(c, "h", g_ctrls[i].h);
 		cJSON_AddBoolToObject(c, "enabled", g_ctrls[i].enabled ? 1 : 0);
+		if (g_ctrls[i].has_visible)
+			cJSON_AddBoolToObject(c, "visible", g_ctrls[i].visible ? 1 : 0);
 		if (g_ctrls[i].has_select)
 			cJSON_AddBoolToObject(c, "selected", g_ctrls[i].selected ? 1 : 0);
 		if (g_ctrls[i].hover_only)
@@ -720,6 +805,10 @@ static void build_json(char *dst, int dstsz)
 		cJSON_AddStringToObject(root, "hover", g_hover);
 	else
 		cJSON_AddNullToObject(root, "hover");
+	if (g_has_party)
+		add_party_json(root);
+	if (g_info.ok)
+		add_info_json(root);
 	printed = cJSON_PrintUnformatted(root);
 	cJSON_Delete(root);
 	if (!printed) {
@@ -797,6 +886,7 @@ static int sn_title, sn_button, sn_msg, sn_speed, sn_window, sn_input;
 static int sn_volume, sn_debug, sn_tabview, sn_tabbtn, sn_exit;
 static int sn_cb, sn_cbwrap, sn_hslider, sn_vslider, sn_text, sn_btnsp;
 static int sn_cfgmsg, sn_cfgsnd, sn_cfgwin, sn_cfg3d, sn_cfgcfm, sn_cfgetc, sn_cfgetc2;
+static int sn_town, sn_sysbar, sn_sysmenu, sn_mini, sn_sysinfo, sn_pstatus;
 static int snos_ready;
 
 static void snos_init(void)
@@ -827,6 +917,12 @@ static void snos_init(void)
 	sn_cfgcfm = sn_get("T_ConfigConfirm");
 	sn_cfgetc = sn_get("T_ConfigEtc");
 	sn_cfgetc2 = sn_get("T_ConfigEtc2");
+	sn_town = sn_get("T_Town");
+	sn_sysbar = sn_get("T_SystemBar");
+	sn_sysmenu = sn_get("T_SystemMenu");
+	sn_mini = sn_get("T_MiniStatusManager");
+	sn_sysinfo = sn_get("T_SystemInfo");
+	sn_pstatus = sn_get("T_PartyStatus");
 	snos_ready = 1;
 }
 
@@ -950,6 +1046,7 @@ static int cas_rect(struct page *r, int *x, int *y, int *w, int *h)
 	return *w > 0 && *h > 0;
 }
 
+/* T_Rect: inclusive end corner, INT_MIN in any field means empty. */
 static int t_rect(struct page *r, int *x, int *y, int *w, int *h)
 {
 	int sx, sy, ex, ey;
@@ -959,10 +1056,14 @@ static int t_rect(struct page *r, int *x, int *y, int *w, int *h)
 	sy = mem_i(r, 1);
 	ex = mem_i(r, 2);
 	ey = mem_i(r, 3);
+	if (sx == INT_MIN || sy == INT_MIN || ex == INT_MIN || ey == INT_MIN) {
+		*w = *h = 0;
+		return 0;
+	}
 	*x = sx;
 	*y = sy;
-	*w = ex - sx;
-	*h = ey - sy;
+	*w = ex - sx + 1;
+	*h = ey - sy + 1;
 	return *w > 0 && *h > 0;
 }
 
@@ -1122,6 +1223,454 @@ static int fill_title(struct page *title)
 		return 0;
 	}
 	snprintf(g_screen, sizeof g_screen, "main-menu");
+	hover_from_rects();
+	return 1;
+}
+
+/* Hub (T_Town), system bar, mini status, system info, system menu and
+ * Party Summary. Members are looked up by name from the AIN so a field
+ * that moves reads as 0 instead of a neighbour's value. */
+
+#define U8_WORLD "\xE2\x97\x86\xE3\x83\xAF\xE3\x83\xBC\xE3\x83\xAB\xE3\x83\x89"
+
+static int gi_town = -2, gi_bar = -2, gi_menu = -2, gi_mini = -2, gi_info = -2, gi_world = -2;
+
+static int memb(struct page *p, const char *name)
+{
+	struct ain_struct *s;
+	int i;
+	if (!p || p->type != STRUCT_PAGE || !ain || p->index < 0
+			|| p->index >= ain->nr_structures)
+		return -1;
+	s = &ain->structures[p->index];
+	for (i = 0; i < s->nr_members && i < p->nr_vars; i++) {
+		if (s->members[i].name && !strcmp(s->members[i].name, name))
+			return i;
+	}
+	return -1;
+}
+
+static struct page *fpage(struct page *p, const char *name)
+{
+	return mem_page(p, memb(p, name));
+}
+
+static int fint(struct page *p, const char *name)
+{
+	return mem_i(p, memb(p, name));
+}
+
+static void fstr(struct page *p, const char *name, char *dst, int n)
+{
+	mem_str(p, memb(p, name), dst, n);
+}
+
+static struct page *arr_at(struct page *arr, int i)
+{
+	if (!arr || arr->type != ARRAY_PAGE || i < 0 || i >= arr->nr_vars)
+		return NULL;
+	return slot_page(arr->values[i].i);
+}
+
+static int global_index(int *gi, const char *utf)
+{
+	if (*gi == -2) {
+		char *sj = utf2sjis(utf, 0);
+		*gi = sj ? ain_get_global(ain, sj) : -1;
+		free(sj);
+	}
+	if (*gi < 0 || *gi >= ain->nr_globals || !heap || !heap_size || !heap[0].page)
+		return -1;
+	return *gi;
+}
+
+static struct page *global_struct(int *gi, const char *utf, int sn)
+{
+	struct page *p;
+	if (global_index(gi, utf) < 0)
+		return NULL;
+	p = slot_page(global_get(*gi).i);
+	if (!p || p->type != STRUCT_PAGE || (sn >= 0 && p->index != sn))
+		return NULL;
+	return p;
+}
+
+static int global_int(int *gi, const char *utf)
+{
+	if (global_index(gi, utf) < 0)
+		return 0;
+	return global_get(*gi).i;
+}
+
+static int sprite_live(struct page *sp)
+{
+	return sp && fint(sp, "m_nSpNo") > 0;
+}
+
+static int sprite_shown(struct page *sp)
+{
+	return sprite_live(sp) && fint(sp, "m_bShow");
+}
+
+struct tbtn {
+	int id, key, active, show, select, visible, sprite;
+	int x, y, w, h;
+};
+
+static int tbtn_read(struct page *btn, struct tbtn *o)
+{
+	struct page *arr, *bsp, *sp;
+	int cur = 0, status;
+	memset(o, 0, sizeof *o);
+	o->sprite = -1;
+	if (!btn || btn->type != STRUCT_PAGE || btn->index != sn_button)
+		return 0;
+	status = fint(btn, "m_nStatus");
+	o->id = fint(btn, "m_nID");
+	o->key = fint(btn, "m_nKey");
+	o->active = status >= 0 && status != 1;
+	o->show = fint(btn, "m_bShow") ? 1 : 0;
+	o->select = fint(btn, "m_bSelect") ? 1 : 0;
+	/* T_Button::getCurrentIndex */
+	if (status == 0)
+		cur = fint(btn, "m_bExec") ? 2 : 0;
+	else if (status == 1 || status == 2)
+		cur = status;
+	arr = fpage(btn, "m_aspButton");
+	bsp = arr_at(arr, cur);
+	sp = fpage(fpage(bsp, "m_spBase"), "m_spBase");
+	if (cur && !sprite_live(sp)) {
+		bsp = arr_at(arr, 0);
+		sp = fpage(fpage(bsp, "m_spBase"), "m_spBase");
+	}
+	if (sprite_live(sp))
+		o->sprite = fint(sp, "m_nSpNo");
+	o->visible = o->show && bsp && fint(bsp, "m_bShow");
+	if (!t_rect(fpage(btn, "m_rcSelect"), &o->x, &o->y, &o->w, &o->h))
+		t_rect(fpage(bsp, "m_rcBase"), &o->x, &o->y, &o->w, &o->h);
+	return o->w > 0 && o->h > 0;
+}
+
+static struct ui_ctrl *emit_tbtn(struct page *btn, int index, const char *id,
+		const char *label, const char *section)
+{
+	struct tbtn b;
+	struct ui_ctrl *c;
+	if (!tbtn_read(btn, &b))
+		return NULL;
+	c = ctrl_alloc();
+	if (!c)
+		return NULL;
+	if (id)
+		snprintf(c->id, sizeof c->id, "%s", id);
+	else
+		snprintf(c->id, sizeof c->id, "b%d", b.id);
+	if (label)
+		snprintf(c->label, sizeof c->label, "%s", label);
+	snprintf(c->type, sizeof c->type, "button");
+	if (section)
+		snprintf(c->section, sizeof c->section, "%s", section);
+	c->button = b.id;
+	c->key = b.key;
+	c->index = index;
+	c->x = b.x;
+	c->y = b.y;
+	c->w = b.w;
+	c->h = b.h;
+	c->sprite = b.sprite;
+	c->enabled = b.active;
+	c->has_select = 1;
+	c->selected = b.select;
+	c->has_visible = 1;
+	c->visible = b.visible;
+	/* Hover means the game has selected it; a hidden button never is. */
+	c->armed = b.visible && b.select;
+	if (b.visible && c->label[0])
+		text_add(c->label);
+	return c;
+}
+
+typedef const char *(*btn_namer)(int id, const char **label);
+
+static const char *town_name(int id, const char **label)
+{
+	switch (id) {
+	case 600011: *label = "Rance Castle"; return "rance-castle";
+	case 600012: *label = "Frostbuy"; return "frostbuy";
+	case 600013: *label = "Party"; return "party";
+	case 600014: *label = "Quests"; return "quests";
+	default: *label = NULL; return NULL;
+	}
+}
+
+static const char *bar_name(int id, const char **label)
+{
+	switch (id) {
+	case 900001: *label = "System"; return "system";
+	case 900002: *label = "Vault"; return "vault";
+	case 900003: *label = "Trivia"; return "trivia";
+	default: *label = NULL; return NULL;
+	}
+}
+
+/* Labels are the ones drawn on CG 10052, not the createButton strings. */
+static const char *menu_name(int id, const char **label)
+{
+	switch (id) {
+	case 910001: *label = "Save"; return "save";
+	case 910002: *label = "Load"; return "load";
+	case 910009: *label = "Suspend Save"; return "suspend-save";
+	case 910011: *label = "Config"; return "config";
+	case 910012: *label = "CG Mode"; return "cg-mode";
+	case 910013: *label = "Music Mode"; return "music";
+	case 910014: *label = "Network"; return "web";
+	case 910015: *label = "Backlog"; return "backlog";
+	case 910091: *label = "Title Screen"; return "title-screen";
+	case 910092: *label = "Exit Game"; return "quit";
+	default: *label = NULL; return NULL;
+	}
+}
+
+static const char *pstatus_name(int id, const char **label)
+{
+	switch (id) {
+	case 100001: *label = "Party Summary"; return "party-summary";
+	case 100009: *label = "Close"; return "close";
+	default: *label = NULL; return NULL;
+	}
+}
+
+static int emit_group(struct page *group, const char *section, btn_namer namer)
+{
+	struct page *arr = fpage(group, "m_asButton");
+	int i, n = 0;
+	if (!arr || arr->type != ARRAY_PAGE)
+		return 0;
+	for (i = 0; i < arr->nr_vars; i++) {
+		struct page *btn = arr_at(arr, i);
+		const char *label = NULL, *name;
+		if (!btn || btn->type != STRUCT_PAGE || btn->index != sn_button)
+			continue;
+		name = namer(fint(btn, "m_nID"), &label);
+		if (emit_tbtn(btn, i, name, label, section))
+			n++;
+	}
+	return n;
+}
+
+static void read_party(struct page *mini)
+{
+	struct page *cards = fpage(fpage(mini, "m_sStatus"), "m_asCard");
+	int i;
+	g_nparty = 0;
+	g_has_party = 1;
+	for (i = 0; i < 5; i++) {
+		struct page *card = arr_at(cards, i);
+		struct page *job = fpage(card, "m_sJob");
+		struct page *hp = fpage(card, "m_sHpBar");
+		struct party_row *r;
+		int chara = fint(fpage(fpage(card, "m_sSkill"), "m_sList"), "m_nCharaNo");
+		if (!card || chara <= 0)
+			continue;
+		r = &g_party[g_nparty++];
+		memset(r, 0, sizeof *r);
+		r->slot = i + 1;
+		r->chara = chara;
+		fstr(fpage(card, "m_sName"), "m_szText", r->name, (int)sizeof r->name);
+		r->job = fint(fpage(job, "m_sJob"), "m_nType");
+		r->level = fint(fpage(job, "m_sLevel"), "m_nValue");
+		r->level_max = fint(fpage(job, "m_sMax"), "m_nValue");
+		r->no_limit = fint(job, "m_bInfinity") ? 1 : 0;
+		r->hp = fint(hp, "m_nValue");
+		r->hp_max = fint(hp, "m_nMax");
+		r->back_row = i >= 3;
+	}
+}
+
+static struct party_row *party_slot(int slot)
+{
+	int i;
+	for (i = 0; i < g_nparty; i++) {
+		if (g_party[i].slot == slot)
+			return &g_party[i];
+	}
+	return NULL;
+}
+
+static void emit_party(struct page *mini)
+{
+	struct page *arr = fpage(fpage(mini, "m_sButton"), "m_asButton");
+	int i;
+	read_party(mini);
+	if (!arr || arr->type != ARRAY_PAGE)
+		return;
+	for (i = 0; i < arr->nr_vars; i++) {
+		struct page *btn = arr_at(arr, i);
+		struct party_row *r;
+		struct ui_ctrl *c;
+		char id[40], label[LABEL_LEN];
+		int bid, slot;
+		if (!btn || btn->type != STRUCT_PAGE || btn->index != sn_button)
+			continue;
+		bid = fint(btn, "m_nID");
+		if (bid > 922000 && bid <= 922005) {
+			slot = bid - 922000;
+			r = party_slot(slot);
+			snprintf(id, sizeof id, "member-%d", slot);
+			if (r)
+				snprintf(label, sizeof label, "%s", r->name[0] ? r->name : "member");
+			else
+				snprintf(label, sizeof label, "empty slot %d", slot);
+			c = emit_tbtn(btn, i, id, label, "party");
+			if (!c || !r)
+				continue;
+			/* ミニステータス_位置Ｙ: front row 592, back row 613 */
+			r->back_row = c->y >= 605;
+			if (r->no_limit)
+				snprintf(c->value, sizeof c->value, "%s Lv %d (no limit)",
+					 job_name(r->job), r->level);
+			else
+				snprintf(c->value, sizeof c->value, "%s Lv %d/%d",
+					 job_name(r->job), r->level, r->level_max);
+		} else if (bid > 921000 && bid <= 921005) {
+			slot = bid - 921000;
+			snprintf(id, sizeof id, "status-%d", slot);
+			c = emit_tbtn(btn, i, id, "Status", "party");
+			if (!c)
+				continue;
+			/* checkStatus shows it only while its card is selected. */
+			c->hover_only = 1;
+			snprintf(c->value, sizeof c->value, "member-%d", slot);
+		} else if (bid == 920002) {
+			c = emit_tbtn(btn, i, "party-summary", "Party Summary", "party");
+			if (!c)
+				continue;
+			/* Shown while the mouse is over the card strip (CG 10100). */
+			c->hover_only = 1;
+		}
+	}
+}
+
+static void emit_info_ctrl(const char *id, const char *label, const char *value,
+		int x, int y, int w, int h, int visible)
+{
+	struct ui_ctrl *c = ctrl_alloc();
+	if (!c)
+		return;
+	snprintf(c->id, sizeof c->id, "%s", id);
+	snprintf(c->label, sizeof c->label, "%s", label);
+	snprintf(c->type, sizeof c->type, "info");
+	snprintf(c->section, sizeof c->section, "system-bar");
+	if (value)
+		snprintf(c->value, sizeof c->value, "%s", value);
+	c->x = x;
+	c->y = y;
+	c->w = w;
+	c->h = h;
+	c->armed = 0;
+	c->has_visible = 1;
+	c->visible = visible;
+}
+
+static void emit_number(const char *id, const char *label, struct page *num, const char *value)
+{
+	struct page *t = fpage(num, "m_sText");
+	emit_info_ctrl(id, label, value, fint(t, "m_nX"), fint(t, "m_nY"),
+		fint(t, "m_nWidth"), fint(t, "m_nHeight"), fint(t, "m_bShow") ? 1 : 0);
+}
+
+static void emit_info(struct page *info, struct page *bar)
+{
+	struct page *gold, *rank, *point, *pbar, *don, *mark;
+	char v[64];
+	int x, y, w, h;
+	gold = fpage(info, "m_sGold");
+	rank = fpage(info, "m_sRank");
+	point = fpage(info, "m_sPoint");
+	pbar = fpage(info, "m_sBar");
+	don = fpage(info, "m_sDonation");
+	mark = fpage(info, "m_spMark");
+	g_info.ok = 1;
+	g_info.world = global_int(&gi_world, U8_WORLD);
+	g_info.money = fint(gold, "m_nValue");
+	g_info.rank = fint(rank, "m_nValue");
+	g_info.points = fint(fpage(point, "m_sValue"), "m_nValue");
+	g_info.points_max = fint(fpage(point, "m_sMax"), "m_nValue");
+	g_info.donations = fint(don, "m_nValue");
+	g_info.trivia_new = sprite_shown(mark);
+
+	/* T_SystemBar::createBase draws the logo at bar (888, 4). */
+	snprintf(v, sizeof v, "world %d", g_info.world);
+	emit_info_ctrl("title", "Rance VIII", v, 888, 740, 136, 28,
+		       sprite_shown(fpage(bar, "m_spBase")));
+	snprintf(v, sizeof v, "%d", g_info.money);
+	emit_number("money", "Money", gold, v);
+	snprintf(v, sizeof v, "%d", g_info.rank);
+	emit_number("charisma", "Charisma", rank, v);
+	snprintf(v, sizeof v, "%d/%d", g_info.points, g_info.points_max);
+	x = fint(point, "m_nX");
+	y = fint(point, "m_nY");
+	w = fint(point, "m_nWidth");
+	h = fint(point, "m_nHeight");
+	if (pbar && fint(pbar, "m_nWidth") > 0) {
+		int by = fint(pbar, "m_nY") + fint(pbar, "m_nHeight");
+		if (w <= 0) {
+			x = fint(pbar, "m_nX");
+			w = fint(pbar, "m_nWidth");
+		}
+		if (by > y + h)
+			h = by - y;
+	}
+	emit_info_ctrl("charisma-progress", "Charisma progress", v, x, y, w, h,
+		       sprite_live(fpage(fpage(point, "m_sValue"), "m_spNumber")));
+	snprintf(v, sizeof v, "%d", g_info.donations);
+	emit_number("donations", "Donations", don, v);
+	if (g_info.trivia_new)
+		emit_info_ctrl("trivia-new", "New trivia", "true",
+			       fint(mark, "m_nX"), fint(mark, "m_nY"), 16, 16, 1);
+}
+
+static int fill_hub(struct page *town)
+{
+	struct page *bar = global_struct(&gi_bar, "g_sSystemBar", sn_sysbar);
+	struct page *mini = global_struct(&gi_mini, "g_sMiniStatus", sn_mini);
+	struct page *info = global_struct(&gi_info, "g_sSystemInfo", sn_sysinfo);
+	int n0 = g_nctrls;
+	emit_group(fpage(town, "m_sButton"), "hub", town_name);
+	if (mini && sprite_live(fpage(mini, "m_spBase")))
+		emit_party(mini);
+	if (bar && sprite_live(fpage(bar, "m_spBase")))
+		emit_group(fpage(bar, "m_sButton"), "system-bar", bar_name);
+	if (info)
+		emit_info(info, bar);
+	if (g_nctrls == n0)
+		return 0;
+	snprintf(g_screen, sizeof g_screen, "hub");
+	hover_from_rects();
+	return 1;
+}
+
+static int fill_system_menu(struct page *menu)
+{
+	int n0 = g_nctrls;
+	emit_group(fpage(menu, "m_sButton"), "system-menu", menu_name);
+	if (g_nctrls == n0)
+		return 0;
+	snprintf(g_screen, sizeof g_screen, "system-menu");
+	hover_from_rects();
+	return 1;
+}
+
+static int fill_party_summary(struct page *ps)
+{
+	struct page *mini = global_struct(&gi_mini, "g_sMiniStatus", sn_mini);
+	int n0 = g_nctrls;
+	emit_group(fpage(ps, "m_sButton"), "party-summary", pstatus_name);
+	if (mini)
+		read_party(mini);
+	if (g_nctrls == n0)
+		return 0;
+	snprintf(g_screen, sizeof g_screen, "party-summary");
 	hover_from_rects();
 	return 1;
 }
@@ -1850,7 +2399,7 @@ static int cfg_kind(int index)
 
 static int vm_fill(void)
 {
-	struct page *view = NULL, *title = NULL, *cfg = NULL;
+	struct page *view = NULL, *title = NULL, *cfg = NULL, *pstatus = NULL, *menu, *town;
 	int i, view_at = 99, title_at = 99, cfg_at = 99, kind = CFG_NONE;
 	snos_init();
 	if (!ain)
@@ -1859,6 +2408,8 @@ static int vm_fill(void)
 		struct page *p = get_struct_page(i);
 		if (!p || p->type != STRUCT_PAGE)
 			continue;
+		if (p->index == sn_pstatus && !pstatus && sprite_live(fpage(p, "m_spBase")))
+			pstatus = p;
 		if (is_config_view(p->index) && i < view_at) {
 			view = p;
 			view_at = i;
@@ -1877,8 +2428,18 @@ static int vm_fill(void)
 		return fill_cfg_panel(cfg, kind);
 	if (view)
 		return fill_config(view);
+	if (pstatus && fill_party_summary(pstatus))
+		return 1;
+	menu = global_struct(&gi_menu, "g_sSystemMenu", sn_sysmenu);
+	if (menu && fint(menu, "m_nMode") > 0 && sprite_shown(fpage(menu, "m_spBase"))
+			&& fill_system_menu(menu))
+		return 1;
 	if (title && !stack_has(U8_WARN))
 		return fill_title(title);
+	town = global_struct(&gi_town, "g_sTown", sn_town);
+	if (town && sprite_live(fpage(town, "m_spBase")) && stack_has("T_Town@")
+			&& fill_hub(town))
+		return 1;
 	if (!view && !title && stack_has("T_Title"))
 		text_add("ui:title-on-stack-no-page");
 	return 0;
@@ -1896,6 +2457,9 @@ static void publish(void)
 	g_hover_no = -1;
 	g_screen[0] = 0;
 	g_hover[0] = 0;
+	g_nparty = 0;
+	g_has_party = 0;
+	memset(&g_info, 0, sizeof g_info);
 	collect_stack();
 
 	scene_for_each_sprite(on_scene_sprite, NULL);
@@ -1997,6 +2561,26 @@ static int wait_published_after(long long start, unsigned long ms)
 	return 0;
 }
 
+/* Ends early with success when a native dialog opens: it blocks the VM
+ * thread, so the frames would never come. */
+static int wait_frames_or_dialog(long long start, int frames, unsigned long ms)
+{
+	unsigned long long t0 = GetTickCount64(), next_dlg = 0;
+	while (GetTickCount64() - t0 < ms) {
+		unsigned long long now;
+		if (rd_ll(&g_published) >= start + frames)
+			return 1;
+		now = GetTickCount64() - t0;
+		if (now >= next_dlg) {
+			if (rq_dialog_open())
+				return 1;
+			next_dlg = now + 50;
+		}
+		Sleep(2);
+	}
+	return 0;
+}
+
 static int wait_inputs(int n, unsigned long ms)
 {
 	int i;
@@ -2040,17 +2624,46 @@ int rq_ui_has_control(const char *id)
 	return 0;
 }
 
+static int point_clear(const struct ui_snap *s, int self, int px, int py)
+{
+	int i, area = s->ctrl[self].w * s->ctrl[self].h;
+	for (i = 0; i < s->nctrl; i++) {
+		const struct ui_ctrl *o = &s->ctrl[i];
+		if (i == self || o->w <= 0 || o->h <= 0 || o->w * o->h >= area)
+			continue;
+		if (px >= o->x && py >= o->y && px < o->x + o->w && py < o->y + o->h)
+			return 0;
+	}
+	return 1;
+}
+
+/* Aim away from smaller controls inside this one, hidden ones included:
+ * a member card spawns its status button over part of itself. */
 static int ctrl_center(const char *id, int *cx, int *cy)
 {
+	static const int at[][2] = {
+		{ 50, 50 }, { 50, 30 }, { 30, 50 }, { 30, 30 }, { 70, 30 },
+		{ 50, 70 }, { 70, 50 }, { 20, 20 }, { 80, 20 }, { 20, 80 }, { 80, 80 }
+	};
 	struct ui_snap snap;
-	int i;
+	int i, k;
 	if (!copy_snap(&snap))
 		return 0;
 	for (i = 0; i < snap.nctrl; i++) {
-		if (strcmp(snap.ctrl[i].id, id) != 0)
+		const struct ui_ctrl *c = &snap.ctrl[i];
+		if (strcmp(c->id, id) != 0)
 			continue;
-		*cx = snap.ctrl[i].x + snap.ctrl[i].w / 2;
-		*cy = snap.ctrl[i].y + snap.ctrl[i].h / 2;
+		*cx = c->x + c->w / 2;
+		*cy = c->y + c->h / 2;
+		for (k = 0; k < (int)(sizeof at / sizeof at[0]); k++) {
+			int px = c->x + c->w * at[k][0] / 100;
+			int py = c->y + c->h * at[k][1] / 100;
+			if (point_clear(&snap, i, px, py)) {
+				*cx = px;
+				*cy = py;
+				break;
+			}
+		}
 		return 1;
 	}
 	return 0;
@@ -2075,16 +2688,23 @@ int rq_ui_cmd_ui(char **json_out, char *err, int errsz)
 			snprintf(err, errsz, "not-ready");
 		return 0;
 	}
+	/* A native message box blocks the VM thread: no frame will come. */
+	if (rq_dialog_json(json_out))
+		return 1;
 	wants(1);
 	start = rd_ll(&g_present_gen);
-	if (!wait_published_after(start, FRAME_MS)) {
+	if (!wait_frames_or_dialog(start, 1, FRAME_MS)) {
 		wants(0);
+		if (rq_dialog_json(json_out))
+			return 1;
 		if (err)
 			snprintf(err, errsz, "timeout");
 		return 0;
 	}
-	copy_snap(&snap);
 	wants(0);
+	if (rd_ll(&g_published) <= start && rq_dialog_json(json_out))
+		return 1;
+	copy_snap(&snap);
 	if (json_out)
 		*json_out = strdup(snap.json);
 	return 1;
@@ -2103,6 +2723,13 @@ int rq_ui_cmd_hover(const char *id, char *err, int errsz)
 	if (!g_ready) {
 		if (err)
 			snprintf(err, errsz, "not-ready");
+		return 0;
+	}
+	if (rq_dialog_has(id))
+		return rq_dialog_hover(id, err, errsz);
+	if (rq_dialog_open()) {
+		if (err)
+			snprintf(err, errsz, "native-dialog-open");
 		return 0;
 	}
 	wants(1);
@@ -2156,6 +2783,13 @@ int rq_ui_cmd_press(const char *id, char *err, int errsz)
 			snprintf(err, errsz, "usage: press ID");
 		return 0;
 	}
+	if (rq_dialog_has(id))
+		return rq_dialog_press(id, err, errsz);
+	if (rq_dialog_open()) {
+		if (err)
+			snprintf(err, errsz, "native-dialog-open");
+		return 0;
+	}
 	if (!hover_is(id)) {
 		if (err)
 			snprintf(err, errsz, "not-hovered");
@@ -2163,26 +2797,27 @@ int rq_ui_cmd_press(const char *id, char *err, int errsz)
 	}
 	/* Title buttons arm on mouse-up only after a frame where the
 	 * decide key was down while the button was already selected.
-	 * Hold each edge across a presented frame. */
+	 * T_SystemMenu::select presents twice per checkInput, so each edge
+	 * is held across PRESS_FRAMES presented frames. */
 	/* キー_決定 is left-click or Enter, and the click lands on release. */
 	wants(1);
 	key_set_state(VK_LBUTTON, 0);
 	key_set_state(VK_RETURN, 0);
 	start = rd_ll(&g_present_gen);
-	ok = wait_published_after(start, FRAME_MS);
+	ok = wait_frames_or_dialog(start, PRESS_FRAMES, FRAME_MS);
 	if (ok && !hover_is(id))
 		ok = 0;
 	if (ok) {
 		key_set_state(VK_LBUTTON, 1);
 		key_set_state(VK_RETURN, 1);
 		start = rd_ll(&g_present_gen);
-		ok = wait_published_after(start, FRAME_MS);
+		ok = wait_frames_or_dialog(start, PRESS_FRAMES, FRAME_MS);
 	}
 	key_set_state(VK_LBUTTON, 0);
 	key_set_state(VK_RETURN, 0);
-	if (ok) {
+	if (ok && !rq_dialog_open()) {
 		start = rd_ll(&g_present_gen);
-		ok = wait_published_after(start, FRAME_MS);
+		ok = wait_frames_or_dialog(start, PRESS_FRAMES, FRAME_MS);
 	}
 	wants(0);
 	if (!ok) {
