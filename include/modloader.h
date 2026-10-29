@@ -158,6 +158,11 @@ const char *rq_lua_caller_mod(struct lua_State *L);
 int rq_key_from_name(const char *name);
 /* Base screen id plus open overlay ids (vault, status, battle, item-previews). */
 void rq_ui_layers(char *screen, int screen_n, char overlays[][24], int max_ov, int *n_ov);
+/* Master volume on the Config Sound tab, 0–100, and its mute box. */
+int rq_sound_master_pct(void);
+int rq_sound_master_muted(void);
+void rq_sound_master_add(int delta_pct);
+void rq_sound_master_toggle_mute(void);
 
 void rq_ui_init(void);
 void rq_ui_on_present(void);

@@ -18,6 +18,8 @@
 
 #include "cJSON.h"
 #include "input.h"
+#include "mixer.h"
+#include "sact.h"
 #include "scene.h"
 #include "sprite.h"
 #include "vm.h"
@@ -1398,6 +1400,13 @@ static int mem_i(struct page *p, int m)
 	if (!p || m < 0 || m >= p->nr_vars)
 		return 0;
 	return p->values[m].i;
+}
+
+static void mem_set_i(struct page *p, int m, int v)
+{
+	if (!p || m < 0 || m >= p->nr_vars)
+		return;
+	p->values[m].i = v;
 }
 
 static void mem_str(struct page *p, int m, char *dst, int n)
@@ -5269,6 +5278,145 @@ static int vm_fill(void)
 	if (!view && !title && stack_has("T_Title"))
 		text_add("ui:title-on-stack-no-page");
 	return 0;
+}
+
+static struct page *sound_panel(void)
+{
+	int i;
+	snos_init();
+	for (i = 0; i < 24; i++) {
+		struct page *p = get_struct_page(i);
+		if (p && p->type == STRUCT_PAGE && p->index == sn_cfgsnd)
+			return p;
+	}
+	return NULL;
+}
+
+static struct page *master_slider_page(void)
+{
+	struct page *panel, *sliders;
+	panel = sound_panel();
+	if (!panel)
+		return NULL;
+	sliders = mem_page(panel, 2);
+	if (!sliders || sliders->type != ARRAY_PAGE || sliders->nr_vars < 1)
+		return NULL;
+	return slot_page(sliders->values[0].i);
+}
+
+static struct page *master_check_page(void)
+{
+	struct page *panel, *checks;
+	panel = sound_panel();
+	if (!panel)
+		return NULL;
+	checks = mem_page(panel, 4);
+	if (!checks || checks->type != ARRAY_PAGE || checks->nr_vars < 1)
+		return NULL;
+	return slot_page(checks->values[0].i);
+}
+
+/* Thumb x follows the 0–1 rate when this page is a horizontal slider. */
+static void move_master_knob(struct page *sl, float rate)
+{
+	struct sp_box knob;
+	struct page *wrap, *child, *imp;
+	struct sact_sprite *sp;
+	int x, y, w, h, span, nx;
+	if (!sl)
+		return;
+	if (rate < 0)
+		rate = 0;
+	if (rate > 1)
+		rate = 1;
+	if (!cas_rect(mem_page(sl, 1), &x, &y, &w, &h))
+		return;
+	wrap = mem_page(sl, 0);
+	versatile_box(wrap, &knob);
+	if (!knob.ok || knob.w <= 0)
+		return;
+	span = w - knob.w;
+	if (span < 1)
+		return;
+	nx = x + (int)(rate * (float)span + 0.5f);
+	if (wrap && mem_i(wrap, 0) == 0) {
+		child = mem_page(wrap, 1);
+		imp = child ? cg_imp(mem_i(child, 0)) : NULL;
+		mem_set_i(imp, 1, nx);
+	}
+	if (knob.sp > 0) {
+		sp = sact_get_sprite(knob.sp);
+		if (sp)
+			sprite_set_x(sp, nx);
+	}
+}
+
+int rq_sound_master_pct(void)
+{
+	struct page *sl = master_slider_page();
+	int pct = 0;
+	float r;
+	if (sl && sl->nr_vars > 5) {
+		r = sl->values[5].f;
+		if (r < 0)
+			r = 0;
+		if (r > 1)
+			r = 1;
+		return (int)(r * 100.0f + 0.5f);
+	}
+	if (!mixer_get_volume(0, &pct))
+		return 0;
+	if (pct < 0)
+		pct = 0;
+	if (pct > 100)
+		pct = 100;
+	return pct;
+}
+
+int rq_sound_master_muted(void)
+{
+	struct page *c = master_check_page();
+	int m = 0;
+	if (c && c->nr_vars > 4)
+		return mem_i(c, 4) ? 1 : 0;
+	if (!mixer_get_mute(0, &m))
+		return 0;
+	return m ? 1 : 0;
+}
+
+static void sound_apply_pct(int pct)
+{
+	struct page *sl;
+	float r;
+	if (pct < 0)
+		pct = 0;
+	if (pct > 100)
+		pct = 100;
+	r = (float)pct / 100.0f;
+	sl = master_slider_page();
+	if (sl && sl->nr_vars > 5)
+		sl->values[5].f = r;
+	move_master_knob(sl, r);
+	mixer_set_volume(0, pct);
+}
+
+static void sound_apply_mute(int on)
+{
+	struct page *c = master_check_page();
+	on = on ? 1 : 0;
+	if (c && c->nr_vars > 4)
+		mem_set_i(c, 4, on);
+	mixer_set_mute(0, on);
+}
+
+void rq_sound_master_add(int delta_pct)
+{
+	sound_apply_pct(rq_sound_master_pct() + delta_pct);
+}
+
+void rq_sound_master_toggle_mute(void)
+{
+	sound_apply_mute(!rq_sound_master_muted());
 }
 
 static void layer_add(char ov[][24], int max, int *n, const char *id)

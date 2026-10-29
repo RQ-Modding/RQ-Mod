@@ -106,6 +106,10 @@ int rq_key_from_name(const char *n)
 		if (hex > 0 && hex < VK_NR_KEYCODES)
 			return hex;
 	}
+	if (!_stricmp(n, "+") || !_stricmp(n, "plus") || !_stricmp(n, "add"))
+		return VK_ADD;
+	if (!_stricmp(n, "-") || !_stricmp(n, "minus") || !_stricmp(n, "subtract"))
+		return VK_SUBTRACT;
 	if ((n[0] == 'f' || n[0] == 'F') && n[1] >= '1' && n[1] <= '9') {
 		int fn = 0;
 		if (!n[2])

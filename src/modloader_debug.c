@@ -26,12 +26,20 @@
 #include "xsystem4.h"
 
 #define DEBUG_MAX 32
-#define DEBUG_BUILTIN_ID "rendering-stats"
+
+enum {
+	ACT_PRESS = 0,
+	ACT_STATS,
+	ACT_VOL_UP,
+	ACT_VOL_DOWN,
+	ACT_MUTE
+};
 
 struct debug_action {
 	int used;
 	int builtin;
 	int toggle;
+	int kind;
 	int on;
 	int vk;
 	int ref;
@@ -88,6 +96,17 @@ static struct debug_action *find_id(const char *id)
 	return NULL;
 }
 
+static int engine_id(const char *id)
+{
+	return id && (!strcmp(id, "rendering-stats") || !strcmp(id, "master-up")
+		|| !strcmp(id, "master-down") || !strcmp(id, "master-mute"));
+}
+
+static int reserved_vk(int vk)
+{
+	return vk == VK_F3 || vk == VK_6 || vk == VK_ADD || vk == VK_SUBTRACT || vk == VK_M;
+}
+
 static void clear_action(struct debug_action *a, lua_State *L)
 {
 	if (a->ref != LUA_NOREF && L)
@@ -96,28 +115,44 @@ static void clear_action(struct debug_action *a, lua_State *L)
 	a->ref = LUA_NOREF;
 }
 
-static void ensure_builtin(void)
+static void place_builtin(const char *id, const char *label, const char *key,
+		int vk, int kind, int toggle)
 {
 	struct debug_action *a;
-	if (!g_ready)
-		return;
-	a = find_id(DEBUG_BUILTIN_ID);
+	int i;
+	a = find_id(id);
 	if (a)
 		return;
-	a = &g_act[0];
-	if (a->used)
+	for (i = 0; i < DEBUG_MAX; i++) {
+		if (!g_act[i].used) {
+			a = &g_act[i];
+			break;
+		}
+	}
+	if (!a)
 		return;
 	memset(a, 0, sizeof *a);
 	a->used = 1;
 	a->builtin = 1;
-	a->toggle = 1;
-	a->vk = VK_6;
+	a->toggle = toggle;
+	a->kind = kind;
+	a->vk = vk;
 	a->ref = LUA_NOREF;
-	snprintf(a->id, sizeof a->id, "%s", DEBUG_BUILTIN_ID);
-	snprintf(a->label, sizeof a->label, "Rendering Stats");
-	snprintf(a->key, sizeof a->key, "6");
+	snprintf(a->id, sizeof a->id, "%s", id);
+	snprintf(a->label, sizeof a->label, "%s", label);
+	snprintf(a->key, sizeof a->key, "%s", key);
 	snprintf(a->page, sizeof a->page, "Main");
 	snprintf(a->mod, sizeof a->mod, "engine");
+}
+
+static void ensure_builtin(void)
+{
+	if (!g_ready)
+		return;
+	place_builtin("rendering-stats", "Rendering Stats", "Key 6", VK_6, ACT_STATS, 1);
+	place_builtin("master-up", "Increase Master by 10%", "Key +", VK_ADD, ACT_VOL_UP, 0);
+	place_builtin("master-down", "Reduce Master by 10%", "Key -", VK_SUBTRACT, ACT_VOL_DOWN, 0);
+	place_builtin("master-mute", "Mute Master", "Key M", VK_M, ACT_MUTE, 1);
 }
 
 void rq_debug_init(void)
@@ -155,7 +190,7 @@ static int remove_id(const char *id)
 	struct debug_action *a;
 	if (!id_ok(id))
 		return 0;
-	if (!strcmp(id, DEBUG_BUILTIN_ID))
+	if (engine_id(id))
 		return 0;
 	a = find_id(id);
 	if (!a)
@@ -279,8 +314,12 @@ void rq_debug_tick(void)
 		g_pending_toggle = 0;
 	}
 	for (i = 0; i < DEBUG_MAX; i++) {
-		if (g_act[i].used && g_act[i].toggle)
+		if (!g_act[i].used)
+			continue;
+		if (g_act[i].kind == ACT_STATS)
 			g_act[i].on = g_stats_on;
+		else if (g_act[i].kind == ACT_MUTE)
+			g_act[i].on = rq_sound_master_muted();
 	}
 	f3 = key_is_down_raw(VK_F3) ? 1 : 0;
 	nfire = 0;
@@ -294,8 +333,14 @@ void rq_debug_tick(void)
 			continue;
 		}
 		if (f3 && down && !g_act[i].down_prev) {
-			if (g_act[i].builtin)
+			if (g_act[i].kind == ACT_STATS)
 				g_pending_toggle = 1;
+			else if (g_act[i].kind == ACT_VOL_UP)
+				rq_sound_master_add(10);
+			else if (g_act[i].kind == ACT_VOL_DOWN)
+				rq_sound_master_add(-10);
+			else if (g_act[i].kind == ACT_MUTE)
+				rq_sound_master_toggle_mute();
 			else if (nfire < DEBUG_MAX)
 				fire[nfire++] = i;
 		}
@@ -329,6 +374,14 @@ int rq_debug_snapshot(struct rq_debug_view *out)
 		return 0;
 	out->menu = menu;
 	out->stats = g_stats_on;
+	for (i = 0; i < DEBUG_MAX; i++) {
+		if (!g_act[i].used)
+			continue;
+		if (g_act[i].kind == ACT_STATS)
+			g_act[i].on = g_stats_on;
+		else if (g_act[i].kind == ACT_MUTE)
+			g_act[i].on = rq_sound_master_muted();
+	}
 	n = 0;
 	for (i = 0; i < DEBUG_MAX && n < RQ_DEBUG_ACTIONS; i++) {
 		struct rq_debug_row *row;
@@ -459,11 +512,17 @@ void rq_debug_draw(void)
 		return;
 	sw = config.view_width > 0 ? config.view_width : 1024;
 	if (v.menu) {
+		int nmain = 0;
 		y = 12;
 		widest = 160;
-		draw_rect(8, 8, 280, 28 + 18 * (v.nactions + 4), 12, 16, 28, 210);
+		for (i = 0; i < v.nactions; i++) {
+			if (!strcmp(v.actions[i].page, "Main"))
+				nmain++;
+		}
+		draw_rect(8, 8, 460, 20 + 18 * (nmain + v.nactions + 6), 12, 16, 28, 210);
 		draw_text(16, y, "Main");
-		y += 20;
+		y += 18;
+		y += 18;
 		draw_rows(&v, "Main", &y, &widest);
 		for (i = 0; i < v.nactions; i++) {
 			if (!strcmp(v.actions[i].page, "Main"))
@@ -478,7 +537,8 @@ void rq_debug_draw(void)
 		for (i = 0; i < npages; i++) {
 			y += 6;
 			draw_text(16, y, pages[i]);
-			y += 20;
+			y += 18;
+			y += 18;
 			draw_rows(&v, pages[i], &y, &widest);
 		}
 		(void)widest;
@@ -552,12 +612,12 @@ int rq_lua_debug_action(lua_State *L)
 		return luaL_error(L, "debug.action: key required");
 	if (!lua_isfunction(L, -1))
 		return luaL_error(L, "debug.action: onPress function required");
-	if (!strcmp(id, DEBUG_BUILTIN_ID))
-		return luaL_error(L, "debug.action: rendering-stats is engine-owned");
+	if (engine_id(id))
+		return luaL_error(L, "debug.action: that id is engine-owned");
 	vk = rq_key_from_name(key);
 	if (vk < 0)
 		return luaL_error(L, "debug.action: unknown key");
-	if (vk == VK_F3 || vk == VK_6)
+	if (reserved_vk(vk))
 		return luaL_error(L, "debug.action: that key is reserved");
 	if (!page || !page[0])
 		page = "Main";
@@ -575,7 +635,7 @@ int rq_lua_debug_action(lua_State *L)
 	if (!slot)
 		return luaL_error(L, "debug.action: too many actions");
 	if (slot->builtin)
-		return luaL_error(L, "debug.action: rendering-stats is engine-owned");
+		return luaL_error(L, "debug.action: that row is engine-owned");
 	lua_pushvalue(L, -1);
 	ref = luaL_ref(L, LUA_REGISTRYINDEX);
 	if (slot->used && slot->ref != LUA_NOREF)
