@@ -224,7 +224,7 @@ int sact_Update(void)
 #endif
 	handle_events();
 #ifdef RQ_MODLOADER
-	if (rq_ui_wants_frame())
+	if (rq_ui_wants_frame() || rq_debug_wants_frame())
 		scene_is_dirty = true;
 #endif
 #ifdef RQ_PROFILE
@@ -241,12 +241,16 @@ int sact_Update(void)
 		int hud = rq_hud_tick();
 		if (hud)
 			scene_is_dirty = true;
+		rq_debug_tick();
+		if (rq_debug_wants_frame())
+			scene_is_dirty = true;
 	}
 #endif
 	if (scene_is_dirty) {
 		scene_render();
 #ifdef RQ_MODLOADER
 		rq_hud_draw();
+		rq_debug_draw();
 #endif
 #ifdef RQ_PROFILE
 		if (split) {

@@ -119,6 +119,46 @@ int rq_lua_hud_text_width(struct lua_State *L);
 int rq_lua_hud_wrap(struct lua_State *L);
 int rq_lua_loot_list(struct lua_State *L);
 
+#define RQ_DEBUG_ACTIONS 32
+#define RQ_DEBUG_OV 8
+
+struct rq_debug_row {
+	char id[40];
+	char key[16];
+	char label[96];
+	char page[24];
+	int on;
+};
+
+struct rq_debug_view {
+	int menu;
+	int stats;
+	int nactions;
+	struct rq_debug_row actions[RQ_DEBUG_ACTIONS];
+	double fps;
+	double memory_mb;
+	double avg_fps;
+	int vpf;
+	char screen[24];
+	int nov;
+	char overlays[RQ_DEBUG_OV][24];
+};
+
+void rq_debug_init(void);
+void rq_debug_unload_mod(const char *mod);
+int rq_debug_swallows(int code);
+int rq_debug_wants_frame(void);
+void rq_debug_tick(void);
+void rq_debug_draw(void);
+void rq_debug_add_verts(int n);
+void rq_debug_on_present(void);
+int rq_debug_snapshot(struct rq_debug_view *out);
+int rq_lua_debug_action(struct lua_State *L);
+const char *rq_lua_caller_mod(struct lua_State *L);
+int rq_key_from_name(const char *name);
+/* Base screen id plus open overlay ids (vault, status, battle, item-previews). */
+void rq_ui_layers(char *screen, int screen_n, char overlays[][24], int max_ov, int *n_ov);
+
 void rq_ui_init(void);
 void rq_ui_on_present(void);
 void rq_ui_on_parts_input(void);

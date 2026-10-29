@@ -229,6 +229,8 @@ bool key_is_down(enum sact_keycode code)
 		return key_state[code];
 	if (rq_hud_block_mouse() && (code == VK_LBUTTON || code == VK_RBUTTON))
 		return false;
+	if (rq_debug_swallows((int)code))
+		return false;
 #endif
 	return key_state[code];
 }

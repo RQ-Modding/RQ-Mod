@@ -48,7 +48,7 @@ static char *tok(char **ps)
 	return s;
 }
 
-static int key_code(const char *n)
+int rq_key_from_name(const char *n)
 {
 	int hex;
 	if (!n || !*n)
@@ -105,6 +105,15 @@ static int key_code(const char *n)
 		hex = (int)strtol(n, NULL, 16);
 		if (hex > 0 && hex < VK_NR_KEYCODES)
 			return hex;
+	}
+	if ((n[0] == 'f' || n[0] == 'F') && n[1] >= '1' && n[1] <= '9') {
+		int fn = 0;
+		if (!n[2])
+			fn = n[1] - '0';
+		else if (n[1] == '1' && n[2] >= '0' && n[2] <= '2' && !n[3])
+			fn = 10 + (n[2] - '0');
+		if (fn >= 1 && fn <= 12)
+			return VK_F1 + (fn - 1);
 	}
 	if (n[0] && !n[1]) {
 		char c = n[0];
@@ -273,7 +282,7 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 		a = tok(&p);
 		if (rq_dialog_has(a) || rq_ui_has_control(a))
 			return rq_ui_cmd_press(a, err, errsz);
-		code = key_code(a);
+		code = rq_key_from_name(a);
 		if (code < 0) {
 			if (err)
 				snprintf(err, errsz, "unknown-control");
@@ -294,7 +303,7 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 	}
 	if (!_stricmp(cmd, "key")) {
 		a = tok(&p);
-		code = key_code(a);
+		code = rq_key_from_name(a);
 		if (code < 0) {
 			if (err)
 				snprintf(err, errsz, "unknown key '%s'", a);
@@ -310,7 +319,7 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 			set_key(btn, 1);
 			return 1;
 		}
-		code = key_code(a);
+		code = rq_key_from_name(a);
 		if (code < 0) {
 			if (err)
 				snprintf(err, errsz, "unknown key '%s'", a);
@@ -326,7 +335,7 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 			set_key(btn, 0);
 			return 1;
 		}
-		code = key_code(a);
+		code = rq_key_from_name(a);
 		if (code < 0) {
 			if (err)
 				snprintf(err, errsz, "unknown key '%s'", a);

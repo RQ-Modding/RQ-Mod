@@ -211,6 +211,11 @@ static const char *lua_mod_tag(lua_State *L)
 	return tag;
 }
 
+const char *rq_lua_caller_mod(lua_State *L)
+{
+	return lua_mod_tag(L);
+}
+
 static uint16_t rd16(const uint8_t *p)
 {
 	return (uint16_t)(p[0] | (p[1] << 8));
@@ -920,6 +925,10 @@ static void open_rq(lua_State *L)
 	lua_setfield(L, -2, "input");
 
 	lua_newtable(L);
+	set_cfn(L, "action", rq_lua_debug_action);
+	lua_setfield(L, -2, "debug");
+
+	lua_newtable(L);
 	set_cfn(L, "rect", rq_lua_hud_rect);
 	set_cfn(L, "text", rq_lua_hud_text);
 	set_cfn(L, "cg", rq_lua_hud_cg);
@@ -1101,7 +1110,10 @@ int rq_mods_json(char **json_out)
 
 static int load_one_lua(lua_State *L, const char *path, const char *name, const char *note_path)
 {
-	int err = luaL_loadfile(L, path);
+	int err;
+	if (name && name[0])
+		rq_debug_unload_mod(name);
+	err = luaL_loadfile(L, path);
 	if (err != LUA_OK) {
 		rq_log("load error %s: %s", path, lua_tostring(L, -1));
 		lua_pop(L, 1);
@@ -1486,6 +1498,7 @@ void rq_mods_init(struct ain *ain)
 	int n;
 
 	rq_mods_early_init();
+	rq_debug_init();
 	g_ain = ain;
 
 	if (!g_rq_log && dir_exists(g_rq_mods_dir)) {

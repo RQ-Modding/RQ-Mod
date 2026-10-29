@@ -1209,6 +1209,34 @@ static void build_json(char *dst, int dstsz)
 		cJSON_AddNumberToObject(sk, "pages", g_skill_pages);
 		cJSON_AddNumberToObject(sk, "storedPoints", g_skill_points);
 	}
+	{
+		struct rq_debug_view dv;
+		if (rq_debug_snapshot(&dv)) {
+			cJSON *dbg = cJSON_AddObjectToObject(root, "debug");
+			cJSON *arr = cJSON_AddArrayToObject(dbg, "actions");
+			int k;
+			cJSON_AddStringToObject(dbg, "page", "Main");
+			for (k = 0; k < dv.nactions; k++) {
+				cJSON *a = cJSON_CreateObject();
+				cJSON_AddStringToObject(a, "id", dv.actions[k].id);
+				cJSON_AddStringToObject(a, "key", dv.actions[k].key);
+				cJSON_AddStringToObject(a, "label", dv.actions[k].label);
+				cJSON_AddStringToObject(a, "page", dv.actions[k].page);
+				cJSON_AddBoolToObject(a, "on", dv.actions[k].on ? 1 : 0);
+				cJSON_AddItemToArray(arr, a);
+			}
+			if (dv.stats) {
+				cJSON *ovs = cJSON_AddArrayToObject(dbg, "overlays");
+				cJSON_AddNumberToObject(dbg, "fps", dv.fps);
+				cJSON_AddNumberToObject(dbg, "memoryMb", dv.memory_mb);
+				cJSON_AddNumberToObject(dbg, "avgFps", dv.avg_fps);
+				cJSON_AddNumberToObject(dbg, "vpf", dv.vpf);
+				cJSON_AddStringToObject(dbg, "screen", dv.screen[0] ? dv.screen : "other");
+				for (k = 0; k < dv.nov; k++)
+					cJSON_AddItemToArray(ovs, cJSON_CreateString(dv.overlays[k]));
+			}
+		}
+	}
 	printed = cJSON_PrintUnformatted(root);
 	cJSON_Delete(root);
 	if (!printed) {
@@ -5241,6 +5269,132 @@ static int vm_fill(void)
 	if (!view && !title && stack_has("T_Title"))
 		text_add("ui:title-on-stack-no-page");
 	return 0;
+}
+
+static void layer_add(char ov[][24], int max, int *n, const char *id)
+{
+	int i;
+	if (!id || !id[0] || !n || *n >= max)
+		return;
+	for (i = 0; i < *n; i++) {
+		if (!strcmp(ov[i], id))
+			return;
+	}
+	snprintf(ov[*n], 24, "%s", id);
+	(*n)++;
+}
+
+static int agent_id_live(const char *id)
+{
+	int i, found = 0;
+	if (!id)
+		return 0;
+	ui_lock();
+	for (i = 0; i < AGENT_MAX; i++) {
+		if (g_agent[i].used && !strcmp(g_agent[i].id, id)) {
+			found = 1;
+			break;
+		}
+	}
+	ui_unlock();
+	return found;
+}
+
+static int vault_overlay_id(char *id, int n)
+{
+	struct page *store, *stock;
+	int open_flag, store_type, stock_open;
+	store = global_struct(&gi_storeitem, "g_sStoreItem", sn_storeitem);
+	if (!store || !sprite_live(fpage(fpage(store, "m_sList"), "m_spBase")))
+		return 0;
+	store_type = fint(store, "m_nStoreType");
+	open_flag = fint(store, "m_bOpenFlag") ? 1 : 0;
+	stock = global_struct(&gi_storestock, "g_sStoreStock", sn_storestock);
+	stock_open = stock && sprite_live(fpage(fpage(stock, "m_sList"), "m_spBase"));
+	if (store_type == 3)
+		snprintf(id, n, "shop-buy");
+	else if (open_flag || stock_open)
+		snprintf(id, n, "vault-storage");
+	else
+		snprintf(id, n, "vault");
+	return 1;
+}
+
+void rq_ui_layers(char *screen, int screen_n, char overlays[][24], int max_ov, int *n_ov)
+{
+	struct page *p;
+	char vid[24];
+	if (!screen || screen_n <= 0 || !n_ov)
+		return;
+	screen[0] = 0;
+	*n_ov = 0;
+	snos_init();
+	collect_stack();
+	if (vault_overlay_id(vid, (int)sizeof vid))
+		layer_add(overlays, max_ov, n_ov, vid);
+	p = global_struct(&gi_status, "g_sStatus", sn_status);
+	if (p && sprite_live(fpage(p, "m_spBase")))
+		layer_add(overlays, max_ov, n_ov, "status");
+	p = global_struct(&gi_battlesel, "g_sBattleSelect", sn_battlesel);
+	if (p && fint(p, "m_nZ") >= 0)
+		layer_add(overlays, max_ov, n_ov, "battle");
+	if (agent_id_live("preview-close"))
+		layer_add(overlays, max_ov, n_ov, "item-previews");
+
+	p = global_struct(&gi_select, "g_sSelect", sn_select);
+	if (p && sprite_live(fpage(p, "m_spBase"))) {
+		snprintf(screen, screen_n, "select");
+		return;
+	}
+	p = global_struct(&gi_storequest, "g_sStoreQuest", sn_storequest);
+	if (p && sprite_shown(fpage(p, "m_spBase"))) {
+		snprintf(screen, screen_n, "quest-storage");
+		return;
+	}
+	if (global_int(&gi_msgno, "g_nMessageNo") > 0) {
+		snprintf(screen, screen_n, "message");
+		return;
+	}
+	p = global_struct(&gi_skillpoint, "g_sSkillPoint", sn_skillpoint);
+	if (p && sprite_live(fpage(p, "m_spBase1"))) {
+		snprintf(screen, screen_n, "skill-shop");
+		return;
+	}
+	p = global_struct(&gi_party, "g_sParty", sn_party);
+	if (p && sprite_live(fpage(p, "m_spBase"))) {
+		snprintf(screen, screen_n, "party-edit");
+		return;
+	}
+	p = global_struct(&gi_quest, "g_sQuest", sn_quest);
+	if (p && sprite_shown(fpage(p, "m_spBase"))) {
+		snprintf(screen, screen_n, "quests");
+		return;
+	}
+	p = global_struct(&gi_menu, "g_sSystemMenu", sn_sysmenu);
+	if (p && fint(p, "m_nMode") > 0 && sprite_shown(fpage(p, "m_spBase"))) {
+		snprintf(screen, screen_n, "system-menu");
+		return;
+	}
+	p = global_struct(&gi_shop, "g_sShop", sn_shop);
+	if (p && sprite_live(fpage(p, "m_spBase"))) {
+		snprintf(screen, screen_n, "frostbuy");
+		return;
+	}
+	p = global_struct(&gi_mapparts, "g_sMapParts", sn_mapparts);
+	if (p && sprite_shown(fpage(p, "m_spBase"))) {
+		snprintf(screen, screen_n, "dungeon");
+		return;
+	}
+	p = global_struct(&gi_town, "g_sTown", sn_town);
+	if (p && sprite_live(fpage(p, "m_spBase")) && stack_has("T_Town@")) {
+		snprintf(screen, screen_n, "hub");
+		return;
+	}
+	if (stack_has("T_Title") && !stack_has(U8_WARN)) {
+		snprintf(screen, screen_n, "title");
+		return;
+	}
+	snprintf(screen, screen_n, "other");
 }
 
 static void publish(void)

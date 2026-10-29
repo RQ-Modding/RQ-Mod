@@ -576,6 +576,7 @@ void gfx_swap(void)
 	gfx_update_frame_rate_counter();
 	rq_prof_frame();
 #ifdef RQ_MODLOADER
+	rq_debug_on_present();
 	rq_ui_on_present();
 #endif
 }
@@ -626,10 +627,16 @@ void gfx_run_job(struct gfx_render_job *job)
 	case GFX_QUADRILATERAL:
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sdl.gl.rect_ibo);
 		glDrawElements(GL_TRIANGLE_FAN, 4, GL_UNSIGNED_INT, NULL);
+#ifdef RQ_MODLOADER
+		rq_debug_add_verts(4);
+#endif
 		break;
 	case GFX_LINE:
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sdl.gl.line_ibo);
 		glDrawElements(GL_LINES, 2, GL_UNSIGNED_INT, NULL);
+#ifdef RQ_MODLOADER
+		rq_debug_add_verts(2);
+#endif
 		break;
 	}
 
