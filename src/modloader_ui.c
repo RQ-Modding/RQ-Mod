@@ -210,6 +210,45 @@ struct dungeon_state {
 	char name[80];
 };
 
+#define BATTLE_UNIT_MAX 10
+#define BATTLE_SKILL_MAX 48
+
+struct battle_unit {
+	int no;
+	int chara;
+	int enemy;
+	int x, y, w, h;
+	char name[80];
+};
+
+struct battle_skill {
+	int button;
+	int skill;
+	int uses;
+	int panel;
+	int target;
+	int index;
+	int enabled;
+	int visible;
+	int x, y, w, h;
+	char name[80];
+	char tone[8];
+};
+
+struct battle_state {
+	int ok;
+	int selecting;
+	int auto_flag;
+	int skill_mode;
+	int actor_no;
+	int actor_chara;
+	char actor_name[80];
+	int n_units;
+	int n_skills;
+	struct battle_unit units[BATTLE_UNIT_MAX];
+	struct battle_skill skills[BATTLE_SKILL_MAX];
+};
+
 struct ui_snap {
 	char screen[24];
 	char hover[40];
@@ -248,6 +287,7 @@ static struct quest_row g_quests[QUEST_MAX];
 static int g_nquests;
 static struct quest_state g_qstate;
 static struct dungeon_state g_dstate;
+static struct battle_state g_bstate;
 
 #define VAULT_ITEM_MAX 256
 #define VAULT_VISIBLE 6
@@ -976,6 +1016,65 @@ static void add_dungeon_json(cJSON *root)
 	cJSON_AddStringToObject(o, "name", g_dstate.name);
 }
 
+static void add_battle_json(cJSON *root)
+{
+	cJSON *o, *actor, *units, *skills;
+	int i;
+	if (!g_bstate.ok)
+		return;
+	o = cJSON_AddObjectToObject(root, "battle");
+	cJSON_AddStringToObject(o, "phase", g_bstate.selecting ? "select" : "wait");
+	cJSON_AddBoolToObject(o, "auto", g_bstate.auto_flag ? 1 : 0);
+	cJSON_AddNumberToObject(o, "skillMode", g_bstate.skill_mode);
+	actor = cJSON_AddObjectToObject(o, "actor");
+	if (g_bstate.actor_no > 0) {
+		cJSON_AddNumberToObject(actor, "no", g_bstate.actor_no);
+		cJSON_AddNumberToObject(actor, "chara", g_bstate.actor_chara);
+		cJSON_AddStringToObject(actor, "name", g_bstate.actor_name);
+	} else {
+		cJSON_AddNullToObject(actor, "no");
+		cJSON_AddNullToObject(actor, "chara");
+		cJSON_AddStringToObject(actor, "name", "");
+	}
+	units = cJSON_AddArrayToObject(o, "units");
+	for (i = 0; i < g_bstate.n_units; i++) {
+		cJSON *u = cJSON_CreateObject();
+		struct battle_unit *r = &g_bstate.units[i];
+		cJSON_AddNumberToObject(u, "no", r->no);
+		cJSON_AddNumberToObject(u, "chara", r->chara);
+		cJSON_AddStringToObject(u, "side", r->enemy ? "enemy" : "ally");
+		cJSON_AddStringToObject(u, "name", r->name);
+		cJSON_AddNumberToObject(u, "x", r->x);
+		cJSON_AddNumberToObject(u, "y", r->y);
+		cJSON_AddNumberToObject(u, "w", r->w);
+		cJSON_AddNumberToObject(u, "h", r->h);
+		cJSON_AddItemToArray(units, u);
+	}
+	skills = cJSON_AddArrayToObject(o, "skills");
+	for (i = 0; i < g_bstate.n_skills; i++) {
+		cJSON *s = cJSON_CreateObject();
+		struct battle_skill *r = &g_bstate.skills[i];
+		char id[40];
+		snprintf(id, sizeof id, "skill-%d", r->button);
+		cJSON_AddStringToObject(s, "id", id);
+		cJSON_AddNumberToObject(s, "button", r->button);
+		cJSON_AddNumberToObject(s, "skill", r->skill);
+		cJSON_AddStringToObject(s, "name", r->name);
+		cJSON_AddNumberToObject(s, "uses", r->uses);
+		cJSON_AddNumberToObject(s, "panel", r->panel);
+		cJSON_AddStringToObject(s, "tone", r->tone);
+		cJSON_AddNumberToObject(s, "target", r->target);
+		cJSON_AddNumberToObject(s, "index", r->index);
+		cJSON_AddBoolToObject(s, "enabled", r->enabled ? 1 : 0);
+		cJSON_AddBoolToObject(s, "visible", r->visible ? 1 : 0);
+		cJSON_AddNumberToObject(s, "x", r->x);
+		cJSON_AddNumberToObject(s, "y", r->y);
+		cJSON_AddNumberToObject(s, "w", r->w);
+		cJSON_AddNumberToObject(s, "h", r->h);
+		cJSON_AddItemToArray(skills, s);
+	}
+}
+
 static void add_skill_array(cJSON *parent, const char *key, struct skill_row *rows, int n)
 {
 	cJSON *arr = cJSON_AddArrayToObject(parent, key);
@@ -1096,6 +1195,8 @@ static void build_json(char *dst, int dstsz)
 		add_quest_json(root);
 	if (g_dstate.ok)
 		add_dungeon_json(root);
+	if (g_bstate.ok)
+		add_battle_json(root);
 	if (g_status.ok)
 		add_status_json(root);
 	if (g_vstate.ok)
@@ -1189,6 +1290,7 @@ static int sn_town, sn_sysbar, sn_sysmenu, sn_mini, sn_sysinfo, sn_pstatus;
 static int sn_party, sn_status, sn_storeitem, sn_select, sn_storestock;
 static int sn_shop, sn_equipdrag, sn_skillpoint;
 static int sn_quest, sn_storequest, sn_mapparts, sn_player;
+static int sn_battlesel, sn_bchara, sn_bmon;
 static int snos_ready;
 
 static void snos_init(void)
@@ -1237,6 +1339,9 @@ static void snos_init(void)
 	sn_storequest = sn_get("T_StoreQuest");
 	sn_mapparts = sn_get("T_MapParts");
 	sn_player = sn_get("CPlayer");
+	sn_battlesel = sn_get("T_BattleSelect");
+	sn_bchara = sn_get("T_BattleCharaManager");
+	sn_bmon = sn_get("T_BattleMonsterManager");
 	snos_ready = 1;
 }
 
@@ -1553,6 +1658,8 @@ static int gi_storeitem = -2, gi_select = -2, gi_storestock = -2, gi_selectdata 
 static int gi_shop = -2, gi_equipdrag = -2, gi_skillpoint = -2;
 static int gi_quest = -2, gi_storequest = -2, gi_mapparts = -2, gi_player = -2;
 static int gi_msgno = -2;
+static int gi_battlesel = -2, gi_battlearea = -2, gi_bchara = -2, gi_bmon = -2;
+static int gi_pta = -2, gi_ptb = -2;
 
 #define AGENT_MAX 32
 
@@ -4693,6 +4800,316 @@ static const char *map_btn_name(int id, const char **label)
 	}
 }
 
+/* Panel colors from Ｓパネル色: 100 attack (red), 101 support (blue). */
+static int skill_panel(int id)
+{
+	struct page *sk = skill_def_page(id);
+	if (!sk)
+		return 0;
+	return fint_utf(sk, "\xE3\x83\x91\xE3\x83\x8D\xE3\x83\xAB\xE8\x89\xB2");
+}
+
+static const char *skill_tone(int panel)
+{
+	if (panel == 100)
+		return "red";
+	if (panel == 101)
+		return "blue";
+	return "other";
+}
+
+static void chara_name_of(int chara, char *dst, int n)
+{
+	struct page *c;
+	dst[0] = 0;
+	c = chara_page(chara);
+	if (c)
+		fstr_utf(c, "\xE5\x90\x8D\xE5\x89\x8D", dst, n);
+}
+
+static int save_arr_int(int *gi, const char *name, int index)
+{
+	struct page *arr;
+	if (index < 0 || global_index(gi, name) < 0)
+		return 0;
+	arr = slot_page(global_get(*gi).i);
+	if (!arr || arr->type != ARRAY_PAGE || index >= arr->nr_vars)
+		return 0;
+	return arr->values[index].i;
+}
+
+static int skill_no_at(struct page *battle_skill, int index)
+{
+	struct page *list, *nos;
+	if (!battle_skill || index < 0)
+		return 0;
+	list = fpage(fpage(battle_skill, "m_rfsSkill"), "m_sList");
+	nos = fpage(list, "m_anSkillNo");
+	if (!nos || nos->type != ARRAY_PAGE || index >= nos->nr_vars)
+		return 0;
+	return nos->values[index].i;
+}
+
+static int skill_uses_at(struct page *battle_skill, int index)
+{
+	struct page *num;
+	if (!battle_skill || index < 0)
+		return -1;
+	num = arr_at(fpage(fpage(battle_skill, "m_sCount"), "m_asNumber"), index);
+	if (!num)
+		return -1;
+	return fint(num, "m_nValue");
+}
+
+static int skill_status_at(struct page *battle_skill, int index)
+{
+	struct page *st = battle_skill ? fpage(battle_skill, "m_anStatus") : NULL;
+	if (!st || st->type != ARRAY_PAGE || index < 0 || index >= st->nr_vars)
+		return -1;
+	return st->values[index].i;
+}
+
+static void decode_skill_button(int button, int *index, int *target)
+{
+	*index = -1;
+	*target = 0;
+	if (button >= 210000 && button < 220000) {
+		*target = (button - 210000) / 100;
+		*index = (button - 210000) % 100 - 1;
+	} else if (button >= 200001 && button < 210000) {
+		*index = button - 200001;
+	}
+}
+
+static void emit_battle_skill_btn(struct page *btn, int index, int button,
+		const char *label, const char *value)
+{
+	int n0 = g_nctrls;
+	char id[40];
+	struct ui_ctrl *c;
+	snprintf(id, sizeof id, "skill-%d", button);
+	emit_named_btn(btn, index, id, label, "battle", value, 0);
+	if (g_nctrls <= n0)
+		return;
+	c = &g_ctrls[g_nctrls - 1];
+	/* Arm from visibility. Hover should not wait for m_bSelect. */
+	c->armed = c->visible && c->enabled ? 1 : 0;
+}
+
+static void emit_battle_unit(const struct battle_unit *u)
+{
+	struct ui_ctrl *c = ctrl_alloc();
+	if (!c)
+		return;
+	snprintf(c->id, sizeof c->id, "unit-%d", u->no);
+	snprintf(c->label, sizeof c->label, "%s", u->name[0] ? u->name : (u->enemy ? "enemy" : "ally"));
+	snprintf(c->type, sizeof c->type, "unit");
+	snprintf(c->section, sizeof c->section, "battle");
+	snprintf(c->value, sizeof c->value, "%s", u->enemy ? "enemy" : "ally");
+	c->x = u->x;
+	c->y = u->y;
+	c->w = u->w;
+	c->h = u->h;
+	c->enabled = 1;
+	c->armed = 1;
+	c->index = u->no;
+	c->has_visible = 1;
+	c->visible = 1;
+}
+
+static void fill_battle_units(void)
+{
+	struct page *area, *mon;
+	int forward, i;
+	area = global_struct(&gi_battlearea, "g_sBattleArea", -1);
+	mon = global_struct(&gi_bmon, "g_sBattleMonster", sn_bmon);
+	forward = mon && fint(mon, "m_bForward");
+	g_bstate.n_units = 0;
+	for (i = 0; i < 5; i++) {
+		struct battle_unit *u;
+		struct page *rect, *card, *list;
+		int x, y, w, h, chara = 0;
+		if (g_bstate.n_units >= BATTLE_UNIT_MAX)
+			break;
+		rect = arr_at(fpage(area, "m_arcChara"), i);
+		if (!t_rect(rect, &x, &y, &w, &h))
+			continue;
+		card = fpage(arr_at(fpage(global_struct(&gi_bchara, "g_sBattleChara", sn_bchara),
+				"m_asChara"), i), "m_sCard");
+		list = fpage(fpage(card, "m_sSkill"), "m_sList");
+		chara = fint(list, "m_nCharaNo");
+		if (chara <= 0)
+			chara = save_arr_int(&gi_pta, "PTA", i + 1);
+		if (chara <= 0)
+			continue;
+		u = &g_bstate.units[g_bstate.n_units++];
+		memset(u, 0, sizeof *u);
+		u->no = i + 1;
+		u->chara = chara;
+		u->enemy = 0;
+		u->x = x;
+		u->y = y;
+		u->w = w;
+		u->h = h;
+		chara_name_of(chara, u->name, (int)sizeof u->name);
+		if (!u->name[0])
+			fstr(fpage(card, "m_sName"), "m_szText", u->name, (int)sizeof u->name);
+	}
+	for (i = 0; i < 5; i++) {
+		struct battle_unit *u;
+		struct page *rect;
+		int x, y, w, h, chara;
+		const char *field = forward ? "m_arcMonsterForward" : "m_arcMonster";
+		if (g_bstate.n_units >= BATTLE_UNIT_MAX)
+			break;
+		rect = arr_at(fpage(area, field), i);
+		if (!t_rect(rect, &x, &y, &w, &h)) {
+			field = forward ? "m_arcMonster" : "m_arcMonsterForward";
+			rect = arr_at(fpage(area, field), i);
+			if (!t_rect(rect, &x, &y, &w, &h))
+				continue;
+		}
+		chara = save_arr_int(&gi_ptb, "PTB", i + 1);
+		u = &g_bstate.units[g_bstate.n_units++];
+		memset(u, 0, sizeof *u);
+		u->no = 11 + i;
+		u->chara = chara;
+		u->enemy = 1;
+		u->x = x;
+		u->y = y;
+		u->w = w;
+		u->h = h;
+		if (chara > 0)
+			chara_name_of(chara, u->name, (int)sizeof u->name);
+		if (!u->name[0])
+			snprintf(u->name, sizeof u->name, "enemy");
+	}
+}
+
+static void fill_battle_skills(struct page *battle_skill)
+{
+	struct page *arr;
+	int i;
+	g_bstate.n_skills = 0;
+	if (!battle_skill)
+		return;
+	arr = fpage(fpage(battle_skill, "m_sButton"), "m_asButton");
+	if (!arr || arr->type != ARRAY_PAGE)
+		return;
+	for (i = 0; i < arr->nr_vars; i++) {
+		struct page *btn = arr_at(arr, i);
+		struct tbtn b;
+		struct battle_skill *s;
+		int index, target, skill, panel, uses, status;
+		if (g_bstate.n_skills >= BATTLE_SKILL_MAX)
+			break;
+		if (!tbtn_read(btn, &b))
+			continue;
+		if (b.id < 200001 || b.id >= 220000)
+			continue;
+		decode_skill_button(b.id, &index, &target);
+		if (index < 0)
+			continue;
+		status = skill_status_at(battle_skill, index);
+		if (status < 0)
+			continue;
+		skill = skill_no_at(battle_skill, index);
+		if (skill <= 0)
+			continue;
+		panel = skill_panel(skill);
+		uses = skill_uses_at(battle_skill, index);
+		s = &g_bstate.skills[g_bstate.n_skills++];
+		memset(s, 0, sizeof *s);
+		s->button = b.id;
+		s->skill = skill;
+		s->uses = uses;
+		s->panel = panel;
+		s->target = target;
+		s->index = index;
+		s->enabled = (b.active && status > 0) ? 1 : 0;
+		s->visible = b.visible ? 1 : 0;
+		s->x = b.x;
+		s->y = b.y;
+		s->w = b.w;
+		s->h = b.h;
+		skill_name(skill, s->name, (int)sizeof s->name);
+		snprintf(s->tone, sizeof s->tone, "%s", skill_tone(panel));
+	}
+}
+
+static int fill_battle(struct page *sel)
+{
+	struct page *actor, *chrome;
+	int i;
+	if (!sel || fint(sel, "m_nZ") < 0)
+		return 0;
+	g_bstate.ok = 1;
+	g_bstate.auto_flag = fint(sel, "m_bAutoFlag") ? 1 : 0;
+	g_bstate.skill_mode = fint(sel, "m_nSkillMode");
+	actor = fpage(sel, "m_rfsSkill");
+	g_bstate.actor_no = actor ? fint(actor, "m_nNo") : 0;
+	g_bstate.selecting = g_bstate.actor_no > 0;
+	if (g_bstate.selecting) {
+		struct page *list = fpage(fpage(actor, "m_rfsSkill"), "m_sList");
+		g_bstate.actor_chara = fint(list, "m_nCharaNo");
+		chara_name_of(g_bstate.actor_chara, g_bstate.actor_name,
+			(int)sizeof g_bstate.actor_name);
+	}
+	fill_battle_units();
+	if (!g_bstate.actor_name[0] && g_bstate.actor_no > 0) {
+		for (i = 0; i < g_bstate.n_units; i++) {
+			if (g_bstate.units[i].no == g_bstate.actor_no && g_bstate.units[i].name[0]) {
+				snprintf(g_bstate.actor_name, sizeof g_bstate.actor_name,
+					"%s", g_bstate.units[i].name);
+				break;
+			}
+		}
+	}
+	fill_battle_skills(g_bstate.selecting ? actor : NULL);
+	/* Skill buttons first so a same-sized unit rect does not win hover. */
+	for (i = 0; i < g_bstate.n_skills; i++) {
+		struct battle_skill *s = &g_bstate.skills[i];
+		struct page *btn;
+		char value[80];
+		if (!s->visible)
+			continue;
+		btn = NULL;
+		{
+			struct page *arr = fpage(fpage(actor, "m_sButton"), "m_asButton");
+			int k;
+			if (arr && arr->type == ARRAY_PAGE) {
+				for (k = 0; k < arr->nr_vars; k++) {
+					struct page *cand = arr_at(arr, k);
+					if (cand && fint(cand, "m_nID") == s->button) {
+						btn = cand;
+						break;
+					}
+				}
+			}
+		}
+		if (!btn)
+			continue;
+		snprintf(value, sizeof value, "%s:%d:%d:%d", s->tone, s->uses, s->target, s->skill);
+		emit_battle_skill_btn(btn, s->index, s->button, s->name, value);
+	}
+	for (i = 0; i < g_bstate.n_units; i++)
+		emit_battle_unit(&g_bstate.units[i]);
+	chrome = fpage(fpage(sel, "m_sButton"), "m_asButton");
+	if (chrome && chrome->type == ARRAY_PAGE) {
+		for (i = 0; i < chrome->nr_vars; i++) {
+			struct page *btn = arr_at(chrome, i);
+			struct tbtn b;
+			if (!tbtn_read(btn, &b) || b.id != 100021 || !b.visible)
+				continue;
+			emit_named_btn(btn, i, "auto", "Auto", "battle",
+				g_bstate.auto_flag ? "on" : "off", 0);
+		}
+	}
+	snprintf(g_screen, sizeof g_screen, "battle");
+	hover_from_rects();
+	return 1;
+}
+
 static int fill_dungeon(struct page *map)
 {
 	struct page *arr, *player;
@@ -4806,6 +5223,11 @@ static int vm_fill(void)
 			return 1;
 	}
 	{
+		struct page *bsel = global_struct(&gi_battlesel, "g_sBattleSelect", sn_battlesel);
+		if (bsel && fill_battle(bsel))
+			return 1;
+	}
+	{
 		struct page *map = global_struct(&gi_mapparts, "g_sMapParts", sn_mapparts);
 		if (map && fill_dungeon(map))
 			return 1;
@@ -4842,6 +5264,7 @@ static void publish(void)
 	memset(&g_status, 0, sizeof g_status);
 	memset(&g_qstate, 0, sizeof g_qstate);
 	memset(&g_dstate, 0, sizeof g_dstate);
+	memset(&g_bstate, 0, sizeof g_bstate);
 	g_nquests = 0;
 	memset(&g_vstate, 0, sizeof g_vstate);
 	g_has_skillshop = 0;

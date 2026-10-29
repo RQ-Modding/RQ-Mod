@@ -1505,4 +1505,113 @@ int rq_path_goto(int gx, int gz, int pick, char **json_out, char *err, int errsz
 	return 1;
 }
 
+static int ally_select_up(void)
+{
+	struct page *sel = gstruct("g_sBattleSelect");
+	struct page *sk;
+	if (!sel || fint(sel, "m_nZ") < 0)
+		return 0;
+	sk = fpage(sel, "m_rfsSkill");
+	return sk && fint(sk, "m_nNo") > 0;
+}
+
+/* One world-axis step. Holds the arrow until the cell changes, a message
+ * opens, or an ally's battle turn starts. */
+int rq_path_step(int dx, int dz, char **json_out, char *err, int errsz)
+{
+	cJSON *root;
+	char *printed;
+	int x0, z0, x, z, msg = 0, battle = 0, moved = 0;
+	float a, b, c;
+	int holdx, holdy;
+	unsigned long long t0;
+	const char *reason = "timeout";
+
+	if (json_out)
+		*json_out = NULL;
+	if (!dx && !dz) {
+		if (err)
+			snprintf(err, errsz, "usage: step up|down|left|right");
+		return 0;
+	}
+	if ((dx && dz) || (dx && dx != 1 && dx != -1) || (dz && dz != 1 && dz != -1)) {
+		if (err)
+			snprintf(err, errsz, "usage: step up|down|left|right");
+		return 0;
+	}
+	if (!snapshot(&G, err, errsz))
+		return 0;
+	if (!read_player(&x0, &z0, &a, &b, &c)) {
+		if (err)
+			snprintf(err, errsz, "no-player");
+		return 0;
+	}
+	arrow_toward(&G, dx, dz);
+	explorer_center(&G, &holdx, &holdy);
+	t0 = GetTickCount64();
+	while (GetTickCount64() - t0 < 1800) {
+		mouse_force_pos(holdx, holdy);
+		Sleep(30);
+		if (message_up()) {
+			msg = 1;
+			reason = "message";
+			break;
+		}
+		if (ally_select_up()) {
+			battle = 1;
+			reason = "battle";
+			break;
+		}
+		if (!read_player(&x, &z, &a, &b, &c))
+			continue;
+		if (x != x0 || z != z0) {
+			moved = 1;
+			x0 = x;
+			z0 = z;
+			reason = "moved";
+			break;
+		}
+	}
+	release_keys();
+	mouse_force_pos(holdx, holdy);
+	x = x0;
+	z = z0;
+	read_player(&x, &z, &a, &b, &c);
+	root = cJSON_CreateObject();
+	cJSON_AddBoolToObject(root, "ok", moved || msg || battle);
+	cJSON_AddStringToObject(root, "reason", reason);
+	cJSON_AddBoolToObject(root, "moved", moved);
+	cJSON_AddBoolToObject(root, "message", msg);
+	cJSON_AddBoolToObject(root, "battle", battle);
+	cJSON_AddNumberToObject(root, "x", x);
+	cJSON_AddNumberToObject(root, "z", z);
+	cJSON_AddNumberToObject(root, "dx", dx);
+	cJSON_AddNumberToObject(root, "dz", dz);
+	printed = cJSON_PrintUnformatted(root);
+	cJSON_Delete(root);
+	if (!printed) {
+		if (err)
+			snprintf(err, errsz, "json");
+		return 0;
+	}
+	if (json_out) {
+		size_t nlen = strlen(printed);
+		char *out = (char *)malloc(nlen + 2);
+		if (!out) {
+			free(printed);
+			if (err)
+				snprintf(err, errsz, "json");
+			return 0;
+		}
+		memcpy(out, printed, nlen);
+		out[nlen] = '\n';
+		out[nlen + 1] = 0;
+		free(printed);
+		*json_out = out;
+	} else {
+		free(printed);
+	}
+	return 1;
+}
+
 #endif /* RQ_MODLOADER */

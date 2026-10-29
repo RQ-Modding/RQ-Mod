@@ -203,6 +203,31 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 			free(json);
 		return 1;
 	}
+	if (!_stricmp(cmd, "step")) {
+		char *json = NULL;
+		int dx = 0, dz = 0;
+		a = tok(&p);
+		if (!_stricmp(a, "up") || !_stricmp(a, "north"))
+			dz = 1;
+		else if (!_stricmp(a, "down") || !_stricmp(a, "south"))
+			dz = -1;
+		else if (!_stricmp(a, "right") || !_stricmp(a, "east"))
+			dx = 1;
+		else if (!_stricmp(a, "left") || !_stricmp(a, "west"))
+			dx = -1;
+		else {
+			if (err)
+				snprintf(err, errsz, "usage: step up|down|left|right");
+			return 0;
+		}
+		if (!rq_path_step(dx, dz, &json, err, errsz))
+			return 0;
+		if (extra)
+			*extra = json;
+		else
+			free(json);
+		return 1;
+	}
 
 	if (!_stricmp(cmd, "ui") || !_stricmp(cmd, "screen")) {
 		char *json = NULL;

@@ -126,6 +126,7 @@ int rq_ui_wants_frame(void);
 int rq_ui_cmd_ui(char **json_out, char *err, int errsz);
 int rq_path_grid(char **json_out, char *err, int errsz);
 int rq_path_goto(int x, int z, int pick_portal, char **json_out, char *err, int errsz);
+int rq_path_step(int dx, int dz, char **json_out, char *err, int errsz);
 int rq_ui_cmd_hover(const char *id, char *err, int errsz);
 int rq_ui_cmd_press(const char *id, char *err, int errsz);
 int rq_ui_cmd_drag(const char *src, const char *dst, char *err, int errsz);
