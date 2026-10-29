@@ -167,6 +167,42 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 		mouse_release_agent();
 		return 1;
 	}
+	if (!_stricmp(cmd, "grid")) {
+		char *json = NULL;
+		if (!rq_path_grid(&json, err, errsz))
+			return 0;
+		if (extra)
+			*extra = json;
+		else
+			free(json);
+		return 1;
+	}
+	if (!_stricmp(cmd, "goto")) {
+		char *json = NULL;
+		int gx, gz, pick;
+		a = tok(&p);
+		if (!_stricmp(a, "portal")) {
+			pick = 1;
+			gx = gz = 0;
+		} else {
+			b = tok(&p);
+			if (!*a || !*b) {
+				if (err)
+					snprintf(err, errsz, "usage: goto X Z | goto portal");
+				return 0;
+			}
+			pick = 0;
+			gx = atoi(a);
+			gz = atoi(b);
+		}
+		if (!rq_path_goto(gx, gz, pick, &json, err, errsz))
+			return 0;
+		if (extra)
+			*extra = json;
+		else
+			free(json);
+		return 1;
+	}
 
 	if (!_stricmp(cmd, "ui") || !_stricmp(cmd, "screen")) {
 		char *json = NULL;

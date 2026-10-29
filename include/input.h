@@ -157,6 +157,8 @@ void mouse_get_wheel(int *forward, int *back);
 void mouse_set_wheel(int dir);
 void mouse_clear_wheel(void);
 void key_set_state(int code, int down);
+/* Focus the game window. Arrow keys are ignored until it is focused. */
+void agent_focus_window(void);
 bool mouse_show_cursor(bool show);
 void register_input_handler(void(*handler)(const char*));
 void clear_input_handler(void);

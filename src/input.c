@@ -262,6 +262,15 @@ static void agent_hold_focus(void)
 	keyboard_focus = true;
 }
 
+void rq_focus_sdl_window(SDL_Window *window);
+
+void agent_focus_window(void)
+{
+	agent_hold_focus();
+	if (sdl.window)
+		rq_focus_sdl_window(sdl.window);
+}
+
 void mouse_get_pos(int *x, int *y)
 {
 	int wx, wy;

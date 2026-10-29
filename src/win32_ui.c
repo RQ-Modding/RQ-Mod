@@ -50,6 +50,32 @@ void win32_ui_init(SDL_Window *window)
 	SDL_SetWindowsMessageHook(win_msg_hook, NULL);
 }
 
+void rq_focus_sdl_window(SDL_Window *window)
+{
+	HWND hwnd, fg;
+	DWORD fg_tid, our_tid;
+	SDL_SysWMinfo info;
+	if (!window)
+		return;
+	SDL_RaiseWindow(window);
+	SDL_VERSION(&info.version);
+	if (!SDL_GetWindowWMInfo(window, &info))
+		return;
+	hwnd = info.info.win.window;
+	if (!hwnd)
+		return;
+	fg = GetForegroundWindow();
+	fg_tid = GetWindowThreadProcessId(fg, NULL);
+	our_tid = GetCurrentThreadId();
+	if (fg_tid && fg_tid != our_tid)
+		AttachThreadInput(our_tid, fg_tid, TRUE);
+	BringWindowToTop(hwnd);
+	SetForegroundWindow(hwnd);
+	SetFocus(hwnd);
+	if (fg_tid && fg_tid != our_tid)
+		AttachThreadInput(our_tid, fg_tid, FALSE);
+}
+
 #else
 
 #include <SDL.h>
@@ -57,6 +83,12 @@ void win32_ui_init(SDL_Window *window)
 void win32_ui_init(SDL_Window *window)
 {
 	(void)window;
+}
+
+void rq_focus_sdl_window(SDL_Window *window)
+{
+	if (window)
+		SDL_RaiseWindow(window);
 }
 
 #endif
