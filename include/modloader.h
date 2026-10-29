@@ -184,6 +184,39 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
+#define RQ_VERSION "0.2.0"
+
+struct rq_qbattle_skill {
+	int id;
+	int uses;
+	int enabled;
+	char name[80];
+};
+
+struct rq_qbattle_unit {
+	int id;
+	int no;
+	char name[80];
+};
+
+struct rq_qbattle {
+	int up;
+	int n_allies;
+	int n_enemies;
+	int n_skills;
+	int n_log;
+	struct rq_qbattle_unit allies[8];
+	struct rq_qbattle_unit enemies[8];
+	struct rq_qbattle_skill skills[48];
+	char log[24][180];
+};
+
+int rq_query_battle(struct rq_qbattle *out);
+int rq_query_facts(char **json_out);
+void rq_query_bind(struct lua_State *L);
+void rq_sandbox_install(struct lua_State *L);
+void rq_sandbox_add_mod(const char *dir);
+
 int rq_dialog_open(void);
 int rq_dialog_has(const char *id);
 int rq_dialog_json(char **json_out);

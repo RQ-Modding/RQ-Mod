@@ -252,6 +252,19 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 			free(json);
 		return 1;
 	}
+	if (!_stricmp(cmd, "facts")) {
+		char *json = NULL;
+		if (!rq_query_facts(&json)) {
+			if (err)
+				snprintf(err, errsz, "facts");
+			return 0;
+		}
+		if (extra)
+			*extra = json;
+		else
+			free(json);
+		return 1;
+	}
 	if (!_stricmp(cmd, "mods")) {
 		char *json = NULL;
 		if (!rq_mods_json(&json)) {

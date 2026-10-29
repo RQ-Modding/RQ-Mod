@@ -37,6 +37,7 @@
 
 #include "modloader.h"
 #include "modloader_priv.h"
+#include "modloader_order.h"
 #include "profile.h"
 #include "vm.h"
 #include "xsystem4.h"
@@ -1039,6 +1040,7 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "skip_sdl_msgbox", l_skip_sdl_msgbox);
 	set_cfn(L, "find", l_find_funcs);
 
+	rq_query_bind(L);
 	lua_setglobal(L, "rq");
 }
 
@@ -1131,50 +1133,189 @@ static int load_one_lua(lua_State *L, const char *path, const char *name, const 
 }
 
 #ifdef _WIN32
+struct rq_mod_disk {
+	struct rq_mod_node node;
+	char dir[RQ_PATH_MAX];
+	char init[RQ_PATH_MAX];
+};
+
+static int read_id_list(cJSON *obj, const char *key, char dest[][RQ_ID_LEN], int *n)
+{
+	cJSON *a, *el;
+	*n = 0;
+	a = cJSON_GetObjectItemCaseSensitive(obj, key);
+	if (!a)
+		return 0;
+	if (!cJSON_IsArray(a))
+		return 0;
+	for (el = a->child; el; el = el->next) {
+		if (!cJSON_IsString(el) || !el->valuestring || !el->valuestring[0])
+			continue;
+		if (*n >= RQ_EDGE_MAX)
+			return -1;
+		snprintf(dest[*n], RQ_ID_LEN, "%s", el->valuestring);
+		(*n)++;
+	}
+	return 0;
+}
+
+static int read_manifest(const char *path, const char *folder, struct rq_mod_disk *d)
+{
+	FILE *fp;
+	char *buf;
+	long sz;
+	cJSON *root, *v;
+	memset(d, 0, sizeof *d);
+	fp = fopen(path, "rb");
+	if (!fp)
+		return 0;
+	if (fseek(fp, 0, SEEK_END) != 0) {
+		fclose(fp);
+		return 0;
+	}
+	sz = ftell(fp);
+	if (sz < 2 || sz > 65536) {
+		fclose(fp);
+		return 0;
+	}
+	rewind(fp);
+	buf = malloc((size_t)sz + 1);
+	if (!buf) {
+		fclose(fp);
+		return 0;
+	}
+	if (fread(buf, 1, (size_t)sz, fp) != (size_t)sz) {
+		free(buf);
+		fclose(fp);
+		return 0;
+	}
+	buf[sz] = 0;
+	fclose(fp);
+	root = cJSON_Parse(buf);
+	free(buf);
+	if (!root)
+		return 0;
+	snprintf(d->node.id, sizeof d->node.id, "%s", folder);
+	v = cJSON_GetObjectItemCaseSensitive(root, "id");
+	if (cJSON_IsString(v) && v->valuestring && v->valuestring[0])
+		snprintf(d->node.id, sizeof d->node.id, "%s", v->valuestring);
+	v = cJSON_GetObjectItemCaseSensitive(root, "priority");
+	if (cJSON_IsNumber(v))
+		d->node.priority = (int)v->valuedouble;
+	v = cJSON_GetObjectItemCaseSensitive(root, "loader");
+	if (cJSON_IsString(v) && v->valuestring)
+		snprintf(d->node.loader, sizeof d->node.loader, "%s", v->valuestring);
+	if (read_id_list(root, "dependencies", d->node.deps, &d->node.ndeps) < 0
+			|| read_id_list(root, "loadAfter", d->node.after, &d->node.nafter) < 0
+			|| read_id_list(root, "loadBefore", d->node.before, &d->node.nbefore) < 0
+			|| read_id_list(root, "conflicts", d->node.conf, &d->node.nconf) < 0) {
+		cJSON_Delete(root);
+		return -1;
+	}
+	cJSON_Delete(root);
+	return 1;
+}
+
+static void log_skips(struct rq_mod_disk *mods, int n)
+{
+	char cycle[512];
+	int i, used = 0, any = 0;
+	cycle[0] = 0;
+	for (i = 0; i < n; i++) {
+		struct rq_mod_node *m = &mods[i].node;
+		if (m->skip == RQ_SKIP_NONE)
+			continue;
+		if (m->skip == RQ_SKIP_CYCLE) {
+			used += snprintf(cycle + used, sizeof cycle - used, "%s%s",
+					any ? ", " : "", m->id);
+			any = 1;
+			continue;
+		}
+		if (m->skip == RQ_SKIP_VERSION)
+			rq_log("skip %s: loader %s is newer than %s", m->id, m->why_id, RQ_VERSION);
+		else if (m->skip == RQ_SKIP_LOADER)
+			rq_log("skip %s: loader '%s' is not a semver", m->id, m->why_id);
+		else if (m->skip == RQ_SKIP_CONFLICT)
+			rq_log("skip %s: conflict %s", m->id, m->why_id);
+		else if (m->skip == RQ_SKIP_DEP)
+			rq_log("skip %s: missing dependency %s", m->id, m->why_id);
+		else if (m->skip == RQ_SKIP_DUP)
+			rq_log("skip %s: duplicate id %s", m->id, m->why_id);
+		else
+			rq_log("skip %s", m->id);
+	}
+	if (any)
+		rq_log("skip cycle: %s", cycle);
+}
+
 static int load_mods(lua_State *L)
 {
 	WIN32_FIND_DATAA fd;
 	HANDLE h;
-	char pattern[RQ_PATH_MAX], path[RQ_PATH_MAX];
-	int n = 0;
+	char pattern[RQ_PATH_MAX];
+	struct rq_mod_disk mods[RQ_ORDER_MAX];
+	struct rq_mod_node nodes[RQ_ORDER_MAX];
+	int order[RQ_ORDER_MAX];
+	int n = 0, i, norder, loaded = 0;
 
-	snprintf(pattern, sizeof pattern, "%s\\*.lua", g_rq_mods_dir);
-	h = FindFirstFileA(pattern, &fd);
-	if (h != INVALID_HANDLE_VALUE) {
-		do {
-			if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-				continue;
-			snprintf(path, sizeof path, "%s\\%s", g_rq_mods_dir, fd.cFileName);
-			{
-				char base[80];
-				size_t len = strlen(fd.cFileName);
-				snprintf(base, sizeof base, "%s", fd.cFileName);
-				if (len > 4 && !_stricmp(base + len - 4, ".lua"))
-					base[len - 4] = 0;
-				n += load_one_lua(L, path, base, path);
-			}
-		} while (FindNextFileA(h, &fd));
-		FindClose(h);
-	}
-
+	/* Folders with mod.json only. loadorder.txt is not read. */
 	snprintf(pattern, sizeof pattern, "%s\\*", g_rq_mods_dir);
 	h = FindFirstFileA(pattern, &fd);
-	if (h != INVALID_HANDLE_VALUE) {
-		do {
-			if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-				continue;
-			if (fd.cFileName[0] == '.')
-				continue;
-			snprintf(path, sizeof path, "%s\\%s\\init.lua", g_rq_mods_dir, fd.cFileName);
-			if (GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES) {
-				char dir[RQ_PATH_MAX];
-				snprintf(dir, sizeof dir, "%s\\%s", g_rq_mods_dir, fd.cFileName);
-				n += load_one_lua(L, path, fd.cFileName, dir);
-			}
-		} while (FindNextFileA(h, &fd));
-		FindClose(h);
+	if (h == INVALID_HANDLE_VALUE)
+		return 0;
+	do {
+		char json[RQ_PATH_MAX], init[RQ_PATH_MAX];
+		int rc;
+		if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+			continue;
+		if (fd.cFileName[0] == '.')
+			continue;
+		if (n >= RQ_ORDER_MAX) {
+			rq_log("skip %s: mod list is full", fd.cFileName);
+			continue;
+		}
+		snprintf(json, sizeof json, "%s\\%s\\mod.json", g_rq_mods_dir, fd.cFileName);
+		snprintf(init, sizeof init, "%s\\%s\\init.lua", g_rq_mods_dir, fd.cFileName);
+		if (GetFileAttributesA(json) == INVALID_FILE_ATTRIBUTES) {
+			if (GetFileAttributesA(init) != INVALID_FILE_ATTRIBUTES)
+				rq_log("skip %s: no mod.json", fd.cFileName);
+			continue;
+		}
+		rc = read_manifest(json, fd.cFileName, &mods[n]);
+		if (rc == 0) {
+			rq_log("skip %s: bad mod.json", fd.cFileName);
+			continue;
+		}
+		if (rc < 0) {
+			rq_log("skip %s: too many dependencies", mods[n].node.id[0] ? mods[n].node.id : fd.cFileName);
+			continue;
+		}
+		if (GetFileAttributesA(init) == INVALID_FILE_ATTRIBUTES) {
+			rq_log("skip %s: no init.lua", mods[n].node.id);
+			continue;
+		}
+		snprintf(mods[n].dir, sizeof mods[n].dir, "%s\\%s", g_rq_mods_dir, fd.cFileName);
+		snprintf(mods[n].init, sizeof mods[n].init, "%s", init);
+		n++;
+	} while (FindNextFileA(h, &fd));
+	FindClose(h);
+
+	for (i = 0; i < n; i++)
+		nodes[i] = mods[i].node;
+	norder = rq_order_mods(nodes, n, RQ_VERSION, order);
+	for (i = 0; i < n; i++) {
+		mods[i].node.skip = nodes[i].skip;
+		snprintf(mods[i].node.why_id, sizeof mods[i].node.why_id, "%s", nodes[i].why_id);
 	}
-	return n;
+	log_skips(mods, n);
+	for (i = 0; i < norder; i++) {
+		struct rq_mod_disk *m = &mods[order[i]];
+		rq_sandbox_add_mod(m->dir);
+		rq_log("Loading %s priority %d", m->node.id, m->node.priority);
+		if (load_one_lua(L, m->init, m->node.id, m->dir))
+			loaded++;
+	}
+	return loaded;
 }
 
 static int dir_exists(const char *p)
@@ -1498,6 +1639,7 @@ void rq_mods_init(struct ain *ain)
 	int n;
 
 	rq_mods_early_init();
+	rq_log("Loader version %s", RQ_VERSION);
 	rq_debug_init();
 	g_ain = ain;
 
@@ -1525,6 +1667,7 @@ void rq_mods_init(struct ain *ain)
 		return;
 	}
 	luaL_openlibs(g_L);
+	rq_sandbox_install(g_L);
 	open_rq(g_L);
 	n = load_mods(g_L);
 	rq_log("Loaded %d Lua mod(s). Ready.", n);

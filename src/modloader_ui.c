@@ -4954,19 +4954,19 @@ static void emit_battle_unit(const struct battle_unit *u)
 	c->visible = 1;
 }
 
-static void fill_battle_units(void)
+static void fill_battle_units(struct battle_state *st)
 {
 	struct page *area, *mon;
 	int forward, i;
 	area = global_struct(&gi_battlearea, "g_sBattleArea", -1);
 	mon = global_struct(&gi_bmon, "g_sBattleMonster", sn_bmon);
 	forward = mon && fint(mon, "m_bForward");
-	g_bstate.n_units = 0;
+	st->n_units = 0;
 	for (i = 0; i < 5; i++) {
 		struct battle_unit *u;
 		struct page *rect, *card, *list;
 		int x, y, w, h, chara = 0;
-		if (g_bstate.n_units >= BATTLE_UNIT_MAX)
+		if (st->n_units >= BATTLE_UNIT_MAX)
 			break;
 		rect = arr_at(fpage(area, "m_arcChara"), i);
 		if (!t_rect(rect, &x, &y, &w, &h))
@@ -4979,7 +4979,7 @@ static void fill_battle_units(void)
 			chara = save_arr_int(&gi_pta, "PTA", i + 1);
 		if (chara <= 0)
 			continue;
-		u = &g_bstate.units[g_bstate.n_units++];
+		u = &st->units[st->n_units++];
 		memset(u, 0, sizeof *u);
 		u->no = i + 1;
 		u->chara = chara;
@@ -4997,7 +4997,7 @@ static void fill_battle_units(void)
 		struct page *rect;
 		int x, y, w, h, chara;
 		const char *field = forward ? "m_arcMonsterForward" : "m_arcMonster";
-		if (g_bstate.n_units >= BATTLE_UNIT_MAX)
+		if (st->n_units >= BATTLE_UNIT_MAX)
 			break;
 		rect = arr_at(fpage(area, field), i);
 		if (!t_rect(rect, &x, &y, &w, &h)) {
@@ -5007,7 +5007,7 @@ static void fill_battle_units(void)
 				continue;
 		}
 		chara = save_arr_int(&gi_ptb, "PTB", i + 1);
-		u = &g_bstate.units[g_bstate.n_units++];
+		u = &st->units[st->n_units++];
 		memset(u, 0, sizeof *u);
 		u->no = 11 + i;
 		u->chara = chara;
@@ -5023,11 +5023,11 @@ static void fill_battle_units(void)
 	}
 }
 
-static void fill_battle_skills(struct page *battle_skill)
+static void fill_battle_skills(struct battle_state *st, struct page *battle_skill)
 {
 	struct page *arr;
 	int i;
-	g_bstate.n_skills = 0;
+	st->n_skills = 0;
 	if (!battle_skill)
 		return;
 	arr = fpage(fpage(battle_skill, "m_sButton"), "m_asButton");
@@ -5038,7 +5038,7 @@ static void fill_battle_skills(struct page *battle_skill)
 		struct tbtn b;
 		struct battle_skill *s;
 		int index, target, skill, panel, uses, status;
-		if (g_bstate.n_skills >= BATTLE_SKILL_MAX)
+		if (st->n_skills >= BATTLE_SKILL_MAX)
 			break;
 		if (!tbtn_read(btn, &b))
 			continue;
@@ -5055,7 +5055,7 @@ static void fill_battle_skills(struct page *battle_skill)
 			continue;
 		panel = skill_panel(skill);
 		uses = skill_uses_at(battle_skill, index);
-		s = &g_bstate.skills[g_bstate.n_skills++];
+		s = &st->skills[st->n_skills++];
 		memset(s, 0, sizeof *s);
 		s->button = b.id;
 		s->skill = skill;
@@ -5092,7 +5092,7 @@ static int fill_battle(struct page *sel)
 		chara_name_of(g_bstate.actor_chara, g_bstate.actor_name,
 			(int)sizeof g_bstate.actor_name);
 	}
-	fill_battle_units();
+	fill_battle_units(&g_bstate);
 	if (!g_bstate.actor_name[0] && g_bstate.actor_no > 0) {
 		for (i = 0; i < g_bstate.n_units; i++) {
 			if (g_bstate.units[i].no == g_bstate.actor_no && g_bstate.units[i].name[0]) {
@@ -5102,7 +5102,7 @@ static int fill_battle(struct page *sel)
 			}
 		}
 	}
-	fill_battle_skills(g_bstate.selecting ? actor : NULL);
+	fill_battle_skills(&g_bstate, g_bstate.selecting ? actor : NULL);
 	/* Skill buttons first so a same-sized unit rect does not win hover. */
 	for (i = 0; i < g_bstate.n_skills; i++) {
 		struct battle_skill *s = &g_bstate.skills[i];
@@ -6047,6 +6047,99 @@ int rq_ui_cmd_drag(const char *src, const char *dst, char *err, int errsz)
 		if (err)
 			snprintf(err, errsz, "timeout");
 		return 0;
+	}
+	return 1;
+}
+
+static void copy_global_str(int *gi, const char *utf, char *dst, int n)
+{
+	struct string *s;
+	char *u;
+	dst[0] = 0;
+	if (global_index(gi, utf) < 0 || !string_index_valid(global_get(*gi).i))
+		return;
+	s = heap_get_string(global_get(*gi).i);
+	if (!s || s->size <= 0)
+		return;
+	u = sjis2utf(s->text, (size_t)s->size);
+	if (!u)
+		return;
+	snprintf(dst, n, "%s", u);
+	free(u);
+}
+
+static void battle_log_line(struct rq_qbattle *o, const char *text)
+{
+	if (!o || !text || !text[0] || o->n_log >= 24)
+		return;
+	snprintf(o->log[o->n_log], sizeof o->log[0], "%s", text);
+	o->n_log++;
+}
+
+int rq_query_battle(struct rq_qbattle *o)
+{
+	struct battle_state b;
+	struct page *sel, *log, *arr, *actor;
+	static int gi_blog = -2;
+	static int gi_log1 = -2, gi_log2 = -2, gi_nlog = -2;
+	int i;
+	char extra[180];
+
+	if (!o)
+		return 0;
+	memset(o, 0, sizeof *o);
+	if (!ain)
+		return 0;
+	snos_init();
+	log = global_struct(&gi_blog, "g_sBattleLog", -1);
+	arr = fpage(log, "m_asLog");
+	if (arr && arr->type == ARRAY_PAGE) {
+		for (i = 0; i < arr->nr_vars && o->n_log < 24; i++) {
+			struct page *line = arr_at(arr, i);
+			char buf[180];
+			buf[0] = 0;
+			fstr(line, "m_szText", buf, (int)sizeof buf);
+			if (!buf[0])
+				fstr(fpage(line, "m_sText"), "m_szText", buf, (int)sizeof buf);
+			battle_log_line(o, buf);
+		}
+	}
+	if (o->n_log == 0) {
+		copy_global_str(&gi_log1, "◆戦闘ログ１", extra, (int)sizeof extra);
+		battle_log_line(o, extra);
+		copy_global_str(&gi_log2, "◆戦闘ログ２", extra, (int)sizeof extra);
+		battle_log_line(o, extra);
+		copy_global_str(&gi_nlog, "g_nLogText", extra, (int)sizeof extra);
+		battle_log_line(o, extra);
+	}
+	sel = global_struct(&gi_battlesel, "g_sBattleSelect", sn_battlesel);
+	if (!sel || fint(sel, "m_nZ") < 0)
+		return 1;
+	memset(&b, 0, sizeof b);
+	actor = fpage(sel, "m_rfsSkill");
+	b.actor_no = actor ? fint(actor, "m_nNo") : 0;
+	b.selecting = b.actor_no > 0;
+	fill_battle_units(&b);
+	fill_battle_skills(&b, b.selecting ? actor : NULL);
+	o->up = 1;
+	for (i = 0; i < b.n_units; i++) {
+		struct rq_qbattle_unit *d;
+		if (!b.units[i].enemy && o->n_allies < 8)
+			d = &o->allies[o->n_allies++];
+		else if (b.units[i].enemy && o->n_enemies < 8)
+			d = &o->enemies[o->n_enemies++];
+		else
+			continue;
+		d->id = b.units[i].chara;
+		d->no = b.units[i].no;
+		snprintf(d->name, sizeof d->name, "%s", b.units[i].name);
+	}
+	for (i = 0; i < b.n_skills && o->n_skills < 48; i++) {
+		struct rq_qbattle_skill *s = &o->skills[o->n_skills++];
+		s->id = b.skills[i].skill;
+		s->uses = b.skills[i].uses;
+		s->enabled = b.skills[i].enabled;
+		snprintf(s->name, sizeof s->name, "%s", b.skills[i].name);
 	}
 	return 1;
 }
