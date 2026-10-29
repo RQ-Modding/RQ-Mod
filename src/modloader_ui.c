@@ -2613,6 +2613,7 @@ static const char *cfg_check_label(int panel, int index)
 		switch (index) {
 		case 0: return "Allow the network connection";
 		case 1: return "Send the play log";
+		case 2: return "Disable Discord Rich Presence";
 		}
 	}
 	if (panel == CFG_CONFIRM) {

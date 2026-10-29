@@ -260,7 +260,7 @@ if get_option('modloader')
                  'modloader_counter.c', 'modloader_battle.c',
                  'modloader_chara.c', 'modloader_shop.c',
                  'modloader_skilllist.c',
-                 'modloader_debug.c',
+                 'modloader_debug.c', 'modloader_discord.c',
                  rq_stamp]
     if host_machine.system() == 'windows'
         static_link_args += ['-lpsapi']

@@ -1391,6 +1391,8 @@ static const char DEFAULT_JSON[] =
 	"{\n"
 	"  \"terminal\": true,\n"
 	"  \"verbose\": false,\n"
+	"  \"discordApplicationId\": \"1565476265475964938\",\n"
+	"  \"disableDiscordRichPresence\": false,\n"
 	"  \"profile\": {\n"
 	"    \"csv\": false,\n"
 	"    \"leftover_ain\": false,\n"
@@ -1660,6 +1662,7 @@ void rq_mods_init(struct ain *ain)
 	       g_rq_prof.csv, g_rq_prof.leftover_ain, g_rq_prof.hll, g_rq_prof.text_cache,
 	       g_rq_prof.update_split, g_rq_prof.vm_ops, g_rq_prof.ain_fn);
 
+	rq_discord_init(ain);
 	g_L = luaL_newstate();
 	if (!g_L) {
 		rq_log("luaL_newstate failed");

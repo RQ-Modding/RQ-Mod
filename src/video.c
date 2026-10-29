@@ -578,6 +578,7 @@ void gfx_swap(void)
 #ifdef RQ_MODLOADER
 	rq_debug_on_present();
 	rq_ui_on_present();
+	rq_discord_tick();
 #endif
 }
 
