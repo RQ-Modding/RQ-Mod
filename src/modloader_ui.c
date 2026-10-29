@@ -182,6 +182,34 @@ struct party_state {
 	int list_count;
 };
 
+#define QUEST_MAX 400
+
+struct quest_row {
+	int index;
+	int quest_no;
+	int visible;
+	char name[80];
+};
+
+struct quest_state {
+	int ok;
+	int kind; /* 1=list, 2=storage */
+	int top;
+	int count;
+	int sort_mode;
+	int selected;
+	int mode;
+};
+
+struct dungeon_state {
+	int ok;
+	int area;
+	int map_no;
+	int map_x;
+	int map_z;
+	char name[80];
+};
+
 struct ui_snap {
 	char screen[24];
 	char hover[40];
@@ -216,6 +244,10 @@ static int g_nunits;
 static int g_has_units;
 static struct party_state g_pstate;
 static struct status_dump g_status;
+static struct quest_row g_quests[QUEST_MAX];
+static int g_nquests;
+static struct quest_state g_qstate;
+static struct dungeon_state g_dstate;
 
 #define VAULT_ITEM_MAX 256
 #define VAULT_VISIBLE 6
@@ -904,6 +936,46 @@ static void add_party_state_json(cJSON *root)
 	cJSON_AddNumberToObject(o, "listCount", g_pstate.list_count);
 }
 
+static void add_quest_json(cJSON *root)
+{
+	cJSON *o, *arr;
+	int i;
+	if (!g_qstate.ok)
+		return;
+	if (g_qstate.kind == 2) {
+		o = cJSON_AddObjectToObject(root, "storage");
+		cJSON_AddNumberToObject(o, "mode", g_qstate.mode);
+		return;
+	}
+	o = cJSON_AddObjectToObject(root, "questState");
+	cJSON_AddNumberToObject(o, "topIndex", g_qstate.top);
+	cJSON_AddNumberToObject(o, "listCount", g_qstate.count);
+	cJSON_AddNumberToObject(o, "sortMode", g_qstate.sort_mode);
+	cJSON_AddNumberToObject(o, "selected", g_qstate.selected);
+	arr = cJSON_AddArrayToObject(root, "quests");
+	for (i = 0; i < g_nquests; i++) {
+		cJSON *q = cJSON_CreateObject();
+		cJSON_AddNumberToObject(q, "index", g_quests[i].index);
+		cJSON_AddNumberToObject(q, "questNo", g_quests[i].quest_no);
+		cJSON_AddStringToObject(q, "name", g_quests[i].name);
+		cJSON_AddBoolToObject(q, "visible", g_quests[i].visible ? 1 : 0);
+		cJSON_AddItemToArray(arr, q);
+	}
+}
+
+static void add_dungeon_json(cJSON *root)
+{
+	cJSON *o;
+	if (!g_dstate.ok)
+		return;
+	o = cJSON_AddObjectToObject(root, "dungeon");
+	cJSON_AddBoolToObject(o, "areaShown", g_dstate.area ? 1 : 0);
+	cJSON_AddNumberToObject(o, "mapNo", g_dstate.map_no);
+	cJSON_AddNumberToObject(o, "mapX", g_dstate.map_x);
+	cJSON_AddNumberToObject(o, "mapZ", g_dstate.map_z);
+	cJSON_AddStringToObject(o, "name", g_dstate.name);
+}
+
 static void add_skill_array(cJSON *parent, const char *key, struct skill_row *rows, int n)
 {
 	cJSON *arr = cJSON_AddArrayToObject(parent, key);
@@ -1020,6 +1092,10 @@ static void build_json(char *dst, int dstsz)
 		add_units_json(root);
 	if (g_pstate.ok)
 		add_party_state_json(root);
+	if (g_qstate.ok)
+		add_quest_json(root);
+	if (g_dstate.ok)
+		add_dungeon_json(root);
 	if (g_status.ok)
 		add_status_json(root);
 	if (g_vstate.ok)
@@ -1112,6 +1188,7 @@ static int sn_cfgmsg, sn_cfgsnd, sn_cfgwin, sn_cfg3d, sn_cfgcfm, sn_cfgetc, sn_c
 static int sn_town, sn_sysbar, sn_sysmenu, sn_mini, sn_sysinfo, sn_pstatus;
 static int sn_party, sn_status, sn_storeitem, sn_select, sn_storestock;
 static int sn_shop, sn_equipdrag, sn_skillpoint;
+static int sn_quest, sn_storequest, sn_mapparts, sn_player;
 static int snos_ready;
 
 static void snos_init(void)
@@ -1156,6 +1233,10 @@ static void snos_init(void)
 	sn_shop = sn_get("T_Shop");
 	sn_equipdrag = sn_get("T_EquipDrag");
 	sn_skillpoint = sn_get("T_SkillPoint");
+	sn_quest = sn_get("T_Quest");
+	sn_storequest = sn_get("T_StoreQuest");
+	sn_mapparts = sn_get("T_MapParts");
+	sn_player = sn_get("CPlayer");
 	snos_ready = 1;
 }
 
@@ -1470,6 +1551,8 @@ static int gi_town = -2, gi_bar = -2, gi_menu = -2, gi_mini = -2, gi_info = -2, 
 static int gi_party = -2, gi_status = -2, gi_chara = -2, gi_skill = -2;
 static int gi_storeitem = -2, gi_select = -2, gi_storestock = -2, gi_selectdata = -2;
 static int gi_shop = -2, gi_equipdrag = -2, gi_skillpoint = -2;
+static int gi_quest = -2, gi_storequest = -2, gi_mapparts = -2, gi_player = -2;
+static int gi_msgno = -2;
 
 #define AGENT_MAX 32
 
@@ -1480,6 +1563,7 @@ struct agent_reg {
 	int button;
 	int hover_only;
 	int slot;
+	int x, y, w, h;
 };
 
 static struct agent_reg g_agent[AGENT_MAX];
@@ -2768,6 +2852,9 @@ static const char *party_btn_name(int id, const char **label)
 	case 100001: *label = "Reset"; return "reset";
 	case 100002: *label = "Remove All"; return "remove-all";
 	case 100003: *label = "Open"; return "open";
+	case 100013: *label = "Call A"; return "call-a";
+	case 100016: *label = "Call B"; return "call-b";
+	case 100019: *label = "Call C"; return "call-c";
 	case 100031: *label = "10"; return "size-10";
 	case 100032: *label = "32"; return "size-32";
 	case 109999: *label = "Close"; return "close";
@@ -3931,6 +4018,41 @@ int rq_agent_set(const char *id, const char *label, int button, int hover_only)
 	g_agent[free_i].button = button;
 	g_agent[free_i].hover_only = hover_only ? 1 : 0;
 	g_agent[free_i].slot = 0;
+	g_agent[free_i].x = g_agent[free_i].y = 0;
+	g_agent[free_i].w = g_agent[free_i].h = 0;
+	ui_unlock();
+	return 1;
+}
+
+int rq_agent_set_rect(const char *id, const char *label, int x, int y, int w, int h)
+{
+	int i, free_i = -1;
+	if (!agent_id_ok(id) || w <= 0 || h <= 0)
+		return 0;
+	ui_lock();
+	for (i = 0; i < AGENT_MAX; i++) {
+		if (g_agent[i].used && !strcmp(g_agent[i].id, id)) {
+			free_i = i;
+			break;
+		}
+		if (!g_agent[i].used && free_i < 0)
+			free_i = i;
+	}
+	if (free_i < 0) {
+		ui_unlock();
+		return 0;
+	}
+	g_agent[free_i].used = 1;
+	snprintf(g_agent[free_i].id, sizeof g_agent[free_i].id, "%s", id);
+	snprintf(g_agent[free_i].label, sizeof g_agent[free_i].label, "%s",
+		(label && label[0]) ? label : id);
+	g_agent[free_i].button = 0;
+	g_agent[free_i].hover_only = 0;
+	g_agent[free_i].slot = 0;
+	g_agent[free_i].x = x;
+	g_agent[free_i].y = y;
+	g_agent[free_i].w = w;
+	g_agent[free_i].h = h;
 	ui_unlock();
 	return 1;
 }
@@ -3996,6 +4118,28 @@ static void emit_agent_controls(void)
 		struct ui_ctrl *c;
 		if (!copy[i].used)
 			continue;
+		if (copy[i].button <= 0) {
+			struct ui_ctrl *rc;
+			if (copy[i].w <= 0 || copy[i].h <= 0)
+				continue;
+			rc = ctrl_alloc();
+			if (!rc)
+				break;
+			snprintf(rc->id, sizeof rc->id, "%s", copy[i].id);
+			snprintf(rc->label, sizeof rc->label, "%s", copy[i].label);
+			snprintf(rc->type, sizeof rc->type, "button");
+			snprintf(rc->section, sizeof rc->section, "agent");
+			rc->x = copy[i].x;
+			rc->y = copy[i].y;
+			rc->w = copy[i].w;
+			rc->h = copy[i].h;
+			rc->enabled = 1;
+			rc->armed = 1;
+			rc->has_visible = 1;
+			rc->visible = 1;
+			n++;
+			continue;
+		}
 		btn = find_tbutton(copy[i].button, &copy[i].slot);
 		if (!btn || !tbtn_read(btn, &b) || !b.show)
 			continue;
@@ -4295,6 +4439,296 @@ static int fill_status(struct page *st)
 	return 1;
 }
 
+static void emit_plain(const char *id, const char *label, const char *section,
+		int x, int y, int w, int h)
+{
+	struct ui_ctrl *c = ctrl_alloc();
+	if (!c)
+		return;
+	snprintf(c->id, sizeof c->id, "%s", id);
+	snprintf(c->label, sizeof c->label, "%s", label);
+	snprintf(c->type, sizeof c->type, "button");
+	snprintf(c->section, sizeof c->section, "%s", section);
+	c->x = x;
+	c->y = y;
+	c->w = w;
+	c->h = h;
+	c->enabled = 1;
+	c->armed = 1;
+	c->has_visible = 1;
+	c->visible = 1;
+}
+
+struct msg_hit {
+	int x, y, w, h;
+};
+
+static struct msg_hit g_msghit[8];
+static int g_nmsghit;
+
+static void on_msg_sprite(struct sprite *sp, void *unused)
+{
+	struct sact_sprite *sact;
+	int x, y, w, h;
+	(void)unused;
+	sact = sprite_as_sact(sp);
+	if (!sact || sact->sp.hidden || g_nmsghit >= 8)
+		return;
+	x = sact->rect.x;
+	y = sact->rect.y;
+	w = sact->rect.w;
+	h = sact->rect.h;
+	/* Far right of the message frame (x=216, y=568, 772x160). */
+	if (x < 920 || y < 540 || y > 740)
+		return;
+	if (w < 20 || h < 16 || w > 90 || h > 48)
+		return;
+	g_msghit[g_nmsghit].x = x;
+	g_msghit[g_nmsghit].y = y;
+	g_msghit[g_nmsghit].w = w;
+	g_msghit[g_nmsghit].h = h;
+	g_nmsghit++;
+}
+
+static int fill_message(void)
+{
+	static const char *ids[] = { "auto", "skip", "msg-config" };
+	static const char *labs[] = { "AUTO", "SKIP", "CONFIG" };
+	int i, j;
+	g_nmsghit = 0;
+	scene_for_each_sprite(on_msg_sprite, NULL);
+	for (i = 1; i < g_nmsghit; i++) {
+		struct msg_hit k = g_msghit[i];
+		j = i;
+		while (j > 0 && g_msghit[j - 1].y > k.y) {
+			g_msghit[j] = g_msghit[j - 1];
+			j--;
+		}
+		g_msghit[j] = k;
+	}
+	if (g_nmsghit >= 3) {
+		for (i = 0; i < 3; i++)
+			emit_plain(ids[i], labs[i], "message",
+				g_msghit[i].x, g_msghit[i].y, g_msghit[i].w, g_msghit[i].h);
+	} else {
+		/* メッセージボタン_設定 layout 1: x=966, y=600 step 40. */
+		emit_plain("auto", "AUTO", "message", 966, 600, 52, 32);
+		emit_plain("skip", "SKIP", "message", 966, 640, 52, 32);
+		emit_plain("msg-config", "CONFIG", "message", 966, 680, 52, 32);
+	}
+	snprintf(g_screen, sizeof g_screen, "message");
+	hover_from_rects();
+	return 1;
+}
+
+static void quest_name_of(struct page *mgr, int qno, char *dst, int n)
+{
+	struct page *items;
+	int i;
+	dst[0] = 0;
+	if (qno <= 0)
+		return;
+	items = fpage(mgr, "m_asItem");
+	if (!items || items->type != ARRAY_PAGE)
+		return;
+	for (i = 0; i < items->nr_vars; i++) {
+		struct page *it = arr_at(items, i);
+		if (!it || fint(it, "m_nQuestNo") != qno)
+			continue;
+		fstr(fpage(it, "m_sText"), "m_szText", dst, n);
+		return;
+	}
+}
+
+static const char *quest_sort_name(int id, const char **label)
+{
+	switch (id) {
+	case 180001: *label = "Pending"; return "sort-pending";
+	case 180002: *label = "Quest ID"; return "sort-quest-id";
+	case 180003: *label = "Clears"; return "sort-clears";
+	case 180004: *label = "Difficulty"; return "sort-difficulty";
+	case 180005: *label = "Ease"; return "sort-ease";
+	case 180006: *label = "Reputation"; return "sort-reputation";
+	case 180007: *label = "Alphabetical"; return "sort-name";
+	default: *label = NULL; return NULL;
+	}
+}
+
+static int fill_quests(struct page *quest)
+{
+	struct page *mgr, *ids, *arr, *sort_arr;
+	int i, n0 = g_nctrls, top;
+	if (!quest || !sprite_shown(fpage(quest, "m_spBase")))
+		return 0;
+	mgr = fpage(quest, "m_sList");
+	g_qstate.ok = 1;
+	g_qstate.kind = 1;
+	g_qstate.top = fint(mgr, "m_nTopIndex");
+	g_qstate.sort_mode = fint(mgr, "m_nSortMode");
+	g_qstate.selected = fint(mgr, "m_nSelectNo");
+	top = g_qstate.top;
+	ids = fpage(mgr, "m_anQuestList");
+	g_nquests = 0;
+	g_qstate.count = (ids && ids->type == ARRAY_PAGE) ? ids->nr_vars : 0;
+	for (i = 0; i < g_qstate.count && g_nquests < QUEST_MAX; i++) {
+		struct quest_row *r = &g_quests[g_nquests++];
+		memset(r, 0, sizeof *r);
+		r->index = i;
+		r->quest_no = ids->values[i].i;
+		r->visible = (i >= top && i < top + 13);
+		if (r->visible)
+			quest_name_of(mgr, r->quest_no, r->name, (int)sizeof r->name);
+	}
+	arr = fpage(fpage(quest, "m_sButton2"), "m_asButton");
+	if (arr && arr->type == ARRAY_PAGE) {
+		for (i = 0; i < arr->nr_vars; i++) {
+			struct page *btn = arr_at(arr, i);
+			struct tbtn b;
+			char id[40], value[32];
+			int vis, list_i, qno;
+			const char *label;
+			if (!tbtn_read(btn, &b) || !b.show)
+				continue;
+			if (b.id < 160001 || b.id > 160013)
+				continue;
+			vis = b.id - 160001;
+			list_i = top + vis;
+			qno = (list_i >= 0 && list_i < g_nquests) ? g_quests[list_i].quest_no : 0;
+			label = (list_i >= 0 && list_i < g_nquests && g_quests[list_i].name[0])
+				? g_quests[list_i].name : "quest";
+			snprintf(id, sizeof id, "quest-%d", vis);
+			snprintf(value, sizeof value, "%d", qno);
+			emit_named_btn(btn, i, id, label, "quests", value, 0);
+		}
+	}
+	arr = fpage(fpage(quest, "m_sButton"), "m_asButton");
+	if (arr && arr->type == ARRAY_PAGE) {
+		for (i = 0; i < arr->nr_vars; i++) {
+			struct page *btn = arr_at(arr, i);
+			struct tbtn b;
+			char value[32];
+			if (!tbtn_read(btn, &b) || !b.show)
+				continue;
+			if (b.id != 100001)
+				continue;
+			snprintf(value, sizeof value, "%d", g_qstate.selected);
+			emit_named_btn(btn, i, "take", "Take this Quest", "quests", value, 0);
+		}
+	}
+	sort_arr = fpage(fpage(fpage(quest, "m_sSort"), "m_sButton"), "m_asButton");
+	if (sort_arr && sort_arr->type == ARRAY_PAGE) {
+		for (i = 0; i < sort_arr->nr_vars; i++) {
+			struct page *btn = arr_at(sort_arr, i);
+			struct tbtn b;
+			const char *label = NULL, *name;
+			if (!tbtn_read(btn, &b) || !b.show)
+				continue;
+			name = quest_sort_name(b.id, &label);
+			if (!name)
+				continue;
+			emit_named_btn(btn, i, name, label, "quests", "", 0);
+		}
+	}
+	for (i = 0; i < g_nctrls; i++) {
+		struct ui_ctrl *c = &g_ctrls[i];
+		int mode;
+		if (strcmp(c->section, "quests") != 0 || strncmp(c->id, "sort-", 5) != 0)
+			continue;
+		mode = c->button - 180000;
+		c->has_select = 1;
+		c->selected = (g_qstate.sort_mode == mode);
+		snprintf(c->value, sizeof c->value, "%s", c->selected ? "selected" : "");
+	}
+	/* Scroll track. Wheel while this is hovered moves the list. */
+	emit_plain("scroll", "Scroll", "quests", 919, 60, 28, 438);
+	if (g_nctrls == n0)
+		return 0;
+	snprintf(g_screen, sizeof g_screen, "quests");
+	hover_from_rects();
+	return 1;
+}
+
+static int fill_storequest(struct page *st)
+{
+	struct page *arr;
+	int i, n0 = g_nctrls;
+	if (!st || !sprite_shown(fpage(st, "m_spBase")))
+		return 0;
+	g_qstate.ok = 1;
+	g_qstate.kind = 2;
+	g_qstate.mode = fint(st, "m_nMode");
+	arr = fpage(fpage(st, "m_sButton"), "m_asButton");
+	if (arr && arr->type == ARRAY_PAGE) {
+		for (i = 0; i < arr->nr_vars; i++) {
+			struct page *btn = arr_at(arr, i);
+			struct tbtn b;
+			if (!tbtn_read(btn, &b) || !b.show)
+				continue;
+			if (b.id == 100009)
+				emit_named_btn(btn, i, "close", "Close", "quest-storage", "", 0);
+			else if (b.id == 100001)
+				emit_named_btn(btn, i, "yes", "Yes", "quest-storage", "1", 0);
+			else if (b.id == 100002)
+				emit_named_btn(btn, i, "no", "No", "quest-storage", "2", 0);
+		}
+	}
+	if (g_nctrls == n0)
+		return 0;
+	snprintf(g_screen, sizeof g_screen, "quest-storage");
+	hover_from_rects();
+	return 1;
+}
+
+static const char *map_btn_name(int id, const char **label)
+{
+	switch (id) {
+	case 700001: *label = "Area Display"; return "area-show";
+	case 700002: *label = "Area Display"; return "area-hide";
+	case 700003: *label = "Abandon"; return "abandon";
+	case 700004: *label = "Quest Storage"; return "storage";
+	case 700005: *label = "Party"; return "party";
+	case 700011: *label = "Run"; return "walk-fast";
+	case 700012: *label = "Walk"; return "walk-slow";
+	default: *label = NULL; return NULL;
+	}
+}
+
+static int fill_dungeon(struct page *map)
+{
+	struct page *arr, *player;
+	int i, n0 = g_nctrls;
+	if (!map || !sprite_shown(fpage(map, "m_spBase")))
+		return 0;
+	g_dstate.ok = 1;
+	g_dstate.area = fint(map, "m_bAreaShow") ? 1 : 0;
+	g_dstate.map_no = fint(map, "m_nMapNo");
+	fstr(fpage(map, "m_sName"), "m_szText", g_dstate.name, (int)sizeof g_dstate.name);
+	player = global_struct(&gi_player, "g_sPlayer", sn_player);
+	if (player) {
+		g_dstate.map_x = fint(player, "m_nMapX");
+		g_dstate.map_z = fint(player, "m_nMapZ");
+	}
+	arr = fpage(fpage(map, "m_sButton"), "m_asButton");
+	if (arr && arr->type == ARRAY_PAGE) {
+		for (i = 0; i < arr->nr_vars; i++) {
+			struct page *btn = arr_at(arr, i);
+			const char *label = NULL, *name;
+			struct tbtn b;
+			if (!tbtn_read(btn, &b) || !b.show)
+				continue;
+			name = map_btn_name(b.id, &label);
+			if (!name)
+				continue;
+			emit_named_btn(btn, i, name, label, "dungeon", "", 0);
+		}
+	}
+	if (g_nctrls == n0)
+		return 0;
+	snprintf(g_screen, sizeof g_screen, "dungeon");
+	hover_from_rects();
+	return 1;
+}
+
 static int vm_fill(void)
 {
 	struct page *view = NULL, *title = NULL, *cfg = NULL, *pstatus = NULL, *menu, *town;
@@ -4333,6 +4767,13 @@ static int vm_fill(void)
 			return 1;
 	}
 	{
+		struct page *stq = global_struct(&gi_storequest, "g_sStoreQuest", sn_storequest);
+		if (stq && fill_storequest(stq))
+			return 1;
+	}
+	if (global_int(&gi_msgno, "g_nMessageNo") > 0 && fill_message())
+		return 1;
+	{
 		struct page *vault = global_struct(&gi_storeitem, "g_sStoreItem", sn_storeitem);
 		if (vault && fill_vault(vault))
 			return 1;
@@ -4348,6 +4789,11 @@ static int vm_fill(void)
 	party = global_struct(&gi_party, "g_sParty", sn_party);
 	if (party && sprite_live(fpage(party, "m_spBase")) && fill_party_edit(party))
 		return 1;
+	{
+		struct page *quest = global_struct(&gi_quest, "g_sQuest", sn_quest);
+		if (quest && fill_quests(quest))
+			return 1;
+	}
 	if (pstatus && fill_party_summary(pstatus))
 		return 1;
 	menu = global_struct(&gi_menu, "g_sSystemMenu", sn_sysmenu);
@@ -4357,6 +4803,11 @@ static int vm_fill(void)
 	{
 		struct page *shop = global_struct(&gi_shop, "g_sShop", sn_shop);
 		if (shop && fill_shop(shop))
+			return 1;
+	}
+	{
+		struct page *map = global_struct(&gi_mapparts, "g_sMapParts", sn_mapparts);
+		if (map && fill_dungeon(map))
 			return 1;
 	}
 	if (title && !stack_has(U8_WARN))
@@ -4389,6 +4840,9 @@ static void publish(void)
 	memset(&g_info, 0, sizeof g_info);
 	memset(&g_pstate, 0, sizeof g_pstate);
 	memset(&g_status, 0, sizeof g_status);
+	memset(&g_qstate, 0, sizeof g_qstate);
+	memset(&g_dstate, 0, sizeof g_dstate);
+	g_nquests = 0;
 	memset(&g_vstate, 0, sizeof g_vstate);
 	g_has_skillshop = 0;
 	g_skill_page = 0;

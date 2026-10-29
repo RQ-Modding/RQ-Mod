@@ -129,6 +129,8 @@ int rq_ui_cmd_press(const char *id, char *err, int errsz);
 int rq_ui_cmd_drag(const char *src, const char *dst, char *err, int errsz);
 int rq_ui_has_control(const char *id);
 int rq_agent_set(const char *id, const char *label, int button, int hover_only);
+/* HUD rect. Listed while registered. hover/press click that rectangle. */
+int rq_agent_set_rect(const char *id, const char *label, int x, int y, int w, int h);
 void rq_agent_clear(const char *id);
 int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);

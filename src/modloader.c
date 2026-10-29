@@ -849,7 +849,8 @@ static int l_agent_control(lua_State *L)
 {
 	const char *id = luaL_checkstring(L, 1);
 	const char *label = NULL;
-	int button, hover = 0;
+	int button = 0, hover = 0, has_button = 0;
+	int x = 0, y = 0, w = 0, h = 0;
 
 	if (lua_isnoneornil(L, 2)) {
 		rq_agent_clear(id);
@@ -860,11 +861,33 @@ static int l_agent_control(lua_State *L)
 	if (lua_isstring(L, -1))
 		label = lua_tostring(L, -1);
 	lua_getfield(L, 2, "button");
-	button = (int)luaL_checkinteger(L, -1);
+	if (lua_isnumber(L, -1)) {
+		button = (int)lua_tointeger(L, -1);
+		has_button = button > 0;
+	}
 	lua_getfield(L, 2, "hoverOnly");
 	hover = lua_toboolean(L, -1);
-	if (!rq_agent_set(id, label, button, hover))
-		return luaL_error(L, "agent.control: id or button rejected");
+	lua_getfield(L, 2, "x");
+	if (lua_isnumber(L, -1))
+		x = (int)lua_tointeger(L, -1);
+	lua_getfield(L, 2, "y");
+	if (lua_isnumber(L, -1))
+		y = (int)lua_tointeger(L, -1);
+	lua_getfield(L, 2, "w");
+	if (lua_isnumber(L, -1))
+		w = (int)lua_tointeger(L, -1);
+	lua_getfield(L, 2, "h");
+	if (lua_isnumber(L, -1))
+		h = (int)lua_tointeger(L, -1);
+	if (has_button) {
+		if (!rq_agent_set(id, label, button, hover))
+			return luaL_error(L, "agent.control: id or button rejected");
+	} else if (w > 0 && h > 0) {
+		if (!rq_agent_set_rect(id, label, x, y, w, h))
+			return luaL_error(L, "agent.control: id or rect rejected");
+	} else {
+		return luaL_error(L, "agent.control: need button or x,y,w,h");
+	}
 	lua_pushboolean(L, 1);
 	return 1;
 }
