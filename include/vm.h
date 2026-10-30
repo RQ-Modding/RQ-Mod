@@ -80,6 +80,7 @@ enum vm_extra_syscall {
 	VM_XSYS_DISCORD_ADD = 0x80000031,
 	VM_XSYS_DISCORD_SHOW = 0x80000032,
 	VM_XSYS_DISCORD_TOGGLE = 0x80000033,
+	VM_XSYS_DISCORD_DEL = 0x80000034,
 };
 
 // Non-heap values. Stored in pages and on the stack.
