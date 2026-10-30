@@ -45,6 +45,7 @@ __declspec(dllimport) unsigned long __stdcall GetEnvironmentVariableA(const char
 
 #include "cJSON.h"
 #include "gfx/font.h"
+#include "gfx/gfx.h"
 #include "sact.h"
 #include "sprite.h"
 #include "vm.h"
@@ -61,6 +62,12 @@ __declspec(dllimport) unsigned long __stdcall GetEnvironmentVariableA(const char
 #define RQ_LABEL_X 112
 #define RQ_LABEL_Y 274
 #define RQ_CHECK_CG 40056
+/* Empty box baked into the Other 2 panel (CG 40007) for the second row. */
+#define RQ_BOX_X 71
+#define RQ_BOX_Y 206
+#define RQ_BOX_W 28
+#define RQ_BOX_H 28
+#define RQ_BOX_DST_Y 276
 
 static int g_inited;
 static int g_disabled;
@@ -476,6 +483,22 @@ static void show_mark(struct page *cfg, int on)
 	stack_pop();
 }
 
+/* The other two rows already have this square in the panel art. */
+static void blit_empty_box(struct sact_sprite *sp)
+{
+	Texture *tex = sprite_get_texture(sp);
+	Texture tmp;
+	if (!tex || tex->w < RQ_BOX_X + RQ_BOX_W || tex->h < RQ_BOX_DST_Y + RQ_BOX_H)
+		return;
+	gfx_init_texture_rgba(&tmp, RQ_BOX_W, RQ_BOX_H, (SDL_Color){ 0, 0, 0, 0 });
+	gfx_copy(&tmp, 0, 0, tex, RQ_BOX_X, RQ_BOX_Y, RQ_BOX_W, RQ_BOX_H);
+	gfx_copy_amap(&tmp, 0, 0, tex, RQ_BOX_X, RQ_BOX_Y, RQ_BOX_W, RQ_BOX_H);
+	gfx_copy(tex, RQ_BOX_X, RQ_BOX_DST_Y, &tmp, 0, 0, RQ_BOX_W, RQ_BOX_H);
+	gfx_copy_amap(tex, RQ_BOX_X, RQ_BOX_DST_Y, &tmp, 0, 0, RQ_BOX_W, RQ_BOX_H);
+	gfx_delete_texture(&tmp);
+	sprite_dirty(sp);
+}
+
 static struct sact_sprite *base_sprite(struct page *cfg)
 {
 	struct page *ts, *inner;
@@ -515,7 +538,8 @@ static void add_checkbox(void)
 		warned = 1;
 		rq_log("Discord presence: Other 2 checkbox was not created");
 	}
-	/* T_ButtonGroup@setShow is void — do not pop a return value. */
+	/* setShow marks the new button clickable. Its frame is the yellow
+	 * hover tint (CG 40056); leave that at Z 0, behind the panel. */
 	if (g_f_group_show >= 0 && page_index_valid(cfg->values[1].i)) {
 		stack_push(1);
 		vm_call_method(g_f_group_show, cfg->values[1].i);
@@ -524,6 +548,7 @@ static void add_checkbox(void)
 	sp = base_sprite(cfg);
 	if (!sp || sprite_get_width(sp) < 32 || sprite_get_height(sp) < 32)
 		return;
+	blit_empty_box(sp);
 	label = make_string(text, strlen(text));
 	if (!label)
 		return;
