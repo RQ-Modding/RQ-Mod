@@ -261,7 +261,7 @@ if get_option('modloader')
                  'modloader_chara.c', 'modloader_shop.c',
                  'modloader_skilllist.c',
                  'modloader_debug.c', 'modloader_discord.c',
-                 'modloader_saves.c', 'modloader_roster.c', 'modloader_events.c',
+                 'modloader_saves.c', 'modloader_roster.c', 'modloader_events.c', 'modloader_image.c',
                  rq_stamp]
     if host_machine.system() == 'windows'
         static_link_args += ['-lpsapi', '-lshell32', '-lole32']

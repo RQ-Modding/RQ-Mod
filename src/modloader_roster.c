@@ -73,7 +73,7 @@ static int f_create = -1, f_cdata = -1, f_base = -1, f_findno = -1, f_del = -1;
 static int f_pta_add = -1, f_pta_del = -1, f_state = -1, f_name = -1, f_short = -1;
 static int f_facestr = -1, f_line = -1, f_cs_add = -1, f_cs_del = -1, f_cs_find = -1;
 static int f_cs_cost = -1, f_cs_rank = -1, f_stype = -1, f_points = -1, f_fa = -1;
-static int f_recalc = -1, f_supply = -1;
+static int f_recalc = -1, f_supply = -1, f_list = -1;
 static int gi_c = -2;
 
 static const struct { const char *alias; const char *jp; } k_fields[] = {
@@ -483,6 +483,12 @@ static int set_alias(lua_State *L, int iic, struct page *p, const char *key, int
 		return -1;
 	if (cur == v)
 		return 0;
+	/* A mod image on a character that already shows a game CG: replace that CG instead
+	 * (the screens built at load keep the number they read). */
+	if ((!strcmp(key, "face") || !strcmp(key, "portrait")) && v >= 900000 && cur > 0 && cur < 900000) {
+		rq_image_redirect(cur, v);
+		return 0;
+	}
 	mwrite(p, jp, v);
 	return 1;
 }
@@ -902,6 +908,7 @@ int rq_roster_install(struct ain *a)
 	f_fa = find_fn(a, "ＣＦＡ");
 	f_recalc = find_fn(a, "Ｃ再計算");
 	f_supply = find_fn(a, "Ｃ補給");
+	f_list = find_fn(a, "キャラデータ一覧_更新"); /* the Party tab's character list; optional */
 
 	if (f_create < 0 || f_cdata < 0 || f_base < 0 || f_findno < 0 || f_del < 0
 	    || f_pta_add < 0 || f_pta_del < 0 || f_state < 0 || f_name < 0 || f_short < 0
@@ -933,6 +940,7 @@ int rq_lua_chara_define(lua_State *L)
 	int no;
 
 	luaL_checktype(L, 1, LUA_TTABLE);
+	rq_image_resolve_fields(L, 1);
 	ensure(L);
 	lua_getfield(L, 1, "id");
 	if (!lua_isstring(L, -1) || !lua_tostring(L, -1)[0])
@@ -1031,6 +1039,7 @@ int rq_lua_chara_recruit(lua_State *L)
 		if (party > 0)
 			ci(f_pta_add, 2, iic, party);
 	}
+	ci(f_list, 0);
 	lua_pushinteger(L, iic);
 	return 1;
 }
@@ -1044,6 +1053,7 @@ int rq_lua_chara_dismiss(lua_State *L)
 		return luaL_error(L, "dismiss: not a roster slot");
 	ci(f_pta_del, 1, iic);
 	ci(f_del, 1, iic);
+	ci(f_list, 0);
 	return 0;
 }
 
@@ -1079,6 +1089,7 @@ int rq_lua_chara_edit(lua_State *L)
 	int i;
 
 	luaL_checktype(L, 2, LUA_TTABLE);
+	rq_image_resolve_fields(L, 2);
 	ensure(L);
 	for (i = 0; i < g_nedit; i++) {
 		if (g_edit[i].no == no && !strcmp(g_edit[i].mod, mod)) {
@@ -1149,6 +1160,7 @@ int rq_lua_chara_set(lua_State *L)
 	struct page *p = cpage(iic);
 
 	luaL_checktype(L, 2, LUA_TTABLE);
+	rq_image_resolve_fields(L, 2);
 	ensure(L);
 	if (!p)
 		return luaL_error(L, "chara.set: no character at %d", iic);

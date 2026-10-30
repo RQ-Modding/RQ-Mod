@@ -10,6 +10,8 @@
 
 struct ain;
 struct lua_State;
+struct cg;
+struct cg_metrics;
 
 #ifdef RQ_MODLOADER
 
@@ -43,6 +45,17 @@ int rq_skill_install(struct ain *ain);
 int rq_skill_syscall(int code);
 int rq_lua_skill_on_describe(struct lua_State *L);
 int rq_lua_skill_get(struct lua_State *L);
+/* Mod-folder images served as game CGs (modloader_image.c). */
+bool rq_image_has(int id);
+struct cg *rq_image_load(int id);
+bool rq_image_metrics(int id, struct cg_metrics *out);
+void rq_image_resolve_fields(struct lua_State *L, int t);
+void rq_image_redirect(int game_id, int custom_id);
+int rq_lua_image_add(struct lua_State *L);
+int rq_lua_image_replace(struct lua_State *L);
+int rq_lua_image_restore(struct lua_State *L);
+int rq_lua_image_info(struct lua_State *L);
+int rq_sandbox_resolve(struct lua_State *L, const char *rel, char *out, int n);
 int rq_lua_skill_define(struct lua_State *L);
 int rq_lua_skill_patch(struct lua_State *L);
 int rq_events_install(struct ain *ain);
@@ -243,7 +256,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "0.5.0"
+#define RQ_VERSION "0.6.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -329,6 +342,9 @@ static inline int rq_skilllist_install(struct ain *ain) { (void)ain; return 0; }
 static inline int rq_skilllist_syscall(int code) { (void)code; return 0; }
 static inline int rq_chara_syscall(int code) { (void)code; return 0; }
 static inline int rq_roster_syscall(int code) { (void)code; return 0; }
+static inline bool rq_image_has(int id) { (void)id; return false; }
+static inline struct cg *rq_image_load(int id) { (void)id; return NULL; }
+static inline bool rq_image_metrics(int id, struct cg_metrics *out) { (void)id; (void)out; return false; }
 static inline int rq_events_syscall(int code) { (void)code; return 0; }
 static inline void rq_roster_apply(int iic) { (void)iic; }
 static inline int rq_hud_syscall(int code) { (void)code; return 0; }

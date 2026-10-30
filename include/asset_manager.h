@@ -47,5 +47,7 @@ struct cg *asset_cg_load(int no);
 struct cg *asset_cg_load_by_name(const char *name, int *id_out);
 bool asset_cg_get_metrics(int no, struct cg_metrics *metrics);
 bool asset_cg_get_metrics_by_name(const char *name, struct cg_metrics *metrics);
+bool asset_cg_get_metrics_original(int no, struct cg_metrics *metrics);
+void asset_cg_cache_forget(int no);
 
 #endif /* SYSTEM4_ASSET_MANAGER_H */

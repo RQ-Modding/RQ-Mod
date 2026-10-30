@@ -32,6 +32,7 @@
 #include "system4/utfsjis.h"
 
 #include "xsystem4.h"
+#include "modloader.h"
 #include "asset_manager.h"
 #include "gfx/font.h"
 
@@ -91,8 +92,26 @@ bool asset_manager_load_archive(enum asset_type type, const char *archive_name)
 	return r;
 }
 
+/* CG names that are plain numbers ("12301") address a CG by number. */
+static int digits_id(const char *name)
+{
+	long v = 0;
+	if (!name || !*name)
+		return 0;
+	for (; *name; name++) {
+		if (*name < '0' || *name > '9')
+			return 0;
+		v = v * 10 + (*name - '0');
+		if (v > 2000000000L)
+			return 0;
+	}
+	return (int)v;
+}
+
 bool asset_exists(enum asset_type type, int id)
 {
+	if (type == ASSET_CG && rq_image_has(id))
+		return true;
 	if (!assets[type])
 		return false;
 	return assets[type]->exists_by_id(assets[type], id);
@@ -100,6 +119,14 @@ bool asset_exists(enum asset_type type, int id)
 
 bool asset_exists_by_name(enum asset_type type, const char *name, int *id_out)
 {
+	if (type == ASSET_CG) {
+		int id = digits_id(name);
+		if (id > 0 && rq_image_has(id)) {
+			if (id_out)
+				*id_out = id;
+			return true;
+		}
+	}
 	if (!assets[type])
 		return false;
 	if (!assets[type]->exists_by_name)
@@ -223,8 +250,34 @@ static void cg_cache_put(int id, struct cg *cg)
 	cg_cache_bytes += bytes;
 }
 
+void asset_cg_cache_forget(int id)
+{
+	for (struct cg_cache_entry *e = cg_cache_hash[(unsigned)id % CG_CACHE_BUCKETS]; e; e = e->hnext) {
+		if (e->id == id) {
+			cg_cache_evict(e);
+			return;
+		}
+	}
+}
+
+/* Size of the game's own CG, ignoring any mod image on that number. */
+bool asset_cg_get_metrics_original(int id, struct cg_metrics *metrics)
+{
+	struct archive_data *data = asset_get(ASSET_CG, id);
+	if (!data)
+		return false;
+	bool r = cg_get_metrics_data(data, metrics);
+	archive_free_data(data);
+	return r;
+}
+
 struct cg *asset_cg_load(int id)
 {
+	if (id > 0 && rq_image_has(id)) {
+		struct cg *mod = rq_image_load(id);
+		if (mod)
+			return mod;
+	}
 	if (cg_cache_on < 0)
 		cg_cache_on = getenv("XSYS4_NO_CGCACHE") == NULL;
 	if (cg_cache_on && id > 0) {
@@ -244,6 +297,15 @@ struct cg *asset_cg_load(int id)
 
 struct cg *asset_cg_load_by_name(const char *name, int *id_out)
 {
+	int mod_id = digits_id(name);
+	if (mod_id > 0 && rq_image_has(mod_id)) {
+		struct cg *mod = rq_image_load(mod_id);
+		if (mod) {
+			if (id_out)
+				*id_out = mod_id;
+			return mod;
+		}
+	}
 	struct archive_data *data = asset_get_by_name(ASSET_CG, name, id_out);
 	if (!data)
 		return NULL;
@@ -254,6 +316,8 @@ struct cg *asset_cg_load_by_name(const char *name, int *id_out)
 
 bool asset_cg_get_metrics(int id, struct cg_metrics *metrics)
 {
+	if (rq_image_metrics(id, metrics))
+		return true;
 	struct archive_data *data = asset_get(ASSET_CG, id);
 	if (!data)
 		return false;
@@ -264,6 +328,9 @@ bool asset_cg_get_metrics(int id, struct cg_metrics *metrics)
 
 bool asset_cg_get_metrics_by_name(const char *name, struct cg_metrics *metrics)
 {
+	int mod_id = digits_id(name);
+	if (mod_id > 0 && rq_image_metrics(mod_id, metrics))
+		return true;
 	struct archive_data *data = asset_get_by_name(ASSET_CG, name, NULL);
 	if (!data)
 		return false;

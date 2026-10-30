@@ -158,6 +158,12 @@ static int resolve_in_mod(lua_State *L, const char *path, int allow_abs, char *o
 	return 1;
 }
 
+/* A path relative to the calling mod's folder. 0 if it leaves the folder. */
+int rq_sandbox_resolve(lua_State *L, const char *rel, char *out, int n)
+{
+	return resolve_in_mod(L, rel, 0, out, n);
+}
+
 static int call_orig(lua_State *L, int ref, int narg)
 {
 	int base = lua_gettop(L);

@@ -1052,6 +1052,13 @@ static void open_rq(lua_State *L)
 	lua_setfield(L, -2, "chara");
 
 	lua_newtable(L);
+	set_cfn(L, "add", rq_lua_image_add);
+	set_cfn(L, "replace", rq_lua_image_replace);
+	set_cfn(L, "restore", rq_lua_image_restore);
+	set_cfn(L, "info", rq_lua_image_info);
+	lua_setfield(L, -2, "image");
+
+	lua_newtable(L);
 	set_cfn(L, "get", rq_lua_store_get);
 	set_cfn(L, "set", rq_lua_store_set);
 	set_cfn(L, "delete", rq_lua_store_delete);
