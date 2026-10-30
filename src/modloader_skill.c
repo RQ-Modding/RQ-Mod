@@ -24,6 +24,7 @@
 #include "modloader_priv.h"
 #include "vm.h"
 #include "vm/heap.h"
+#include "vm/page.h"
 
 static int g_on;
 static int g_boot;
@@ -35,9 +36,27 @@ static int g_sort_as[SKILL_SORT_MAX];
 static int g_sort_n;
 static void skill_sort_args(void);
 static int g_describe_ref = LUA_NOREF;
-#define SKILL_DEF_MAX 32
+#define SKILL_DEF_MAX 128
 static int g_def_refs[SKILL_DEF_MAX];
+static int g_def_patch_id[SKILL_DEF_MAX]; /* 0 = define, else the skill id a patch edits */
 static int g_def_n;
+/* Text ids ("mymod:slash") hash into 700..999. Vanilla uses up to about 600. */
+#define SKILL_TEXT_BASE 700
+#define SKILL_TEXT_SPAN 300
+static char g_text_id[SKILL_TEXT_SPAN][64];
+static int gi_skill = -2;
+
+static const struct { const char *alias; const char *jp; } k_sfields[] = {
+	{ "basic", "基本技" }, { "big", "大技" }, { "kinou", "機能" },
+	{ "kouka", "効果" }, { "kouka2", "効果２" }, { "kouka3", "効果３" },
+	{ "kouka4", "効果４" }, { "locked", "削除不可" }, { "type", "タイプ" },
+	{ "action", "行動種類" }, { "panel", "パネル色" }, { "target", "対象" },
+	{ "bairitsu", "倍率" }, { "cap", "ダメージ上限" }, { "element", "属性" },
+	{ "flat", "付与ダメージ" }, { "no_first_turn", "初ターン使用禁止技" },
+	{ "once_per_battle", "同一戦闘一度のみ技" }, { "needs_charge", "要溜め" },
+	{ "efa", "ＥＦＡ" }, { "efb", "ＥＦＢ" }, { "weapon", "発動条件／武器" },
+};
+#define NSFIELDS ((int)(sizeof k_sfields / sizeof k_sfields[0]))
 static int g_f_init = -1;
 static int g_f_flavor = -1;
 static int g_f_type = -1;
@@ -265,6 +284,130 @@ static char *field_strdup(lua_State *L, const char *key)
 	return out ? out : strdup("");
 }
 
+static struct page *spage(int id)
+{
+	struct page *arr;
+	int slot;
+
+	if (gi_skill == -2) {
+		char *sj = utf2sjis("Ｓ", 0);
+		gi_skill = sj ? ain_get_global(ain, sj) : -1;
+		free(sj);
+	}
+	if (!ain || gi_skill < 0 || gi_skill >= ain->nr_globals || !heap || !heap_size || !heap[0].page)
+		return NULL;
+	slot = global_get(gi_skill).i;
+	if (!page_index_valid(slot))
+		return NULL;
+	arr = heap_get_page(slot);
+	if (!arr || arr->type != ARRAY_PAGE || id <= 0 || id >= arr->nr_vars)
+		return NULL;
+	slot = arr->values[id].i;
+	return page_index_valid(slot) ? heap_get_page(slot) : NULL;
+}
+
+static int smemb(struct page *p, const char *jp)
+{
+	struct ain_struct *s;
+	char *sj;
+	int i, m = -1;
+
+	if (!p || p->type != STRUCT_PAGE || !ain || p->index < 0 || p->index >= ain->nr_structures)
+		return -1;
+	sj = utf2sjis(jp, 0);
+	if (!sj)
+		return -1;
+	s = &ain->structures[p->index];
+	for (i = 0; i < s->nr_members && i < p->nr_vars; i++) {
+		if (s->members[i].name && !strcmp(s->members[i].name, sj)) {
+			m = i;
+			break;
+		}
+	}
+	free(sj);
+	return m;
+}
+
+static const char *salias_jp(const char *alias)
+{
+	int i;
+	for (i = 0; i < NSFIELDS; i++) {
+		if (!strcmp(k_sfields[i].alias, alias))
+			return k_sfields[i].jp;
+	}
+	return NULL;
+}
+
+/* Number, or text id hashed into the mod range. Errors on a collision. */
+static int skill_id_at(lua_State *L, int idx, int define)
+{
+	if (lua_type(L, idx) == LUA_TNUMBER)
+		return (int)lua_tointeger(L, idx);
+	if (lua_type(L, idx) == LUA_TSTRING) {
+		const char *s = lua_tostring(L, idx);
+		uint32_t h = 2166136261u;
+		const char *c;
+		int slot;
+
+		if (strlen(s) >= sizeof g_text_id[0])
+			return luaL_error(L, "skill id is too long");
+		for (c = s; *c; c++) {
+			h ^= (uint8_t)*c;
+			h *= 16777619u;
+		}
+		slot = (int)(h % SKILL_TEXT_SPAN);
+		if (g_text_id[slot][0] && strcmp(g_text_id[slot], s)) {
+			if (define)
+				return luaL_error(L, "skill id '%s' collides with '%s' (same number %d); pick another id",
+						  s, g_text_id[slot], SKILL_TEXT_BASE + slot);
+		} else if (define && !g_text_id[slot][0]) {
+			snprintf(g_text_id[slot], sizeof g_text_id[slot], "%s", s);
+		}
+		return SKILL_TEXT_BASE + slot;
+	}
+	return luaL_error(L, "skill id must be a number or a text id");
+}
+
+/* Write only the fields that are present (table on the stack top). */
+static void apply_patch(lua_State *L, int id)
+{
+	struct page *p = spage(id);
+	int t = lua_gettop(L);
+
+	if (!p) {
+		rq_log("skill.patch: no skill %d", id);
+		return;
+	}
+	lua_pushnil(L);
+	while (lua_next(L, t)) {
+		if (lua_type(L, -2) == LUA_TSTRING) {
+			const char *k = lua_tostring(L, -2);
+			const char *jp = salias_jp(k);
+			if (jp) {
+				int m = smemb(p, jp);
+				if (m >= 0 && (lua_isnumber(L, -1) || lua_isboolean(L, -1)))
+					page_set_var(p, m, lua_isboolean(L, -1) ? lua_toboolean(L, -1) : (int)lua_tointeger(L, -1));
+			} else if (lua_isstring(L, -1)) {
+				const char *v = lua_tostring(L, -1);
+				if (!strcmp(k, "name"))
+					call_str(g_fno_name, id, v);
+				else if (!strcmp(k, "flavor"))
+					call_str(g_f_flavor, id, v);
+				else if (!strcmp(k, "desc"))
+					call_str(g_fno_desc1, id, v);
+				else if (!strcmp(k, "ef"))
+					call_str(g_f_ef, id, v);
+				else
+					rq_log("skill.patch: unknown field '%s'", k);
+			} else {
+				rq_log("skill.patch: unknown field '%s'", k);
+			}
+		}
+		lua_pop(L, 1);
+	}
+	rq_log("skill.patch: id %d", id);
+}
+
 /* Fill one S[id] the way Ｓ物理登録 / Ｓ能力Ｚ登録 do. Table is on the stack. */
 static void apply_define(lua_State *L)
 {
@@ -283,7 +426,7 @@ static void apply_define(lua_State *L)
 		rq_log("skill.define: kind must be physical or knowledge");
 		return;
 	}
-	id = field_int(L, "id", 0);
+	id = field_int(L, "__id", 0);
 	if (id < 1 || id > 1000) {
 		rq_log("skill.define: id %d out of range", id);
 		return;
@@ -347,8 +490,12 @@ static void skill_boot(void)
 		return;
 	for (i = 0; i < g_def_n; i++) {
 		lua_rawgeti(L, LUA_REGISTRYINDEX, g_def_refs[i]);
-		if (lua_istable(L, -1))
-			apply_define(L);
+		if (lua_istable(L, -1)) {
+			if (g_def_patch_id[i])
+				apply_patch(L, g_def_patch_id[i]);
+			else
+				apply_define(L);
+		}
 		lua_pop(L, 1);
 	}
 	g_boot_done = 1;
@@ -500,18 +647,44 @@ int rq_skill_install(struct ain *ain)
 
 int rq_lua_skill_define(lua_State *L)
 {
+	int id;
+
 	luaL_checktype(L, 1, LUA_TTABLE);
 	lua_getfield(L, 1, "id");
-	if (!lua_isnumber(L, -1))
+	if (lua_isnil(L, -1))
 		return luaL_error(L, "skill.define needs id");
+	id = skill_id_at(L, lua_gettop(L), 1);
 	lua_pop(L, 1);
 	if (g_def_n >= SKILL_DEF_MAX)
 		return luaL_error(L, "too many rq.skill.define calls");
+	lua_pushinteger(L, id);
+	lua_setfield(L, 1, "__id");
 	lua_pushvalue(L, 1);
+	g_def_patch_id[g_def_n] = 0;
 	g_def_refs[g_def_n++] = luaL_ref(L, LUA_REGISTRYINDEX);
 	if (g_boot_done) {
 		lua_rawgeti(L, LUA_REGISTRYINDEX, g_def_refs[g_def_n - 1]);
 		apply_define(L);
+		lua_pop(L, 1);
+	}
+	lua_pushinteger(L, id);
+	return 1;
+}
+
+/* rq.skill.patch(id, fields): change a skill that already exists, field by field. */
+int rq_lua_skill_patch(lua_State *L)
+{
+	int id = skill_id_at(L, 1, 0);
+
+	luaL_checktype(L, 2, LUA_TTABLE);
+	if (g_def_n >= SKILL_DEF_MAX)
+		return luaL_error(L, "too many rq.skill calls");
+	lua_pushvalue(L, 2);
+	g_def_patch_id[g_def_n] = id;
+	g_def_refs[g_def_n++] = luaL_ref(L, LUA_REGISTRYINDEX);
+	if (g_boot_done) {
+		lua_rawgeti(L, LUA_REGISTRYINDEX, g_def_refs[g_def_n - 1]);
+		apply_patch(L, id);
 		lua_pop(L, 1);
 	}
 	return 0;
@@ -519,8 +692,8 @@ int rq_lua_skill_define(lua_State *L)
 
 int rq_lua_skill_sort_as(lua_State *L)
 {
-	int id = (int)luaL_checkinteger(L, 1);
-	int as_id = (int)luaL_checkinteger(L, 2);
+	int id = skill_id_at(L, 1, 0);
+	int as_id = skill_id_at(L, 2, 0);
 	int i;
 
 	if (!g_sort_on) {
@@ -565,7 +738,7 @@ int rq_lua_skill_on_describe(lua_State *L)
 
 int rq_lua_skill_get(lua_State *L)
 {
-	int id = (int)luaL_checkinteger(L, 1);
+	int id = skill_id_at(L, 1, 0);
 	char *name, *desc1;
 
 	lua_newtable(L);
@@ -597,6 +770,21 @@ int rq_lua_skill_get(lua_State *L)
 	lua_pushstring(L, desc1);
 	lua_setfield(L, -2, "desc1");
 	free(desc1);
+
+	/* Every int field under its patch name (type, action, element, kouka2, ...). */
+	{
+		struct page *p = spage(id);
+		int i;
+		if (p) {
+			for (i = 0; i < NSFIELDS; i++) {
+				int m = smemb(p, k_sfields[i].jp);
+				if (m >= 0) {
+					lua_pushinteger(L, p->values[m].i);
+					lua_setfield(L, -2, k_sfields[i].alias);
+				}
+			}
+		}
+	}
 
 	return 1;
 }

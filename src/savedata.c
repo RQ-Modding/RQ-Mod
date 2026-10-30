@@ -28,6 +28,7 @@
 #include "system4/string.h"
 
 #include "savedata.h"
+#include "modloader.h"
 #include "vm.h"
 #include "vm/heap.h"
 #include "vm/page.h"
@@ -242,6 +243,8 @@ int save_globals(const char *keyname, const char *filename, const char *group_na
 	gsave_free(save);
 	if (n_out)
 		*n_out = nr_vars;
+	if (error == SAVEFILE_SUCCESS)
+		rq_saves_on_game_save(filename);
 	return error == SAVEFILE_SUCCESS;
 }
 

@@ -828,6 +828,14 @@ static int l_shop_install(lua_State *L)
 	return 1;
 }
 
+static int l_saves_install(lua_State *L)
+{
+	if (!g_ain)
+		return luaL_error(L, "AIN not loaded");
+	lua_pushboolean(L, rq_saves_install(g_ain));
+	return 1;
+}
+
 static void set_cfn(lua_State *L, const char *name, lua_CFunction fn)
 {
 	lua_pushcfunction(L, fn);
@@ -939,7 +947,26 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "screen", rq_lua_hud_screen);
 	set_cfn(L, "text_width", rq_lua_hud_text_width);
 	set_cfn(L, "wrap", rq_lua_hud_wrap);
+	set_cfn(L, "block_keys", rq_lua_hud_block_keys);
+	set_cfn(L, "text_begin", rq_lua_hud_text_begin);
+	set_cfn(L, "text_value", rq_lua_hud_text_value);
+	set_cfn(L, "text_end", rq_lua_hud_text_end);
 	lua_setfield(L, -2, "hud");
+
+	lua_newtable(L);
+	set_cfn(L, "install", l_saves_install);
+	set_cfn(L, "title", rq_lua_saves_title);
+	set_cfn(L, "active", rq_lua_saves_active);
+	set_cfn(L, "list", rq_lua_saves_list);
+	set_cfn(L, "current_mods", rq_lua_saves_current_mods);
+	set_cfn(L, "vanilla", rq_lua_saves_vanilla);
+	set_cfn(L, "create", rq_lua_saves_create);
+	set_cfn(L, "clone", rq_lua_saves_clone);
+	set_cfn(L, "import_vanilla", rq_lua_saves_import_vanilla);
+	set_cfn(L, "rename", rq_lua_saves_rename);
+	set_cfn(L, "delete", rq_lua_saves_delete);
+	set_cfn(L, "switch", rq_lua_saves_switch);
+	lua_setfield(L, -2, "saves");
 
 	lua_newtable(L);
 	set_cfn(L, "install", l_loot_install);
@@ -972,6 +999,7 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "on_describe", rq_lua_skill_on_describe);
 	set_cfn(L, "get", rq_lua_skill_get);
 	set_cfn(L, "define", rq_lua_skill_define);
+	set_cfn(L, "patch", rq_lua_skill_patch);
 	set_cfn(L, "sort_as", rq_lua_skill_sort_as);
 	lua_setfield(L, -2, "skill");
 
@@ -1005,7 +1033,30 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "set_uses", rq_lua_chara_set_uses);
 	set_cfn(L, "set_bar", rq_lua_chara_set_bar);
 	set_cfn(L, "clear_slot", rq_lua_chara_clear_slot);
+	set_cfn(L, "define", rq_lua_chara_define);
+	set_cfn(L, "recruit", rq_lua_chara_recruit);
+	set_cfn(L, "find", rq_lua_chara_find);
+	set_cfn(L, "is_recruited", rq_lua_chara_is_recruited);
+	set_cfn(L, "dismiss", rq_lua_chara_dismiss);
+	set_cfn(L, "recalc", rq_lua_chara_recalc);
+	set_cfn(L, "number", rq_lua_chara_number);
+	set_cfn(L, "id_of", rq_lua_chara_id_of);
+	set_cfn(L, "edit", rq_lua_chara_edit);
+	set_cfn(L, "get", rq_lua_chara_get);
+	set_cfn(L, "set", rq_lua_chara_set);
+	set_cfn(L, "skill_points", rq_lua_chara_skill_points);
+	set_cfn(L, "add_skill_points", rq_lua_chara_add_skill_points);
+	set_cfn(L, "forget", rq_lua_chara_forget);
+	set_cfn(L, "on_create", rq_lua_chara_on_create);
+	set_cfn(L, "on_forget", rq_lua_chara_on_forget);
 	lua_setfield(L, -2, "chara");
+
+	lua_newtable(L);
+	set_cfn(L, "get", rq_lua_store_get);
+	set_cfn(L, "set", rq_lua_store_set);
+	set_cfn(L, "delete", rq_lua_store_delete);
+	set_cfn(L, "keys", rq_lua_store_keys);
+	lua_setfield(L, -2, "store");
 
 	lua_newtable(L);
 	set_cfn(L, "install", l_chara_install);
@@ -1028,6 +1079,8 @@ static void open_rq(lua_State *L)
 	lua_newtable(L);
 	set_cfn(L, "install", l_battle_install);
 	set_cfn(L, "on_select_key", rq_lua_battle_on_select_key);
+	set_cfn(L, "on_start", rq_lua_battle_on_start);
+	set_cfn(L, "on_end", rq_lua_battle_on_end);
 	set_cfn(L, "in_ally_select", rq_lua_battle_in_ally_select);
 	set_cfn(L, "actor", rq_lua_battle_actor);
 	set_cfn(L, "skill_usable", rq_lua_battle_skill_usable);
@@ -1067,6 +1120,21 @@ static void note_loaded_mod(const char *name, const char *path)
 	snprintf(m->name, sizeof m->name, "%s", name);
 	snprintf(m->path, sizeof m->path, "%s", path);
 	g_nloaded_mods = i + 1;
+}
+
+int rq_mod_count(void)
+{
+	return g_nloaded_mods;
+}
+
+const char *rq_mod_id(int i)
+{
+	return i >= 0 && i < g_nloaded_mods ? g_loaded_mods[i].name : NULL;
+}
+
+const char *rq_mod_dir(int i)
+{
+	return i >= 0 && i < g_nloaded_mods ? g_loaded_mods[i].path : NULL;
 }
 
 int rq_mods_json(char **json_out)
@@ -1475,6 +1543,8 @@ void rq_mods_early_init(void)
 	if (once)
 		return;
 	once = 1;
+	/* After a save-profile switch the old process may still own rqmod.log and the pipe. */
+	rq_saves_wait_parent();
 	resolve_dirs();
 	load_config();
 	rq_open_terminal();
@@ -1644,6 +1714,8 @@ void rq_mods_init(struct ain *ain)
 	rq_log("Loader version %s", RQ_VERSION);
 	rq_debug_init();
 	g_ain = ain;
+	/* Title detection is engine-level: the version banner needs it with or without mods. */
+	rq_saves_install(ain);
 
 	if (!g_rq_log && dir_exists(g_rq_mods_dir)) {
 		snprintf(logpath, sizeof logpath, "%s\\rqmod.log", g_rq_mods_dir);

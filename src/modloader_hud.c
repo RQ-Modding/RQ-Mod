@@ -12,6 +12,8 @@
 #include <stdint.h>
 #include <math.h>
 
+#include <SDL.h>
+
 #include "lua.h"
 #include "lauxlib.h"
 
@@ -32,7 +34,7 @@
 #include "vm.h"
 #include "xsystem4.h"
 
-#define HUD_MAX_CMD 160
+#define HUD_MAX_CMD 480
 #define HUD_MAX_CG 48
 
 enum hud_kind {
@@ -69,7 +71,13 @@ static int g_battle;
 static int g_profile;
 static int g_modal_n[MODAL_N];
 static int g_block_mouse;
-static int g_on_frame_ref = LUA_NOREF;
+static int g_block_keys;
+static int g_text_on;
+static int g_text_max;
+static char g_text[256];
+#define HUD_MAX_FRAME_CB 32
+static int g_on_frame_ref[HUD_MAX_FRAME_CB];
+static int g_on_frame_n;
 static int g_mx, g_my, g_left, g_right, g_left_edge, g_prev_left;
 static int g_ncmd;
 static int g_drew;
@@ -460,6 +468,97 @@ int rq_hud_block_mouse(void)
 	return g_block_mouse;
 }
 
+int rq_hud_block_keys(void)
+{
+	return g_block_keys;
+}
+
+/* Text entry for mod dialogs (rename). Printable text only, and only what the
+ * game's Gothic face can draw (JIS X 0208 plus ASCII). */
+static void text_on_input(const char *utf8)
+{
+	char *sj, *back;
+	size_t len, cur;
+	int ok;
+	if (!g_text_on || !utf8 || !*utf8)
+		return;
+	if ((unsigned char)utf8[0] < 0x20)
+		return;
+	sj = utf2sjis(utf8, 0);
+	if (!sj)
+		return;
+	back = sjis2utf(sj, 0);
+	ok = back && !strcmp(back, utf8);
+	free(back);
+	free(sj);
+	if (!ok)
+		return;
+	len = strlen(utf8);
+	cur = strlen(g_text);
+	if (cur + len > (size_t)g_text_max || cur + len >= sizeof g_text)
+		return;
+	memcpy(g_text + cur, utf8, len + 1);
+}
+
+static void text_on_key(int code)
+{
+	size_t n;
+	if (!g_text_on || code != VK_BACK)
+		return;
+	n = strlen(g_text);
+	if (!n)
+		return;
+	n--;
+	while (n > 0 && ((unsigned char)g_text[n] & 0xC0) == 0x80)
+		n--;
+	g_text[n] = 0;
+}
+
+int rq_lua_hud_text_begin(lua_State *L)
+{
+	const char *init = luaL_optstring(L, 1, "");
+	int max = (int)luaL_optinteger(L, 2, 40);
+	if (max < 1)
+		max = 1;
+	if (max > (int)sizeof g_text - 1)
+		max = (int)sizeof g_text - 1;
+	g_text_max = max;
+	snprintf(g_text, sizeof g_text, "%.*s", max, init);
+	if (!g_text_on) {
+		register_input_handler(text_on_input);
+		register_key_handler(text_on_key);
+		SDL_StartTextInput();
+		g_text_on = 1;
+	}
+	return 0;
+}
+
+int rq_lua_hud_text_value(lua_State *L)
+{
+	lua_pushstring(L, g_text);
+	lua_pushboolean(L, g_text_on);
+	return 2;
+}
+
+int rq_lua_hud_text_end(lua_State *L)
+{
+	(void)L;
+	if (g_text_on) {
+		SDL_StopTextInput();
+		clear_input_handler();
+		clear_key_handler();
+		g_text_on = 0;
+	}
+	return 0;
+}
+
+int rq_lua_hud_block_keys(lua_State *L)
+{
+	(void)L;
+	g_block_keys = 1;
+	return 0;
+}
+
 int rq_hud_syscall(int code)
 {
 	int i;
@@ -587,10 +686,11 @@ int rq_hud_install(struct ain *ain)
 int rq_lua_on_frame(lua_State *L)
 {
 	luaL_checktype(L, 1, LUA_TFUNCTION);
-	if (g_on_frame_ref != LUA_NOREF)
-		luaL_unref(L, LUA_REGISTRYINDEX, g_on_frame_ref);
+	/* Every mod keeps its own callback; they run in load order. */
+	if (g_on_frame_n >= HUD_MAX_FRAME_CB)
+		return luaL_error(L, "on_frame: too many callbacks (max %d)", HUD_MAX_FRAME_CB);
 	lua_pushvalue(L, 1);
-	g_on_frame_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	g_on_frame_ref[g_on_frame_n++] = luaL_ref(L, LUA_REGISTRYINDEX);
 	return 0;
 }
 
@@ -821,10 +921,28 @@ int rq_lua_hud_block(lua_State *L)
 	return 0;
 }
 
+/* Engine banner, bottom-left of the main menu. Mods cannot remove it. */
+static void draw_version_banner(void)
+{
+	struct hud_cmd *c;
+	if (!rq_saves_title_active())
+		return;
+	c = push_cmd(HUD_TEXT);
+	if (!c)
+		return;
+	c->text = strdup("Xsystem4 - [RQ_Modding " RQ_VERSION "]");
+	c->x = 8;
+	c->y = config.view_height - 32;
+	c->size = 14.0f;
+	c->r = c->g = c->b = 230;
+	c->a = 255;
+}
+
 int rq_hud_tick(void)
 {
 	lua_State *L = rq_lua();
 	g_block_mouse = 0;
+	g_block_keys = 0;
 	clear_cmds();
 	g_drew = 0;
 	mouse_get_pos(&g_mx, &g_my);
@@ -832,12 +950,15 @@ int rq_hud_tick(void)
 	g_right = key_is_down_raw(VK_RBUTTON);
 	g_left_edge = g_left && !g_prev_left;
 	g_prev_left = g_left;
-	if (!L || g_on_frame_ref == LUA_NOREF)
-		return 0;
-	lua_rawgeti(L, LUA_REGISTRYINDEX, g_on_frame_ref);
-	if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
-		rq_log("HUD on_frame error: %s", lua_tostring(L, -1));
-		lua_pop(L, 1);
+	draw_version_banner();
+	if (!L || g_on_frame_n == 0)
+		return g_drew;
+	for (int i = 0; i < g_on_frame_n; i++) {
+		lua_rawgeti(L, LUA_REGISTRYINDEX, g_on_frame_ref[i]);
+		if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+			rq_log("HUD on_frame error: %s", lua_tostring(L, -1));
+			lua_pop(L, 1);
+		}
 	}
 	log_exploring_change();
 	return g_drew;

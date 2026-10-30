@@ -81,6 +81,13 @@ enum vm_extra_syscall {
 	VM_XSYS_DISCORD_SHOW = 0x80000032,
 	VM_XSYS_DISCORD_TOGGLE = 0x80000033,
 	VM_XSYS_DISCORD_DEL = 0x80000034,
+	VM_XSYS_TITLE_ON = 0x80000035,
+	VM_XSYS_TITLE_OFF = 0x80000036,
+	VM_XSYS_ROSTER_DATA = 0x80000037,
+	VM_XSYS_ROSTER_CREATE = 0x80000038,
+	VM_XSYS_ROSTER_FORGET = 0x80000039,
+	VM_XSYS_BATTLE_START = 0x8000003A,
+	VM_XSYS_BATTLE_END = 0x8000003B,
 };
 
 // Non-heap values. Stored in pages and on the stack.
@@ -162,6 +169,8 @@ union vm_value vm_copy(union vm_value v, enum ain_data_type type);
 
 int vm_execute_ain(struct ain *program);
 void vm_call(int fno, int struct_page);
+// Function number on the AIN call stack. depth 0 is the running function, 1 its caller. -1 if none.
+int vm_call_stack_fno(int depth);
 /* Args are already on the stack. Inserts struct_page under them, then runs the method. */
 void vm_call_method(int fno, int struct_page);
 /* Heap slot of the struct page for a call frame. 0 is the current frame. -1 if none. */

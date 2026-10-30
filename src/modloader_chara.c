@@ -272,14 +272,15 @@ static void chara_recalc(void)
 {
 	lua_State *L = rq_lua();
 	int iic = local_get(0).i;
-	if (!L || g_recalc_ref == LUA_NOREF)
-		return;
-	lua_rawgeti(L, LUA_REGISTRYINDEX, g_recalc_ref);
-	lua_pushinteger(L, iic);
-	if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
-		rq_log("chara on_recalc error: %s", lua_tostring(L, -1));
-		lua_pop(L, 1);
+	if (L && g_recalc_ref != LUA_NOREF) {
+		lua_rawgeti(L, LUA_REGISTRYINDEX, g_recalc_ref);
+		lua_pushinteger(L, iic);
+		if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+			rq_log("chara on_recalc error: %s", lua_tostring(L, -1));
+			lua_pop(L, 1);
+		}
 	}
+	rq_roster_apply(iic);
 }
 
 static void chara_offer(void)

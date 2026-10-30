@@ -622,6 +622,7 @@ int main(int argc, char *argv[])
 	if (!config.save_dir)
 		config.save_dir = get_save_path(ini_save_folder);
 	free(ini_save_folder);
+	rq_saves_init(&config.save_dir);
 
 	if (!(ain = ain_open(ainfile, &err))) {
 		ERROR("%s", ain_strerror(err));

@@ -71,6 +71,14 @@ static size_t stack_size;     // current size of the stack
 struct function_call call_stack[4096];
 int32_t call_stack_ptr = 0;
 
+int vm_call_stack_fno(int depth)
+{
+	int i = call_stack_ptr - 1 - depth;
+	if (depth < 0 || i < 0 || i >= call_stack_ptr)
+		return -1;
+	return call_stack[i].fno;
+}
+
 struct ain *ain;
 size_t instr_ptr = 0;
 
@@ -847,7 +855,8 @@ static void system_call(enum syscall_code code)
 			    || rq_skill_syscall(code) || rq_counter_syscall(code)
 			    || rq_battle_syscall(code) || rq_chara_syscall(code)
 			    || rq_shop_syscall(code) || rq_skilllist_syscall(code)
-			    || rq_discord_syscall(code))
+			    || rq_discord_syscall(code) || rq_saves_syscall(code)
+			    || rq_roster_syscall(code) || rq_events_syscall(code))
 				break;
 #endif
 			VM_ERROR("Unimplemented syscall: 0x%X", code);

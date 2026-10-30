@@ -44,6 +44,11 @@ int rq_skill_syscall(int code);
 int rq_lua_skill_on_describe(struct lua_State *L);
 int rq_lua_skill_get(struct lua_State *L);
 int rq_lua_skill_define(struct lua_State *L);
+int rq_lua_skill_patch(struct lua_State *L);
+int rq_events_install(struct ain *ain);
+int rq_events_syscall(int code);
+int rq_lua_battle_on_start(struct lua_State *L);
+int rq_lua_battle_on_end(struct lua_State *L);
 int rq_lua_skill_sort_as(struct lua_State *L);
 int rq_chara_install(struct ain *ain);
 int rq_chara_syscall(int code);
@@ -62,6 +67,30 @@ int rq_lua_chara_max_uses(struct lua_State *L);
 int rq_lua_chara_set_uses(struct lua_State *L);
 int rq_lua_chara_set_bar(struct lua_State *L);
 int rq_lua_chara_clear_slot(struct lua_State *L);
+/* Character roster: define / recruit / edit / forget (modloader_roster.c). */
+int rq_roster_install(struct ain *ain);
+int rq_roster_syscall(int code);
+void rq_roster_apply(int iic);
+int rq_lua_chara_define(struct lua_State *L);
+int rq_lua_chara_recruit(struct lua_State *L);
+int rq_lua_chara_find(struct lua_State *L);
+int rq_lua_chara_is_recruited(struct lua_State *L);
+int rq_lua_chara_dismiss(struct lua_State *L);
+int rq_lua_chara_recalc(struct lua_State *L);
+int rq_lua_chara_number(struct lua_State *L);
+int rq_lua_chara_id_of(struct lua_State *L);
+int rq_lua_chara_edit(struct lua_State *L);
+int rq_lua_chara_get(struct lua_State *L);
+int rq_lua_chara_set(struct lua_State *L);
+int rq_lua_chara_skill_points(struct lua_State *L);
+int rq_lua_chara_add_skill_points(struct lua_State *L);
+int rq_lua_chara_forget(struct lua_State *L);
+int rq_lua_chara_on_create(struct lua_State *L);
+int rq_lua_chara_on_forget(struct lua_State *L);
+int rq_lua_store_get(struct lua_State *L);
+int rq_lua_store_set(struct lua_State *L);
+int rq_lua_store_delete(struct lua_State *L);
+int rq_lua_store_keys(struct lua_State *L);
 int rq_lua_combat_on_physical(struct lua_State *L);
 int rq_lua_combat_on_accuracy(struct lua_State *L);
 int rq_counter_install(struct ain *ain);
@@ -101,6 +130,33 @@ int rq_discord_syscall(int code);
 int rq_hud_tick(void);
 void rq_hud_draw(void);
 int rq_hud_block_mouse(void);
+int rq_hud_block_keys(void);
+
+/* Save profiles (rq.saves.*). rq_saves_init may replace *save_dir. */
+void rq_saves_wait_parent(void);
+void rq_saves_init(char **save_dir);
+int rq_saves_install(struct ain *ain);
+int rq_saves_title_active(void);
+int rq_saves_syscall(int code);
+void rq_saves_on_game_save(const char *filename);
+int rq_mod_count(void);
+const char *rq_mod_id(int i);
+const char *rq_mod_dir(int i);
+int rq_lua_saves_list(struct lua_State *L);
+int rq_lua_saves_active(struct lua_State *L);
+int rq_lua_saves_title(struct lua_State *L);
+int rq_lua_saves_current_mods(struct lua_State *L);
+int rq_lua_saves_vanilla(struct lua_State *L);
+int rq_lua_saves_create(struct lua_State *L);
+int rq_lua_saves_clone(struct lua_State *L);
+int rq_lua_saves_import_vanilla(struct lua_State *L);
+int rq_lua_saves_rename(struct lua_State *L);
+int rq_lua_saves_delete(struct lua_State *L);
+int rq_lua_saves_switch(struct lua_State *L);
+int rq_lua_hud_text_begin(struct lua_State *L);
+int rq_lua_hud_text_value(struct lua_State *L);
+int rq_lua_hud_text_end(struct lua_State *L);
+int rq_lua_hud_block_keys(struct lua_State *L);
 int rq_dungeon_active(void);
 int rq_dungeon_exploring(void);
 void rq_hud_bind_lua(struct lua_State *L);
@@ -187,7 +243,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "0.2.0"
+#define RQ_VERSION "0.5.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -272,10 +328,18 @@ static inline int rq_shop_syscall(int code) { (void)code; return 0; }
 static inline int rq_skilllist_install(struct ain *ain) { (void)ain; return 0; }
 static inline int rq_skilllist_syscall(int code) { (void)code; return 0; }
 static inline int rq_chara_syscall(int code) { (void)code; return 0; }
+static inline int rq_roster_syscall(int code) { (void)code; return 0; }
+static inline int rq_events_syscall(int code) { (void)code; return 0; }
+static inline void rq_roster_apply(int iic) { (void)iic; }
 static inline int rq_hud_syscall(int code) { (void)code; return 0; }
 static inline int rq_hud_tick(void) { return 0; }
 static inline void rq_hud_draw(void) {}
 static inline int rq_hud_block_mouse(void) { return 0; }
+static inline int rq_hud_block_keys(void) { return 0; }
+static inline void rq_saves_wait_parent(void) {}
+static inline void rq_saves_init(char **save_dir) { (void)save_dir; }
+static inline void rq_saves_on_game_save(const char *filename) { (void)filename; }
+static inline int rq_saves_syscall(int code) { (void)code; return 0; }
 static inline void rq_ui_init(void) {}
 static inline void rq_ui_on_present(void) {}
 static inline void rq_ui_on_parts_input(void) {}
