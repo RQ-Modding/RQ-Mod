@@ -159,10 +159,18 @@ static void rq_open_terminal(void)
 	}
 	SetConsoleOutputCP(CP_UTF8);
 	SetConsoleCP(CP_UTF8);
-	con = freopen("CONOUT$", "w", stdout);
-	(void)con;
-	con = freopen("CONOUT$", "w", stderr);
-	(void)con;
+	/* Debug: RQ_CONSOLE_FILE=<path> writes what the console would show to a file. */
+	if (getenv("RQ_CONSOLE_FILE")) {
+		con = freopen(getenv("RQ_CONSOLE_FILE"), "w", stdout);
+		(void)con;
+		con = freopen(getenv("RQ_CONSOLE_FILE"), "a", stderr);
+		(void)con;
+	} else {
+		con = freopen("CONOUT$", "w", stdout);
+		(void)con;
+		con = freopen("CONOUT$", "w", stderr);
+		(void)con;
+	}
 	con = freopen("CONIN$", "r", stdin);
 	(void)con;
 	SetConsoleOutputCP(CP_UTF8);
@@ -926,6 +934,7 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "camera", l_dungeon_camera);
 	set_cfn(L, "active", rq_lua_dungeon_active);
 	set_cfn(L, "exploring", rq_lua_dungeon_exploring);
+	set_cfn(L, "on_map", rq_lua_dungeon_on_map);
 	lua_setfield(L, -2, "dungeon");
 
 	lua_newtable(L);
@@ -971,6 +980,9 @@ static void open_rq(lua_State *L)
 	lua_newtable(L);
 	set_cfn(L, "install", l_loot_install);
 	set_cfn(L, "list", rq_lua_loot_list);
+	set_cfn(L, "add", rq_lua_loot_add);
+	set_cfn(L, "remove", rq_lua_loot_remove);
+	set_cfn(L, "on_pick", rq_lua_loot_on_pick);
 	lua_setfield(L, -2, "loot");
 
 	lua_newtable(L);
@@ -1052,6 +1064,19 @@ static void open_rq(lua_State *L)
 	lua_setfield(L, -2, "chara");
 
 	lua_newtable(L);
+	set_cfn(L, "define", rq_lua_item_define);
+	set_cfn(L, "edit", rq_lua_item_edit);
+	set_cfn(L, "number", rq_lua_item_number);
+	set_cfn(L, "id_of", rq_lua_item_id_of);
+	set_cfn(L, "get", rq_lua_item_get);
+	set_cfn(L, "set", rq_lua_item_set);
+	set_cfn(L, "give", rq_lua_item_give);
+	set_cfn(L, "transform", rq_lua_item_transform);
+	set_cfn(L, "equipped", rq_lua_item_equipped);
+	set_cfn(L, "on_create", rq_lua_item_on_create);
+	lua_setfield(L, -2, "item");
+
+	lua_newtable(L);
 	set_cfn(L, "add", rq_lua_image_add);
 	set_cfn(L, "replace", rq_lua_image_replace);
 	set_cfn(L, "restore", rq_lua_image_restore);
@@ -1081,6 +1106,7 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "on_stock", rq_lua_shop_on_stock);
 	set_cfn(L, "in_stock", rq_lua_shop_in_stock);
 	set_cfn(L, "stock", rq_lua_shop_stock);
+	set_cfn(L, "on_buy", rq_lua_shop_on_buy);
 	lua_setfield(L, -2, "shop");
 
 	lua_newtable(L);
@@ -1088,6 +1114,8 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "on_select_key", rq_lua_battle_on_select_key);
 	set_cfn(L, "on_start", rq_lua_battle_on_start);
 	set_cfn(L, "on_end", rq_lua_battle_on_end);
+	set_cfn(L, "get_drop", rq_lua_battle_get_drop);
+	set_cfn(L, "set_drop", rq_lua_battle_set_drop);
 	set_cfn(L, "in_ally_select", rq_lua_battle_in_ally_select);
 	set_cfn(L, "actor", rq_lua_battle_actor);
 	set_cfn(L, "skill_usable", rq_lua_battle_skill_usable);

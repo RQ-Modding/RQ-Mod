@@ -27,7 +27,9 @@
 #include "vm/heap.h"
 
 static int g_on;
-static int g_stock_ref = LUA_NOREF;
+#define SHOP_CB_MAX 16
+static int g_stock_cb[SHOP_CB_MAX];
+static int g_nstock;
 static int g_f_stock = -1; /* Ｔアイテム屋／入荷品 */
 static int g_f_has = -1;   /* Ｉ有無 */
 
@@ -107,21 +109,23 @@ static int call_stock(int no)
 static void shop_on_stock(void)
 {
 	lua_State *L = rq_lua();
-	int top;
+	int top, i;
 
-	if (!L || g_stock_ref == LUA_NOREF)
+	if (!L)
 		return;
 	top = lua_gettop(L);
-	lua_rawgeti(L, LUA_REGISTRYINDEX, g_stock_ref);
-	if (!lua_isfunction(L, -1)) {
+	for (i = 0; i < g_nstock; i++) {
+		lua_rawgeti(L, LUA_REGISTRYINDEX, g_stock_cb[i]);
+		if (!lua_isfunction(L, -1)) {
+			lua_settop(L, top);
+			continue;
+		}
+		if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+			rq_log("shop: on_stock error: %s", lua_tostring(L, -1));
+			lua_pop(L, 1);
+		}
 		lua_settop(L, top);
-		return;
 	}
-	if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
-		rq_log("shop: on_stock error: %s", lua_tostring(L, -1));
-		lua_pop(L, 1);
-	}
-	lua_settop(L, top);
 }
 
 int rq_shop_syscall(int code)
@@ -171,23 +175,23 @@ int rq_shop_install(struct ain *ain)
 int rq_lua_shop_on_stock(struct lua_State *L)
 {
 	luaL_checktype(L, 1, LUA_TFUNCTION);
-	if (g_stock_ref != LUA_NOREF)
-		luaL_unref(L, LUA_REGISTRYINDEX, g_stock_ref);
+	if (g_nstock >= SHOP_CB_MAX)
+		return luaL_error(L, "too many shop on_stock callbacks");
 	lua_pushvalue(L, 1);
-	g_stock_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	g_stock_cb[g_nstock++] = luaL_ref(L, LUA_REGISTRYINDEX);
 	return 0;
 }
 
 int rq_lua_shop_in_stock(struct lua_State *L)
 {
-	int no = (int)luaL_checkinteger(L, 1);
+	int no = rq_item_no_from_lua(L, 1);
 	lua_pushboolean(L, call_has(no, 6) != 0);
 	return 1;
 }
 
 int rq_lua_shop_stock(struct lua_State *L)
 {
-	int no = (int)luaL_checkinteger(L, 1);
+	int no = rq_item_no_from_lua(L, 1);
 	int ii;
 	if (!g_on)
 		return luaL_error(L, "shop.stock: call rq.shop.install first");

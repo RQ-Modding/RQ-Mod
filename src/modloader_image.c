@@ -442,13 +442,13 @@ int rq_lua_image_info(lua_State *L)
  * Rewrites string values of face and portrait in the table at t into CG numbers. */
 void rq_image_resolve_fields(lua_State *L, int t)
 {
-	/* Game sizes: face cards are 196x232, standing pictures 1024x768. */
-	static const char *const keys[] = { "face", "portrait" };
-	static const int dw[] = { 196, 1024 }, dh[] = { 232, 768 };
+	/* Game sizes: face cards 196x232, standing pictures 1024x768, item icons 100x100. */
+	static const char *const keys[] = { "face", "portrait", "icon" };
+	static const int dw[] = { 196, 1024, 100 }, dh[] = { 232, 768, 100 };
 	int i;
 
 	t = lua_absindex(L, t);
-	for (i = 0; i < 2; i++) {
+	for (i = 0; i < 3; i++) {
 		lua_getfield(L, t, keys[i]);
 		if (lua_type(L, -1) == LUA_TSTRING) {
 			char key[128];

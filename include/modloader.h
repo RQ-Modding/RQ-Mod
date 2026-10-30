@@ -66,6 +66,28 @@ int rq_lua_quests_on_clear(struct lua_State *L);
 int rq_lua_quests_state(struct lua_State *L);
 int rq_lua_quests_set_state(struct lua_State *L);
 int rq_lua_quests_unlock(struct lua_State *L);
+/* Items: define, give, edit, transform (modloader_item.c). */
+int rq_item_install(struct ain *ain);
+int rq_item_syscall(int code);
+int rq_lua_item_define(struct lua_State *L);
+int rq_lua_item_edit(struct lua_State *L);
+int rq_lua_item_number(struct lua_State *L);
+int rq_lua_item_id_of(struct lua_State *L);
+int rq_lua_item_get(struct lua_State *L);
+int rq_lua_item_set(struct lua_State *L);
+int rq_lua_item_give(struct lua_State *L);
+int rq_lua_item_transform(struct lua_State *L);
+int rq_lua_item_equipped(struct lua_State *L);
+int rq_lua_item_on_create(struct lua_State *L);
+int rq_item_no_from_lua(struct lua_State *L, int idx);
+int rq_lua_shop_on_buy(struct lua_State *L);
+int rq_lua_loot_add(struct lua_State *L);
+int rq_lua_loot_remove(struct lua_State *L);
+int rq_lua_loot_on_pick(struct lua_State *L);
+int rq_lua_battle_get_drop(struct lua_State *L);
+int rq_lua_battle_set_drop(struct lua_State *L);
+int rq_lua_quests_on_end(struct lua_State *L);
+int rq_lua_dungeon_on_map(struct lua_State *L);
 int rq_lua_quests_debug_clear(struct lua_State *L);
 int rq_lua_quests_new_this_run(struct lua_State *L);
 int rq_lua_skill_sort_as(struct lua_State *L);
@@ -262,7 +284,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "0.7.0"
+#define RQ_VERSION "0.9.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -352,6 +374,7 @@ static inline bool rq_image_has(int id) { (void)id; return false; }
 static inline struct cg *rq_image_load(int id) { (void)id; return NULL; }
 static inline bool rq_image_metrics(int id, struct cg_metrics *out) { (void)id; (void)out; return false; }
 static inline int rq_events_syscall(int code) { (void)code; return 0; }
+static inline int rq_item_syscall(int code) { (void)code; return 0; }
 static inline void rq_roster_apply(int iic) { (void)iic; }
 static inline int rq_hud_syscall(int code) { (void)code; return 0; }
 static inline int rq_hud_tick(void) { return 0; }

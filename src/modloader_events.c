@@ -34,6 +34,8 @@ static int g_on;
 static int g_start_cb[CB_MAX], g_nstart;
 static int g_end_cb[CB_MAX], g_nend;
 static int gi_pta = -2, gi_ptb = -2;
+static int gint(int *gi, const char *name);
+static int find_gi_utf(const char *utf8);
 
 static void emit0(struct buffer *out, enum opcode op)
 {
@@ -167,6 +169,13 @@ static void run_cbs(const int *refs, int n, int boss, int result, int is_start)
 		lua_setfield(L, -2, "allies");
 		push_party(L, gi_ptb);
 		lua_setfield(L, -2, "enemies");
+		{
+			static int gi_g = -2, gi_r = -2;
+			lua_pushinteger(L, gint(&gi_g, "◆戦闘グループ"));
+			lua_setfield(L, -2, "group");
+			lua_pushinteger(L, gint(&gi_r, "◆戦闘ランク"));
+			lua_setfield(L, -2, "rank");
+		}
 		if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
 			rq_log("battle %s error: %s", is_start ? "on_start" : "on_end", lua_tostring(L, -1));
 			lua_pop(L, 1);
@@ -290,9 +299,202 @@ static void run_clear(void)
 	}
 }
 
+/* PTA, the party in the dungeon (iic list). */
+static void push_party_now(lua_State *L)
+{
+	if (gi_pta == -2)
+		gi_pta = find_gi("PTA");
+	if (gi_pta < 0) {
+		lua_newtable(L);
+		return;
+	}
+	push_party(L, gi_pta);
+}
+
+/* ---- battle drop ---- */
+
+static int gi_drop = -2;
+
+static int gint(int *gi, const char *name)
+{
+	if (*gi == -2)
+		*gi = find_gi_utf(name);
+	if (*gi < 0 || !heap || !heap_size || !heap[0].page)
+		return 0;
+	return global_get(*gi).i;
+}
+
+int rq_lua_battle_get_drop(lua_State *L)
+{
+	lua_pushinteger(L, gint(&gi_drop, "◆戦闘後アイテム取得"));
+	return 1;
+}
+
+/* Writes ◆戦闘後アイテム取得, the item number 戦闘後処理 hands out after a won battle (0 = none). */
+int rq_lua_battle_set_drop(lua_State *L)
+{
+	int no = lua_isnil(L, 1) || (lua_isboolean(L, 1) && !lua_toboolean(L, 1)) ? 0 : rq_item_no_from_lua(L, 1);
+	union vm_value v;
+
+	gint(&gi_drop, "◆戦闘後アイテム取得");
+	if (gi_drop < 0)
+		return luaL_error(L, "drop variable not found");
+	v.i = no;
+	global_set(gi_drop, v, false);
+	return 0;
+}
+
+/* ---- quest end, every ending ---- */
+
+static int g_qend_on;
+static int g_qend_cb[CB_MAX], g_nqend;
+
+static void run_qend(void)
+{
+	lua_State *L = rq_lua();
+	int fg = stack_pop().i, i;
+
+	if (L && quest_syms(ain)) {
+		int iiq = global_get(gi_iiq).i;
+		for (i = 0; i < g_nqend; i++) {
+			lua_rawgeti(L, LUA_REGISTRYINDEX, g_qend_cb[i]);
+			lua_newtable(L);
+			lua_pushinteger(L, iiq);
+			lua_setfield(L, -2, "quest");
+			lua_pushinteger(L, fg);
+			lua_setfield(L, -2, "result");
+			lua_pushboolean(L, fg == 1);
+			lua_setfield(L, -2, "cleared");
+			push_party_now(L);
+			lua_setfield(L, -2, "party");
+			if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+				rq_log("quests on_end error: %s", lua_tostring(L, -1));
+				lua_pop(L, 1);
+			}
+		}
+	}
+	stack_push(fg);
+}
+
+int rq_lua_quests_on_end(lua_State *L)
+{
+	luaL_checktype(L, 1, LUA_TFUNCTION);
+	if (!ain || !quest_syms(ain))
+		return luaL_error(L, "quest symbols missing (see mods/rqmod.log)");
+	if (!g_qend_on) {
+		int f = find_fn(ain, "クエスト終了処理");
+		if (f < 0)
+			return luaL_error(L, "クエスト終了処理 not found");
+		wrap_head1(ain, f, VM_XSYS_QUEST_END);
+		g_qend_on = 1;
+		rq_log("events: クエスト終了処理 head -> on_end");
+	}
+	if (g_nqend >= CB_MAX)
+		return luaL_error(L, "too many quest callbacks registered");
+	lua_pushvalue(L, 1);
+	g_qend_cb[g_nqend++] = luaL_ref(L, LUA_REGISTRYINDEX);
+	return 0;
+}
+
+/* ---- dungeon map: unlock the camera on a first visit ---- */
+
+static int g_map_on, g_in_map, g_map_unlock;
+static int g_map_cb[CB_MAX], g_nmap;
+
+static void map_enter(void)
+{
+	lua_State *L = rq_lua();
+	int i;
+
+	g_in_map = 1;
+	g_map_unlock = 0;
+	if (!L || !quest_syms(ain))
+		return;
+	for (i = 0; i < g_nmap; i++) {
+		int iiq = global_get(gi_iiq).i;
+		lua_rawgeti(L, LUA_REGISTRYINDEX, g_map_cb[i]);
+		lua_newtable(L);
+		lua_pushinteger(L, iiq);
+		lua_setfield(L, -2, "quest");
+		lua_pushboolean(L, iiq > 0 && qcall(f_qstate, iiq, -1) == 2);
+		lua_setfield(L, -2, "cleared");
+		push_party_now(L);
+		lua_setfield(L, -2, "party");
+		lua_pushinteger(L, local_get(1).i);
+		lua_setfield(L, -2, "map");
+		if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+			rq_log("dungeon on_map error: %s", lua_tostring(L, -1));
+		} else if (lua_toboolean(L, -1)) {
+			g_map_unlock = 1;
+		}
+		lua_pop(L, 1);
+	}
+}
+
+static void map_cleared(void)
+{
+	int res = stack_pop().i;
+	if (g_in_map && g_map_unlock)
+		res = 1;
+	stack_push(res);
+}
+
+static void wrap_map_create(struct ain *a, int fno)
+{
+	int dup = ain_dup_function(a, fno);
+	int nargs = a->functions[fno].nr_args, i;
+	struct buffer out;
+
+	buffer_init(&out, NULL, 0);
+	emit1(&out, FUNC, fno);
+	emit1(&out, CALLSYS, VM_XSYS_MAP_ENTER);
+	emit0(&out, PUSHSTRUCTPAGE);
+	for (i = 0; i < nargs; i++)
+		emit1(&out, SH_LOCALREF, i);
+	emit1(&out, CALLMETHOD, dup);
+	emit1(&out, CALLSYS, VM_XSYS_MAP_EXIT);
+	emit0(&out, RETURN);
+	emit1(&out, ENDFUNC, fno);
+	commit_wrap(a, fno, &out);
+}
+
+int rq_lua_dungeon_on_map(lua_State *L)
+{
+	luaL_checktype(L, 1, LUA_TFUNCTION);
+	if (!ain || !quest_syms(ain))
+		return luaL_error(L, "quest symbols missing (see mods/rqmod.log)");
+	if (!g_map_on) {
+		int f_create = find_fn(ain, "T_MapParts@create");
+		int f_clear = find_fn(ain, "クエスト_クリア済み");
+		if (f_create < 0 || f_clear < 0)
+			return luaL_error(L, "map functions not found (create=%d clear=%d)", f_create, f_clear);
+		wrap_map_create(ain, f_create);
+		wrap_tail1(ain, f_clear, VM_XSYS_MAP_CLEARED);
+		g_map_on = 1;
+		rq_log("events: T_MapParts@create wrapped; クエスト_クリア済み -> on_map");
+	}
+	if (g_nmap >= CB_MAX)
+		return luaL_error(L, "too many map callbacks registered");
+	lua_pushvalue(L, 1);
+	g_map_cb[g_nmap++] = luaL_ref(L, LUA_REGISTRYINDEX);
+	return 0;
+}
+
 int rq_events_syscall(int code)
 {
 	switch ((enum vm_extra_syscall)code) {
+	case VM_XSYS_QUEST_END:
+		run_qend();
+		return 1;
+	case VM_XSYS_MAP_ENTER:
+		map_enter();
+		return 1;
+	case VM_XSYS_MAP_EXIT:
+		g_in_map = 0;
+		return 1;
+	case VM_XSYS_MAP_CLEARED:
+		map_cleared();
+		return 1;
 	case VM_XSYS_QUEST_CLEAR:
 		run_clear();
 		return 1;

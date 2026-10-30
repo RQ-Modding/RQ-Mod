@@ -804,6 +804,8 @@ void rq_query_bind(lua_State *L)
 		lua_setfield(L, -2, "set_state");
 		lua_pushcfunction(L, rq_lua_quests_unlock);
 		lua_setfield(L, -2, "unlock");
+		lua_pushcfunction(L, rq_lua_quests_on_end);
+		lua_setfield(L, -2, "on_end");
 		lua_pushcfunction(L, rq_lua_quests_debug_clear);
 		lua_setfield(L, -2, "_debug_clear");
 		lua_pushcfunction(L, rq_lua_quests_new_this_run);
