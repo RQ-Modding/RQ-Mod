@@ -715,9 +715,115 @@ void gfx_render_quadrilateral(struct texture *t, struct gfx_vertex vertices[4])
 	gfx_render(&job);
 }
 
+/*
+ * Texture recycling.
+ *
+ * Creating a GL texture costs ~0.25 ms of driver time whatever its size, and
+ * the UI (Party table, shops, quest list) creates and deletes hundreds of
+ * small sprite textures in one frame. Deleted RGBA textures of up to
+ * TEX_POOL_MAX_SIDE are kept here and handed back to a later request for the
+ * same size, which only needs a glTexSubImage2D. Set XSYS4_NO_TEXPOOL to turn
+ * it off.
+ *
+ * tex_flags is indexed by GL handle: TEXF_RGBA marks textures that are safe
+ * to recycle (RGBA, default parameters), TEXF_FB_OK marks textures already
+ * validated as a framebuffer attachment.
+ */
+#define TEX_POOL_MAX 2048
+#define TEX_POOL_MAX_PX 12000000.0
+#define TEX_POOL_MAX_SIDE 512
+#define TEXF_RGBA 1
+#define TEXF_FB_OK 2
+
+static struct {
+	GLuint handle;
+	int w, h;
+} tex_pool[TEX_POOL_MAX];
+static int tex_pool_n;
+static double tex_pool_px;
+static uint8_t *tex_flags;
+static size_t tex_flags_n;
+static int tex_pool_on = -1;
+
+static bool tex_pool_enabled(void)
+{
+	if (tex_pool_on < 0)
+		tex_pool_on = getenv("XSYS4_NO_TEXPOOL") == NULL;
+	return tex_pool_on;
+}
+
+static void tex_flags_set(GLuint handle, uint8_t flags)
+{
+	if (handle >= tex_flags_n) {
+		size_t n = (size_t)handle + 1024;
+		tex_flags = xrealloc(tex_flags, n);
+		memset(tex_flags + tex_flags_n, 0, n - tex_flags_n);
+		tex_flags_n = n;
+	}
+	tex_flags[handle] = flags;
+}
+
+static uint8_t tex_flags_get(GLuint handle)
+{
+	return handle < tex_flags_n ? tex_flags[handle] : 0;
+}
+
+static void tex_destroy(GLuint handle)
+{
+	if (blit_attached_tex == handle)
+		blit_attached_tex = 0;
+	tex_flags_set(handle, 0);
+	glDeleteTextures(1, &handle);
+}
+
+// Take a texture of exactly w*h from the pool. Returns 0 if there is none.
+static GLuint tex_pool_take(int w, int h)
+{
+	for (int i = tex_pool_n - 1; i >= 0; i--) {
+		if (tex_pool[i].w != w || tex_pool[i].h != h)
+			continue;
+		GLuint handle = tex_pool[i].handle;
+		memmove(&tex_pool[i], &tex_pool[i + 1], sizeof(tex_pool[0]) * (tex_pool_n - i - 1));
+		tex_pool_n--;
+		tex_pool_px -= (double)w * h;
+		return handle;
+	}
+	return 0;
+}
+
+// Keep a texture for reuse. Returns false if it is not eligible (caller deletes it).
+static bool tex_pool_put(struct texture *t)
+{
+	double px = (double)t->w * t->h;
+	if (!tex_pool_enabled() || !(tex_flags_get(t->handle) & TEXF_RGBA))
+		return false;
+	if (t->w <= 0 || t->h <= 0 || t->w > TEX_POOL_MAX_SIDE || t->h > TEX_POOL_MAX_SIDE)
+		return false;
+	// drop the oldest entries to make room
+	int drop = 0;
+	double px_after = tex_pool_px + px;
+	while ((tex_pool_n - drop >= TEX_POOL_MAX || px_after > TEX_POOL_MAX_PX) && drop < tex_pool_n) {
+		px_after -= (double)tex_pool[drop].w * tex_pool[drop].h;
+		tex_destroy(tex_pool[drop].handle);
+		drop++;
+	}
+	if (drop) {
+		memmove(&tex_pool[0], &tex_pool[drop], sizeof(tex_pool[0]) * (tex_pool_n - drop));
+		tex_pool_n -= drop;
+		tex_pool_px = px_after - px;
+	}
+	tex_pool[tex_pool_n].handle = t->handle;
+	tex_pool[tex_pool_n].w = t->w;
+	tex_pool[tex_pool_n].h = t->h;
+	tex_pool_n++;
+	tex_pool_px += px;
+	return true;
+}
+
 static void init_texture(struct texture *t, int w, int h)
 {
 	glGenTextures(1, &t->handle);
+	tex_flags_set(t->handle, 0);
 	glBindTexture(GL_TEXTURE_2D, t->handle);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -730,8 +836,26 @@ static void init_texture(struct texture *t, int w, int h)
 
 void gfx_init_texture_with_pixels(struct texture *t, int w, int h, void *pixels)
 {
+	GLuint recycled = tex_pool_enabled() ? tex_pool_take(w, h) : 0;
+	if (recycled) {
+		t->handle = recycled;
+		t->w = w;
+		t->h = h;
+		glBindTexture(GL_TEXTURE_2D, recycled);
+		if (pixels) {
+			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+		} else {
+			// a new blank texture must not show the previous owner's pixels
+			GLuint fbo = gfx_set_framebuffer(GL_DRAW_FRAMEBUFFER, t, 0, 0, w, h);
+			glClearColor(0, 0, 0, 0);
+			glClear(GL_COLOR_BUFFER_BIT);
+			gfx_reset_framebuffer(GL_DRAW_FRAMEBUFFER, fbo);
+		}
+		return;
+	}
 	init_texture(t, w, h);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+	tex_flags_set(t->handle, TEXF_RGBA);
 }
 
 void gfx_update_texture_with_pixels(struct texture *t, void *pixels)
@@ -815,11 +939,8 @@ void gfx_copy_main_surface(struct texture *dst)
 
 void gfx_delete_texture(struct texture *t)
 {
-	if (t->handle) {
-		if (blit_attached_tex == t->handle)
-			blit_attached_tex = 0;
-		glDeleteTextures(1, &t->handle);
-	}
+	if (t->handle && !tex_pool_put(t))
+		tex_destroy(t->handle);
 	t->handle = 0;
 }
 
@@ -831,8 +952,13 @@ GLuint gfx_set_framebuffer(GLenum target, Texture *t, int x, int y, int w, int h
 	glBindFramebuffer(target, blit_fbo);
 	if (blit_attached_tex != t->handle) {
 		glFramebufferTexture2D(target, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, t->handle, 0);
-		if (glCheckFramebufferStatus(target) != GL_FRAMEBUFFER_COMPLETE)
-			ERROR("Incomplete framebuffer");
+		// completeness is a property of the texture, so check it once
+		uint8_t flags = tex_flags_get(t->handle);
+		if (!(flags & TEXF_FB_OK)) {
+			if (glCheckFramebufferStatus(target) != GL_FRAMEBUFFER_COMPLETE)
+				ERROR("Incomplete framebuffer");
+			tex_flags_set(t->handle, flags | TEXF_FB_OK);
+		}
 		blit_attached_tex = t->handle;
 	}
 	glViewport(x, y, w, h);

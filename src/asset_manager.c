@@ -123,13 +123,122 @@ struct archive_data *asset_get_by_name(enum asset_type type, const char *name, i
 	return assets[type]->get_by_name(assets[type], name, id_out);
 }
 
+/*
+ * Decoded CG cache.
+ *
+ * UI screens set the same small CGs (faces, icons, frames) on hundreds of
+ * sprites again every time they are rebuilt, and each call used to read the
+ * archive and decode the image again. Small CGs are kept here, decoded, in an
+ * LRU capped by bytes. Callers get their own copy since they free it.
+ * Set XSYS4_NO_CGCACHE to turn it off.
+ */
+#define CG_CACHE_BUCKETS 1024
+#define CG_CACHE_MAX_BYTES (64u * 1024 * 1024)
+#define CG_CACHE_MAX_PIXELS (256 * 256)
+
+struct cg_cache_entry {
+	int id;
+	struct cg cg;
+	size_t bytes;
+	struct cg_cache_entry *hnext;
+	struct cg_cache_entry *prev, *next; // LRU list, head = most recent
+};
+
+static struct cg_cache_entry *cg_cache_hash[CG_CACHE_BUCKETS];
+static struct cg_cache_entry *cg_cache_head, *cg_cache_tail;
+static size_t cg_cache_bytes;
+static int cg_cache_on = -1;
+
+static void cg_cache_unlink(struct cg_cache_entry *e)
+{
+	if (e->prev)
+		e->prev->next = e->next;
+	else
+		cg_cache_head = e->next;
+	if (e->next)
+		e->next->prev = e->prev;
+	else
+		cg_cache_tail = e->prev;
+	e->prev = e->next = NULL;
+}
+
+static void cg_cache_push_front(struct cg_cache_entry *e)
+{
+	e->prev = NULL;
+	e->next = cg_cache_head;
+	if (cg_cache_head)
+		cg_cache_head->prev = e;
+	cg_cache_head = e;
+	if (!cg_cache_tail)
+		cg_cache_tail = e;
+}
+
+static void cg_cache_evict(struct cg_cache_entry *e)
+{
+	struct cg_cache_entry **p = &cg_cache_hash[(unsigned)e->id % CG_CACHE_BUCKETS];
+	while (*p && *p != e)
+		p = &(*p)->hnext;
+	if (*p)
+		*p = e->hnext;
+	cg_cache_unlink(e);
+	cg_cache_bytes -= e->bytes;
+	free(e->cg.pixels);
+	free(e);
+}
+
+static struct cg *cg_cache_get(int id)
+{
+	for (struct cg_cache_entry *e = cg_cache_hash[(unsigned)id % CG_CACHE_BUCKETS]; e; e = e->hnext) {
+		if (e->id != id)
+			continue;
+		struct cg *cg = xcalloc(1, sizeof(struct cg));
+		*cg = e->cg;
+		cg->pixels = xmalloc(e->bytes);
+		memcpy(cg->pixels, e->cg.pixels, e->bytes);
+		cg_cache_unlink(e);
+		cg_cache_push_front(e);
+		return cg;
+	}
+	return NULL;
+}
+
+static void cg_cache_put(int id, struct cg *cg)
+{
+	size_t bytes = (size_t)cg->metrics.w * cg->metrics.h * 4;
+	if (!cg->pixels || cg->metrics.w <= 0 || cg->metrics.h <= 0
+	    || cg->metrics.w * cg->metrics.h > CG_CACHE_MAX_PIXELS)
+		return;
+	while (cg_cache_tail && cg_cache_bytes + bytes > CG_CACHE_MAX_BYTES)
+		cg_cache_evict(cg_cache_tail);
+	struct cg_cache_entry *e = xcalloc(1, sizeof(struct cg_cache_entry));
+	e->id = id;
+	e->cg = *cg;
+	e->bytes = bytes;
+	e->cg.pixels = xmalloc(bytes);
+	memcpy(e->cg.pixels, cg->pixels, bytes);
+	unsigned b = (unsigned)id % CG_CACHE_BUCKETS;
+	e->hnext = cg_cache_hash[b];
+	cg_cache_hash[b] = e;
+	cg_cache_push_front(e);
+	cg_cache_bytes += bytes;
+}
+
 struct cg *asset_cg_load(int id)
 {
+	if (cg_cache_on < 0)
+		cg_cache_on = getenv("XSYS4_NO_CGCACHE") == NULL;
+	if (cg_cache_on && id > 0) {
+		struct cg *hit = cg_cache_get(id);
+		if (hit)
+			return hit;
+	}
 	struct archive_data *data = asset_get(ASSET_CG, id);
 	if (!data)
 		return NULL;
 	struct cg *cg = cg_load_data(data);
 	archive_free_data(data);
+	if (cg_cache_on && id > 0 && cg)
+		cg_cache_put(id, cg);
 	return cg;
 }
 
