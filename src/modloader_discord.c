@@ -47,7 +47,6 @@ __declspec(dllimport) unsigned long __stdcall GetEnvironmentVariableA(const char
 #include "cJSON.h"
 #include "gfx/font.h"
 #include "gfx/gfx.h"
-#include "input.h"
 #include "sact.h"
 #include "sprite.h"
 #include "vm.h"
@@ -71,9 +70,6 @@ __declspec(dllimport) unsigned long __stdcall GetEnvironmentVariableA(const char
 #define RQ_BOX_DST_Y 276
 /* Vanilla row-2 glyphs start 8px below the square's top. */
 #define RQ_LABEL_DY 8
-#define RQ_HOVER_PAD 22
-#define RQ_SP_LABEL 180001
-#define RQ_SP_HOVER 180002
 
 static int g_inited;
 static int g_disabled;
@@ -81,10 +77,8 @@ static int g_ui;
 static char g_app_id[32];
 static int g_f_check = -1;
 static int g_f_show = -1;
-static int g_f_setz = -1;
 static int g_f_group_show = -1;
-static int g_row_open;
-static int g_hover_x, g_hover_y, g_hover_w, g_hover_h;
+static int g_f_group_z = -1;
 
 static int g_exploring;
 static int64_t g_start;
@@ -426,39 +420,8 @@ static void note_exploring(void)
 	g_exploring = ex;
 }
 
-static void hover_set(int on)
-{
-	struct sact_sprite *sp = sact_try_get_sprite(RQ_SP_HOVER);
-	if (sp)
-		sprite_set_show(sp, on);
-}
-
-static void row_close(void)
-{
-	struct sact_sprite *sp;
-	g_row_open = 0;
-	sp = sact_try_get_sprite(RQ_SP_HOVER);
-	if (sp)
-		sprite_set_show(sp, false);
-	sp = sact_try_get_sprite(RQ_SP_LABEL);
-	if (sp)
-		sprite_set_show(sp, false);
-}
-
-static void hover_tick(void)
-{
-	int x, y, on;
-	if (!g_row_open)
-		return;
-	mouse_get_pos(&x, &y);
-	on = x >= g_hover_x && y >= g_hover_y
-		&& x < g_hover_x + g_hover_w && y < g_hover_y + g_hover_h;
-	hover_set(on);
-}
-
 void rq_discord_tick(void)
 {
-	hover_tick();
 #ifdef _WIN32
 	unsigned long long now;
 #endif
@@ -553,6 +516,75 @@ static struct sact_sprite *base_sprite(struct page *cfg)
 	return sact_try_get_sprite(inner->values[0].i);
 }
 
+/* Drawing uses the texture size, not the sprite rect, so a wider rect
+ * alone leaves the yellow bar at the stock 280px. */
+static void stretch_frame(struct sact_sprite *sp, int width)
+{
+	Texture *tex, neu;
+	SDL_Color c;
+	tex = sprite_get_texture(sp);
+	if (!tex || tex->w < 1 || tex->h < 1 || sp->texture_unowned)
+		return;
+	if (tex->w >= width && sp->rect.w >= width)
+		return;
+	c = gfx_get_pixel(tex, tex->w / 2, tex->h / 2);
+	if (!c.a)
+		return;
+	gfx_init_texture_rgba(&neu, width, tex->h, c);
+	gfx_delete_texture(tex);
+	*tex = neu;
+	sp->rect.w = width;
+	if (sp->surface_area.w > 0)
+		sp->surface_area.w = width;
+	sprite_dirty(sp);
+}
+
+/* The stock frame is 280px, which ends before this longer label. Stretch
+ * the yellow frame and its hit rect so the bar ends just past the text. */
+static void widen_row(struct page *cfg, int width)
+{
+	struct page *group, *arr, *btn, *frames, *fr, *rect, *ts, *inner;
+	struct sact_sprite *sp;
+	int i, f, spno;
+	if (width < 280)
+		width = 280;
+	group = safe_page(cfg->values[1].i);
+	if (!group || group->nr_vars < 1)
+		return;
+	arr = safe_page(group->values[0].i);
+	if (!arr || arr->type != ARRAY_PAGE)
+		return;
+	for (i = 0; i < arr->nr_vars; i++) {
+		btn = safe_page(arr->values[i].i);
+		if (!btn || btn->nr_vars < 2)
+			continue;
+		if (btn->values[1].i != 210001 + RQ_CHECK_INDEX)
+			continue;
+		frames = safe_page(btn->values[0].i);
+		if (!frames || frames->type != ARRAY_PAGE)
+			return;
+		for (f = 0; f < frames->nr_vars; f++) {
+			fr = safe_page(frames->values[f].i);
+			if (!fr || fr->nr_vars < 3)
+				continue;
+			rect = safe_page(fr->values[1].i);
+			if (rect && rect->nr_vars >= 4)
+				rect->values[2].i = rect->values[0].i + width;
+			ts = safe_page(fr->values[2].i);
+			if (!ts || ts->nr_vars < 1)
+				continue;
+			inner = safe_page(ts->values[0].i);
+			if (!inner || inner->nr_vars < 1)
+				continue;
+			spno = inner->values[0].i;
+			sp = sact_try_get_sprite(spno);
+			if (sp)
+				stretch_frame(sp, width);
+		}
+		return;
+	}
+}
+
 static void add_checkbox(void)
 {
 	struct page *cfg;
@@ -578,22 +610,19 @@ static void add_checkbox(void)
 		warned = 1;
 		rq_log("Discord presence: Other 2 checkbox was not created");
 	}
-	/* setShow marks the new button clickable. Its frame is the yellow
-	 * hover tint (CG 40056); leave that at Z 0, behind the panel. */
-	if (g_f_group_show >= 0 && page_index_valid(cfg->values[1].i)) {
-		stack_push(1);
-		vm_call_method(g_f_group_show, cfg->values[1].i);
-	}
-	show_mark(cfg, g_disabled);
-	if (g_f_setz >= 0) {
-		struct page *arr = safe_page(cfg->values[3].i);
-		if (arr && arr->type == ARRAY_PAGE && arr->nr_vars > RQ_CHECK_INDEX
-		    && safe_page(arr->values[RQ_CHECK_INDEX].i)) {
-			/* Above the yellow hover so the red check stays red. */
-			stack_push(15003);
-			vm_call_method(g_f_setz, arr->values[RQ_CHECK_INDEX].i);
+	/* Same Z as the other rows, so the game's own yellow frame shows
+	 * only while this button is selected and hides when the cursor leaves. */
+	if (page_index_valid(cfg->values[1].i)) {
+		if (g_f_group_z >= 0) {
+			stack_push(15001);
+			vm_call_method(g_f_group_z, cfg->values[1].i);
+		}
+		if (g_f_group_show >= 0) {
+			stack_push(1);
+			vm_call_method(g_f_group_show, cfg->values[1].i);
 		}
 	}
+	show_mark(cfg, g_disabled);
 	sp = base_sprite(cfg);
 	if (!sp || sprite_get_width(sp) < 32 || sprite_get_height(sp) < 32)
 		return;
@@ -601,44 +630,10 @@ static void add_checkbox(void)
 	label = make_string(text, strlen(text));
 	if (!label)
 		return;
-	{
-		float adv = gfx_size_text(&g_label_ts, text);
-		float th = text_style_height(&g_label_ts);
-		int tw = (int)ceilf(adv) + 4;
-		int lh = (int)ceilf(th) + 2;
-		int ly = RQ_BOX_DST_Y + RQ_LABEL_DY;
-		struct sact_sprite *lsp, *hsp;
-		int hw;
-		if (tw < 8)
-			tw = 8;
-		if (lh < 8)
-			lh = 8;
-		lsp = sact_create_sprite(RQ_SP_LABEL, tw, lh, 0, 0, 0, 0);
-		if (lsp) {
-			sprite_text_clear(lsp);
-			sprite_set_text_pos(lsp, 0, 0);
-			sprite_text_draw(lsp, label, &g_label_ts);
-			sprite_set_pos(lsp, RQ_LABEL_X, ly);
-			sprite_set_z(lsp, 15001);
-			sprite_set_show(lsp, true);
-		}
-		/* Same yellow as CG 40056 (alpha 102). Starts on the square and
-		 * ends a little past the label, like the other rows. */
-		hw = (RQ_LABEL_X + (int)ceilf(adv) + RQ_HOVER_PAD) - RQ_CHECK_X;
-		if (hw < RQ_BOX_W + 8)
-			hw = RQ_BOX_W + 8;
-		hsp = sact_create_sprite(RQ_SP_HOVER, hw, 30, 255, 255, 0, 102);
-		if (hsp) {
-			sprite_set_pos(hsp, RQ_CHECK_X, RQ_CHECK_Y);
-			sprite_set_z(hsp, 15002);
-			sprite_set_show(hsp, false);
-		}
-		g_hover_x = RQ_CHECK_X;
-		g_hover_y = RQ_CHECK_Y;
-		g_hover_w = hw;
-		g_hover_h = 30;
-		g_row_open = 1;
-	}
+	sprite_text_clear(sp);
+	sprite_set_text_pos(sp, RQ_LABEL_X, RQ_BOX_DST_Y + RQ_LABEL_DY);
+	sprite_text_draw(sp, label, &g_label_ts);
+	widen_row(cfg, (RQ_LABEL_X + (int)ceilf(gfx_size_text(&g_label_ts, text)) + 22) - RQ_CHECK_X);
 	free_string(label);
 }
 
@@ -650,9 +645,6 @@ int rq_discord_syscall(int code)
 		return 1;
 	case VM_XSYS_DISCORD_SHOW:
 		show_mark(get_struct_page(0), g_disabled);
-		return 1;
-	case VM_XSYS_DISCORD_DEL:
-		row_close();
 		return 1;
 	case VM_XSYS_DISCORD_TOGGLE:
 		g_disabled = !g_disabled;
@@ -850,7 +842,7 @@ static void wrap_exec(struct ain *ain, int fno, int setvalue)
 
 static int install_checkbox(struct ain *ain)
 {
-	int alloc, gid, gix, next, last, create, setv, exec, show, check, del;
+	int alloc, gid, gix, next, last, create, setv, exec, show, check;
 	alloc = fn_index(ain, "T_ConfigEtc2@2");
 	gid = fn_index(ain, "T_ConfigEtc2@getCheckID");
 	gix = fn_index(ain, "T_ConfigEtc2@getCheckIndex");
@@ -861,9 +853,8 @@ static int install_checkbox(struct ain *ain)
 	exec = fn_index(ain, "T_ConfigEtc2@execCheckBox");
 	show = fn_index(ain, "T_Sprite@setShow");
 	check = fn_index(ain, "T_ConfigEtc2@createCheckBox");
-	del = fn_index(ain, "T_ConfigEtc2@delete");
-	g_f_setz = fn_index(ain, "T_Sprite@setZ");
 	g_f_group_show = fn_index(ain, "T_ButtonGroup@setShow");
+	g_f_group_z = fn_index(ain, "T_ButtonGroup@setZ");
 	if (alloc < 0 || gid < 0 || gix < 0 || next < 0 || last < 0
 	    || create < 0 || setv < 0 || exec < 0 || show < 0 || check < 0)
 		return 0;
@@ -877,8 +868,6 @@ static int install_checkbox(struct ain *ain)
 	wrap_after(ain, setv, VM_XSYS_DISCORD_SHOW);
 	wrap_exec(ain, exec, setv);
 	wrap_after(ain, create, VM_XSYS_DISCORD_ADD);
-	if (del >= 0)
-		wrap_after(ain, del, VM_XSYS_DISCORD_DEL);
 	return 1;
 }
 
