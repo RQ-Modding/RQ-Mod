@@ -62,6 +62,12 @@ int rq_events_install(struct ain *ain);
 int rq_events_syscall(int code);
 int rq_lua_battle_on_start(struct lua_State *L);
 int rq_lua_battle_on_end(struct lua_State *L);
+int rq_lua_quests_on_clear(struct lua_State *L);
+int rq_lua_quests_state(struct lua_State *L);
+int rq_lua_quests_set_state(struct lua_State *L);
+int rq_lua_quests_unlock(struct lua_State *L);
+int rq_lua_quests_debug_clear(struct lua_State *L);
+int rq_lua_quests_new_this_run(struct lua_State *L);
 int rq_lua_skill_sort_as(struct lua_State *L);
 int rq_chara_install(struct ain *ain);
 int rq_chara_syscall(int code);
@@ -256,7 +262,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "0.6.0"
+#define RQ_VERSION "0.7.0"
 
 struct rq_qbattle_skill {
 	int id;

@@ -794,6 +794,22 @@ void rq_query_bind(lua_State *L)
 	bind_query(L, "units", "list", l_units);
 	bind_query(L, "items", "list", l_items);
 	bind_query(L, "quests", "list", l_quests);
+	lua_getfield(L, -1, "quests");
+	if (lua_istable(L, -1)) {
+		lua_pushcfunction(L, rq_lua_quests_on_clear);
+		lua_setfield(L, -2, "on_clear");
+		lua_pushcfunction(L, rq_lua_quests_state);
+		lua_setfield(L, -2, "state");
+		lua_pushcfunction(L, rq_lua_quests_set_state);
+		lua_setfield(L, -2, "set_state");
+		lua_pushcfunction(L, rq_lua_quests_unlock);
+		lua_setfield(L, -2, "unlock");
+		lua_pushcfunction(L, rq_lua_quests_debug_clear);
+		lua_setfield(L, -2, "_debug_clear");
+		lua_pushcfunction(L, rq_lua_quests_new_this_run);
+		lua_setfield(L, -2, "new_this_run");
+	}
+	lua_pop(L, 1);
 	bind_query(L, "castle", "get", l_castle);
 	lua_getfield(L, -1, "dungeon");
 	if (lua_istable(L, -1)) {

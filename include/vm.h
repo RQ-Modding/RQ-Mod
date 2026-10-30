@@ -88,6 +88,7 @@ enum vm_extra_syscall {
 	VM_XSYS_ROSTER_FORGET = 0x80000039,
 	VM_XSYS_BATTLE_START = 0x8000003A,
 	VM_XSYS_BATTLE_END = 0x8000003B,
+	VM_XSYS_QUEST_CLEAR = 0x8000003C,
 };
 
 // Non-heap values. Stored in pages and on the stack.
