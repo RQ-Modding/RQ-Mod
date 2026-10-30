@@ -1073,6 +1073,8 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "give", rq_lua_item_give);
 	set_cfn(L, "transform", rq_lua_item_transform);
 	set_cfn(L, "equipped", rq_lua_item_equipped);
+	set_cfn(L, "remove", rq_lua_item_remove);
+	set_cfn(L, "equip", rq_lua_item_equip);
 	set_cfn(L, "on_create", rq_lua_item_on_create);
 	lua_setfield(L, -2, "item");
 

@@ -78,6 +78,8 @@ int rq_lua_item_set(struct lua_State *L);
 int rq_lua_item_give(struct lua_State *L);
 int rq_lua_item_transform(struct lua_State *L);
 int rq_lua_item_equipped(struct lua_State *L);
+int rq_lua_item_remove(struct lua_State *L);
+int rq_lua_item_equip(struct lua_State *L);
 int rq_lua_item_on_create(struct lua_State *L);
 int rq_item_no_from_lua(struct lua_State *L, int idx);
 int rq_lua_shop_on_buy(struct lua_State *L);
@@ -284,7 +286,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "0.9.0"
+#define RQ_VERSION "0.11.0"
 
 struct rq_qbattle_skill {
 	int id;

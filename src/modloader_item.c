@@ -966,6 +966,43 @@ int rq_lua_item_transform(lua_State *L)
 	return 1;
 }
 
+/* equip(ii, iic): put an existing instance in its slot on a character (キャラ_装備設定, which recalculates). */
+int rq_lua_item_equip(lua_State *L)
+{
+	int ii = (int)luaL_checkinteger(L, 1);
+	int iic = (int)luaL_checkinteger(L, 2);
+	struct page *p = ipage(ii);
+	int type = 0, place = 0;
+
+	ensure(L);
+	if (!p || !mread(p, "存在", &place) || place == 0 || !mread(p, "種類", &type)) {
+		lua_pushboolean(L, 0);
+		lua_pushstring(L, "no such item");
+		return 2;
+	}
+	lua_pushboolean(L, ci(f_equip, 3, iic, type, ii) != 0);
+	return 1;
+}
+
+/* remove(ii): take it off its owner if equipped, then delete the instance (Ｉ削除). */
+int rq_lua_item_remove(lua_State *L)
+{
+	int ii = (int)luaL_checkinteger(L, 1);
+	struct page *p = ipage(ii);
+	int place = 0, type = 0;
+
+	ensure(L);
+	if (!p || !mread(p, "存在", &place) || place == 0) {
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+	if (place >= 1 && place <= 200 && mread(p, "種類", &type))
+		ci(f_equip, 3, place, type, 0);
+	ci(f_del, 1, ii);
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
 int rq_lua_item_equipped(lua_State *L)
 {
 	int iic = (int)luaL_checkinteger(L, 1);
