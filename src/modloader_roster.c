@@ -145,6 +145,14 @@ static int wrap_tail(struct ain *a, int fno, int sys, const char *tag)
 
 	buffer_init(&out, NULL, 0);
 	emit1(&out, FUNC, fno);
+	if (fno == f_cdata) {
+		/* A custom number is not in the game's list. Without this the search ends in a TADA error line. */
+		emit1(&out, CALLSYS, VM_XSYS_ROSTER_CUSTOM);
+		emit1(&out, IFZ, (int32_t)(a->code_size + 6 + 6 + 6 + 6 + 6 + 2));
+		emit1(&out, PUSH, 0);
+		emit1(&out, CALLSYS, sys);
+		emit0(&out, RETURN);
+	}
 	for (i = 0; i < nargs; i++) {
 		emit1(&out, SH_LOCALREF, i);
 		if (a->functions[fno].vars[i].type.data == AIN_STRING) {
@@ -818,6 +826,13 @@ int rq_roster_syscall(int code)
 	case VM_XSYS_ROSTER_DATA:
 		roster_data();
 		return 1;
+	case VM_XSYS_ROSTER_CUSTOM: {
+		int no = local_get(1).i;
+		if (no == 0 && local_get(0).i > 0)
+			no = chara_no(local_get(0).i);
+		stack_push(no >= 1000 ? 1 : 0);
+		return 1;
+	}
 	case VM_XSYS_ROSTER_CREATE:
 		roster_create();
 		return 1;

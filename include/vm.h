@@ -103,6 +103,7 @@ enum vm_extra_syscall {
 	VM_XSYS_BATTLE_MARKS = 0x80000048,
 	VM_XSYS_BATTLE_SUPPORT = 0x80000049,
 	VM_XSYS_SCENE_BEFORE = 0x8000004A,
+	VM_XSYS_ROSTER_CUSTOM = 0x8000004B,
 };
 
 // Non-heap values. Stored in pages and on the stack.

@@ -312,7 +312,7 @@ static int parse_fit(lua_State *L, int opts, int def)
 	const char *s;
 	int v = def;
 
-	if (!lua_istable(L, opts))
+	if (!opts || !lua_istable(L, opts))
 		return def;
 	lua_getfield(L, opts, "fit");
 	if (lua_isstring(L, -1)) {
@@ -400,8 +400,8 @@ static int add_image(lua_State *L, const char *key, const char *rel, int opts, i
 	m->replace = 0;
 	snprintf(m->key, sizeof m->key, "%s", key);
 	m->fit = parse_fit(L, opts, def_fit);
-	m->w = opt_int(L, opts, "w") ? opt_int(L, opts, "w") : def_w;
-	m->h = opt_int(L, opts, "h") ? opt_int(L, opts, "h") : def_h;
+	m->w = opts && opt_int(L, opts, "w") ? opt_int(L, opts, "w") : def_w;
+	m->h = opts && opt_int(L, opts, "h") ? opt_int(L, opts, "h") : def_h;
 	set_path(L, m, rel);
 	asset_cg_cache_forget(id);
 	return id;
