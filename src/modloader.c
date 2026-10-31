@@ -1126,6 +1126,9 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "replace", rq_lua_image_replace);
 	set_cfn(L, "restore", rq_lua_image_restore);
 	set_cfn(L, "info", rq_lua_image_info);
+	set_cfn(L, "add_gif", rq_lua_image_add_gif);
+	set_cfn(L, "remove_gif", rq_lua_image_remove_gif);
+	set_cfn(L, "gif_info", rq_lua_image_gif_info);
 	lua_setfield(L, -2, "image");
 
 	lua_newtable(L);

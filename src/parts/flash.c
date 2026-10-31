@@ -30,6 +30,9 @@
 #include "xsystem4.h"
 #include "parts.h"
 #include "parts_internal.h"
+#ifdef RQ_MODLOADER
+#include "modloader.h"
+#endif
 
 #define muldiv(x, y, denom) ((int64_t)(x) * (int64_t)(y) / (int64_t)(denom))
 
@@ -77,12 +80,21 @@ bool parts_flash_load(struct parts *parts, struct parts_flash *f, struct string 
 	TAILQ_INIT(&f->display_list);
 	if (!filename)
 		return false;
-	struct archive_data *dfile = asset_get_by_name(ASSET_FLASH, filename->text, NULL);
-	if (!dfile)
-		return false;
+#ifdef RQ_MODLOADER
+	uint8_t *mod_swf;
+	size_t mod_size;
+	if (rq_anim_find(filename->text, &mod_swf, &mod_size)) {
+		f->swf = swf_load(mod_swf, mod_size);
+	} else
+#endif
+	{
+		struct archive_data *dfile = asset_get_by_name(ASSET_FLASH, filename->text, NULL);
+		if (!dfile)
+			return false;
 
-	f->swf = aff_load(dfile->data, dfile->size);
-	archive_free_data(dfile);
+		f->swf = aff_load(dfile->data, dfile->size);
+		archive_free_data(dfile);
+	}
 	if (!f->swf)
 		return false;
 
@@ -386,6 +398,10 @@ bool PE_ExistsFlashFile(struct string *flash_filename)
 {
 	if (!flash_filename)
 		return false;
+#ifdef RQ_MODLOADER
+	if (rq_anim_find(flash_filename->text, NULL, NULL))
+		return true;
+#endif
 	return asset_exists_by_name(ASSET_FLASH, flash_filename->text, NULL);
 }
 

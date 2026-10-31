@@ -687,25 +687,26 @@ static int g_fl_gi = -2;
 static int g_fl_set = -1;
 static int g_fl_data[5] = { -1, -1, -1, -1, -1 };
 static int g_fl_m_mark = -1, g_fl_m_show = -1, g_fl_m_flash = -1;
-static int g_fl_m_x = -1, g_fl_m_y = -1, g_fl_m_partno = -1;
+static int g_fl_m_x = -1, g_fl_m_y = -1, g_fl_m_partno = -1, g_fl_m_markno = -1;
 
 #define CARD_MARKS 16
 #define BUFF_MAX 8
 #define MARK_HOLD_MS 1500u
 #define MARK_FADE_MS 250u
+#define ANIM_MARK_NO 31
 
 struct card_mark {
-	int mark, status, cg;
+	int mark, status, cg, anim;
 	char key[32];
 	char text[16];
 };
 struct card {
 	struct card_mark e[CARD_MARKS];
-	int n, cur;
+	int n, cur, shown_anim;
 	uint32_t t0;
 };
 static struct card g_card[5];
-static struct { char key[32]; char text[16]; int cg; } g_buff[5][BUFF_MAX];
+static struct { char key[32]; char text[16]; int cg, anim; } g_buff[5][BUFF_MAX];
 static int g_nbuff[5];
 static int g_marks_live, g_marks_dirty;
 
@@ -816,6 +817,7 @@ static void card_add(struct card *c, int mark, int status, int cg, const char *k
 	e->mark = mark;
 	e->status = status;
 	e->cg = cg;
+	e->anim = 0;
 	snprintf(e->key, sizeof e->key, "%s", key);
 	snprintf(e->text, sizeof e->text, "%s", text);
 }
@@ -848,7 +850,11 @@ static void card_fill(int no)
 		card_add(c, 36, v, 0, "", text);
 	}
 	for (i = 0; i < g_nbuff[no - 1]; i++)
+	{
 		card_add(c, 0, 1, g_buff[no - 1][i].cg, g_buff[no - 1][i].key, g_buff[no - 1][i].text);
+		if (c->n > 0 && !strcmp(c->e[c->n - 1].key, g_buff[no - 1][i].key))
+			c->e[c->n - 1].anim = g_buff[no - 1][i].anim;
+	}
 	for (i = 0; i < c->n; i++) {
 		if (c->e[i].mark == old.mark && !strcmp(c->e[i].key, old.key)) {
 			c->cur = i;
@@ -866,6 +872,24 @@ static void card_apply(int no)
 
 	if (slot < 0)
 		return;
+	if (c->n > 0 && c->e[c->cur].anim) {
+		/* T_BattleMark only takes its fixed numbers, so an animated buff borrows one
+		 * and the load is pointed at the GIF. Marks restart when set, so a mark that
+		 * already shows this GIF is left alone. */
+		struct card_mark *e = &c->e[c->cur];
+		struct page *mark = mark_child(heap_get_page(slot), g_fl_m_mark);
+
+		if (c->shown_anim == e->anim && mark && g_fl_m_markno >= 0
+		    && mark->values[g_fl_m_markno].i == ANIM_MARK_NO)
+			return;
+		mark_call_set(slot, 0, 0, "");
+		rq_anim_redirect(e->anim);
+		mark_call_set(slot, ANIM_MARK_NO, 1, e->text);
+		rq_anim_redirect(0);
+		c->shown_anim = e->anim;
+		return;
+	}
+	c->shown_anim = 0;
 	if (c->n > 0 && c->e[c->cur].mark > 0)
 		mark_call_set(slot, c->e[c->cur].mark, c->e[c->cur].status, c->e[c->cur].text);
 	else
@@ -924,7 +948,7 @@ void rq_battle_marks_tick(void)
 		mark = mark_child(num, g_fl_m_mark);
 		if (!mark)
 			continue;
-		if (c->e[c->cur].mark > 0) {
+		if (c->e[c->cur].mark > 0 || c->e[c->cur].anim) {
 			flash = mark_child(mark, g_fl_m_flash);
 			if (c->n > 1 && flash && g_fl_m_partno >= 0 && flash->values[g_fl_m_partno].i > 0)
 				PE_SetAlpha(flash->values[g_fl_m_partno].i, alpha);
@@ -997,6 +1021,7 @@ static int flame_install(struct ain *a)
 	g_fl_m_show = find_member(a, g_fl_st_mark, "m_bShow");
 	st = find_struct(a, "T_BattleMark");
 	g_fl_m_flash = find_member(a, st, "m_sMark");
+	g_fl_m_markno = find_member(a, st, "m_nMarkNo");
 	g_fl_m_x = find_member(a, st, "m_nX");
 	g_fl_m_y = find_member(a, st, "m_nY");
 	g_fl_m_partno = find_member(a, find_struct(a, "T_PartsFlash"), "m_nNo");
@@ -1088,10 +1113,17 @@ int rq_lua_battle_set_buff(lua_State *L)
 		}
 	} else {
 		const char *text;
-		int cg;
+		int cg = 0, anim = 0;
+		lua_getfield(L, 3, "anim");
+		if (!lua_isnil(L, -1)) {
+			anim = rq_anim_handle(luaL_checkstring(L, -1));
+			if (!anim)
+				return luaL_error(L, "set_buff anim '%s' was not added with rq.image.add_gif", lua_tostring(L, -1));
+		}
+		lua_pop(L, 1);
 		lua_getfield(L, 3, "icon");
-		if (!lua_isinteger(L, -1))
-			return luaL_error(L, "set_buff icon must be a CG number (rq.image.add gives one)");
+		if (!lua_isinteger(L, -1) && !anim)
+			return luaL_error(L, "set_buff needs icon (a CG number, rq.image.add gives one) or anim (an rq.image.add_gif key)");
 		cg = (int)lua_tointeger(L, -1);
 		lua_pop(L, 1);
 		if (i == n) {
@@ -1101,6 +1133,7 @@ int rq_lua_battle_set_buff(lua_State *L)
 		}
 		snprintf(g_buff[no - 1][i].key, sizeof g_buff[0][0].key, "%s", key);
 		g_buff[no - 1][i].cg = cg;
+		g_buff[no - 1][i].anim = anim;
 		lua_getfield(L, 3, "text");
 		text = lua_tostring(L, -1);
 		snprintf(g_buff[no - 1][i].text, sizeof g_buff[0][0].text, "%s", text ? text : "");
