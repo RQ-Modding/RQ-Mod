@@ -176,6 +176,10 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 
 	if (!_stricmp(cmd, "ping") || !_stricmp(cmd, "ok"))
 		return 1;
+	if (!_stricmp(cmd, "crash")) {
+		rq_crash_test(); /* only does anything with env RQ_DEBUG_CRASH */
+		return 1;
+	}
 	if (!_stricmp(cmd, "ungrab")) {
 		mouse_release_agent();
 		return 1;

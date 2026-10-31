@@ -283,6 +283,7 @@ static void chara_recalc(void)
 	lua_State *L = rq_lua();
 	int iic = local_get(0).i;
 	if (L && g_recalc_ref != LUA_NOREF) {
+		rq_crash_crumb("lua:on_recalc", iic, 0);
 		lua_rawgeti(L, LUA_REGISTRYINDEX, g_recalc_ref);
 		lua_pushinteger(L, iic);
 		if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
@@ -353,6 +354,7 @@ static void chara_offer(void)
 	no = call_ints(g_f_no, args, 2);
 	level = call_ints(g_f_lv, args, 2);
 	class_ = call_ints(g_f_class, args, 2);
+	rq_crash_crumb("lua:on_offer", iic, g_noffer);
 	for (k = 0; k < g_noffer; k++) {
 		lua_rawgeti(L, LUA_REGISTRYINDEX, g_offer_refs[k]);
 		lua_newtable(L);
@@ -409,6 +411,7 @@ static void combat_physical(void)
 
 	g_final_pct = 100;
 	if (L && g_nphys > 0 && g_loc_paa >= 0) {
+		rq_crash_crumb("lua:on_physical", local_get(g_loc_pi1).i, local_get(g_loc_pis).i);
 		int attacker = local_get(g_loc_pi1).i;
 		int defender = local_get(g_loc_pi2).i;
 		int skill = local_get(g_loc_pis).i;
@@ -502,6 +505,7 @@ static void combat_crit(void)
 
 	if (L && g_ncrit > 0) {
 		int attacker = local_get(g_loc_ci1).i;
+		rq_crash_crumb("lua:on_crit", attacker, local_get(g_loc_cis).i);
 		int defender = local_get(g_loc_ci2).i;
 		int skill = local_get(g_loc_cis).i;
 		int type;

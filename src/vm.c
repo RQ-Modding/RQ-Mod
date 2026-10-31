@@ -2630,6 +2630,7 @@ _Noreturn void _vm_error(const char *fmt, ...)
 	vsnprintf(msg, 1024, fmt, ap);
 	va_end(ap);
 
+	rq_crash_vm_error(msg);
 	dbg_repl(DBG_STOP_ERROR, msg);
 	sys_exit(1);
 }

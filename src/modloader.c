@@ -64,6 +64,7 @@ static void rq_vlog(const char *tag, const char *fmt, va_list ap)
 	char buf[1024];
 	const char *t = (tag && *tag) ? tag : "rqmod";
 	vsnprintf(buf, sizeof buf, fmt, ap);
+	rq_crash_note_log(buf);
 	fprintf(stderr, "[%s] %s\n", t, buf);
 	fflush(stderr);
 	if (g_rq_log) {
@@ -1592,7 +1593,9 @@ void rq_mods_early_init(void)
 	rq_open_terminal();
 	if (!g_rq_log && dir_exists(g_rq_mods_dir)) {
 		snprintf(logpath, sizeof logpath, "%s\\rqmod.log", g_rq_mods_dir);
+		rq_crash_rotate_logs(g_rq_mods_dir);
 		g_rq_log = fopen(logpath, "w");
+		rq_crash_install();
 	}
 	if (g_rq_terminal)
 		rq_print_banner();
@@ -1673,6 +1676,7 @@ void rq_mods_on_vm_call(int fno, int struct_page)
 	int used, nargs, i;
 	unsigned now;
 
+	rq_crash_note_call(fno, struct_page);
 	if (!g_rq_verbose || !g_ain)
 		return;
 	if (fno < 0 || fno >= g_ain->nr_functions)
@@ -1761,7 +1765,9 @@ void rq_mods_init(struct ain *ain)
 
 	if (!g_rq_log && dir_exists(g_rq_mods_dir)) {
 		snprintf(logpath, sizeof logpath, "%s\\rqmod.log", g_rq_mods_dir);
+		rq_crash_rotate_logs(g_rq_mods_dir);
 		g_rq_log = fopen(logpath, "w");
+		rq_crash_install();
 	} else if (!dir_exists(g_rq_mods_dir)) {
 		rq_log("No mods folder at %s — running vanilla AIN", g_rq_mods_dir);
 	}

@@ -18,6 +18,13 @@ struct cg_metrics;
 void rq_mods_early_init(void);
 void rq_mods_init(struct ain *ain);
 void rq_mods_on_vm_call(int fno, int struct_page);
+void rq_crash_note_log(const char *line);
+void rq_crash_note_call(int fno, int struct_page);
+void rq_crash_crumb(const char *what, int a, int b);
+void rq_crash_vm_error(const char *msg);
+void rq_crash_test(void);
+void rq_crash_rotate_logs(const char *dir);
+void rq_crash_install(void);
 bool rq_mods_swallow_msgbox(const char *title, const char *msg);
 void rq_mods_agent_start(void);
 void rq_log(const char *fmt, ...);
@@ -335,6 +342,9 @@ int rq_dialog_press(const char *id, char *err, int errsz);
 
 static inline void rq_mods_early_init(void) {}
 static inline void rq_mods_init(struct ain *ain) { (void)ain; }
+static inline void rq_crash_crumb(const char *what, int a, int b) { (void)what; (void)a; (void)b; }
+static inline void rq_crash_vm_error(const char *msg) { (void)msg; }
+static inline void rq_crash_test(void) {}
 static inline void rq_mods_on_vm_call(int fno, int struct_page)
 {
 	(void)fno;

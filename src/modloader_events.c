@@ -174,6 +174,7 @@ static void run_support(void)
 	int i;
 
 	if (L) {
+		rq_crash_crumb("lua:on_support", user, skill);
 		for (i = 0; i < g_nsup; i++) {
 			lua_rawgeti(L, LUA_REGISTRYINDEX, g_sup_cb[i]);
 			lua_newtable(L);
@@ -221,6 +222,7 @@ static void run_down(void)
 	int i;
 
 	if (L && state == 3) {
+		rq_crash_crumb("lua:on_down", iic, 0);
 		for (i = 0; i < g_ndown; i++) {
 			lua_rawgeti(L, LUA_REGISTRYINDEX, g_down_cb[i]);
 			lua_newtable(L);
@@ -287,6 +289,7 @@ static void run_cbs(const int *refs, int n, int boss, int result, int is_start)
 
 	if (!L)
 		return;
+	rq_crash_crumb(is_start ? "lua:on_start" : "lua:on_end", n, result);
 	for (i = 0; i < n; i++) {
 		lua_rawgeti(L, LUA_REGISTRYINDEX, refs[i]);
 		lua_newtable(L);

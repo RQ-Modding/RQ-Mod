@@ -162,8 +162,10 @@ static int call_method_i(int fno, int this_slot, int arg)
 	int r;
 	if (fno < 0 || this_slot < 0 || !page_index_valid(this_slot))
 		return -1;
+	/* A method wants [this, arg]. vm_call(fno, slot) would push this on top of
+	 * the arg and swap them, so the call ran on heap slot <arg>. */
 	stack_push(arg);
-	vm_call(fno, this_slot);
+	vm_call_method(fno, this_slot);
 	r = stack_pop().i;
 	return r;
 }
@@ -226,6 +228,7 @@ static int button_for_skill(int skill_no)
 {
 	int skill_slot, idx, status, btn;
 
+	rq_crash_crumb("button_for_skill", skill_no, g_select_this);
 	skill_slot = skill_page_slot();
 	if (skill_slot < 0)
 		return -1;
@@ -249,6 +252,7 @@ static int lua_select_key(int key)
 	if (!L || g_hook_ref == LUA_NOREF)
 		return 0;
 
+	rq_crash_crumb("lua:on_select_key", g_actor_chara, key);
 	lua_rawgeti(L, LUA_REGISTRYINDEX, g_hook_ref);
 	lua_newtable(L);
 	lua_pushinteger(L, key);
