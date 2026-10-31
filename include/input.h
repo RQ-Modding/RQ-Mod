@@ -157,6 +157,11 @@ void mouse_get_wheel(int *forward, int *back);
 void mouse_set_wheel(int dir);
 void mouse_clear_wheel(void);
 void key_set_state(int code, int down);
+/* Forget a key press the game must not see again (a mod claimed it). Unlike key_set_state this
+ * is not agent input: it leaves the real mouse and keyboard in charge. */
+void key_swallow(int code);
+/* 1 while the agent pipe owns the mouse and keys (until mouse_release_agent). */
+int agent_input_active(void);
 /* Focus the game window. Arrow keys are ignored until it is focused. */
 void agent_focus_window(void);
 bool mouse_show_cursor(bool show);

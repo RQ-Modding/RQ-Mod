@@ -20,6 +20,7 @@
 void mouse_force_pos(int x, int y);
 void mouse_release_agent(void);
 void key_set_state(int code, int down);
+int agent_input_active(void);
 void mouse_set_wheel(int dir);
 
 static int pulse_ms = 80;
@@ -267,6 +268,13 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 			*extra = json;
 		else
 			free(json);
+		return 1;
+	}
+	if (!_stricmp(cmd, "agentstate")) {
+		/* 1 while pipe input owns the mouse; a player's Space must leave it at 0 */
+		if (extra) {
+			*extra = strdup(agent_input_active() ? "agent_input=1" : "agent_input=0");
+		}
 		return 1;
 	}
 	if (!_stricmp(cmd, "mods")) {

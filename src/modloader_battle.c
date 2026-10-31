@@ -353,7 +353,7 @@ static void battle_select_key(void)
 	}
 
 	/* Swallow so Cancel/moveCursor do not also see Space this frame. */
-	key_set_state(VK_SPACE, 0);
+	key_swallow(VK_SPACE);
 	g_space_down_prev = 1;
 
 	btn = button_for_skill(skill);

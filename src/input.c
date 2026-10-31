@@ -249,6 +249,18 @@ void key_set_state(int code, int down)
 	key_state[code] = down != 0;
 }
 
+int agent_input_active(void)
+{
+	return agent_input ? 1 : 0;
+}
+
+void key_swallow(int code)
+{
+	if (code <= 0 || code >= VK_NR_KEYCODES)
+		return;
+	key_state[code] = false;
+}
+
 void key_clear_flag(bool no_ctrl)
 {
 	for (int i = 0; i < VK_NR_KEYCODES; i++) {
