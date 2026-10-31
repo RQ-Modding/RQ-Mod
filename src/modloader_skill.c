@@ -35,7 +35,9 @@ static int g_sort_id[SKILL_SORT_MAX];
 static int g_sort_as[SKILL_SORT_MAX];
 static int g_sort_n;
 static void skill_sort_args(void);
-static int g_describe_ref = LUA_NOREF;
+#define DESCRIBE_CB_MAX 16
+static int g_describe_refs[DESCRIBE_CB_MAX];
+static int g_ndescribe;
 #define SKILL_DEF_MAX 128
 static int g_def_refs[SKILL_DEF_MAX];
 static int g_def_patch_id[SKILL_DEF_MAX]; /* 0 = define, else the skill id a patch edits */
@@ -178,8 +180,9 @@ static void skill_describe(void)
 	out_utf = base_utf;
 	base_utf = NULL;
 
-	if (L && g_describe_ref != LUA_NOREF) {
-		lua_rawgeti(L, LUA_REGISTRYINDEX, g_describe_ref);
+	/* Each callback gets the text the one before left. */
+	for (int i = 0; L && i < g_ndescribe; i++) {
+		lua_rawgeti(L, LUA_REGISTRYINDEX, g_describe_refs[i]);
 		lua_pushinteger(L, skill_no);
 		lua_pushstring(L, out_utf);
 		if (lua_pcall(L, 2, 1, 0) != LUA_OK) {
@@ -729,10 +732,10 @@ int rq_lua_skill_sort_as(lua_State *L)
 int rq_lua_skill_on_describe(lua_State *L)
 {
 	luaL_checktype(L, 1, LUA_TFUNCTION);
-	if (g_describe_ref != LUA_NOREF)
-		luaL_unref(L, LUA_REGISTRYINDEX, g_describe_ref);
+	if (g_ndescribe >= DESCRIBE_CB_MAX)
+		return luaL_error(L, "too many on_describe callbacks registered");
 	lua_pushvalue(L, 1);
-	g_describe_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	g_describe_refs[g_ndescribe++] = luaL_ref(L, LUA_REGISTRYINDEX);
 	return 0;
 }
 

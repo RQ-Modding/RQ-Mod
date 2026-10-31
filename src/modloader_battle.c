@@ -44,7 +44,9 @@ static int g_select_this = -1;
 /* Rising-edge tracker: claim only on was-up → now-down while select is ready. */
 static int g_space_down_prev = 1;
 static int g_pending_skill;
-static int g_hook_ref = LUA_NOREF;
+#define SELECT_CB_MAX 16
+static int g_hook_refs[SELECT_CB_MAX];
+static int g_nhook;
 
 static int g_memb_rfsSkill = -1;
 static int g_memb_nTargetNo = -1;
@@ -247,36 +249,42 @@ static int button_for_skill(int skill_no)
 static int lua_select_key(int key)
 {
 	lua_State *L = rq_lua();
-	int skill = 0;
+	int i;
 
-	if (!L || g_hook_ref == LUA_NOREF)
+	if (!L)
 		return 0;
 
-	rq_crash_crumb("lua:on_select_key", g_actor_chara, key);
-	lua_rawgeti(L, LUA_REGISTRYINDEX, g_hook_ref);
-	lua_newtable(L);
-	lua_pushinteger(L, key);
-	lua_setfield(L, -2, "key");
-	lua_pushinteger(L, g_actor_no);
-	lua_setfield(L, -2, "no");
-	lua_pushinteger(L, g_actor_chara);
-	lua_setfield(L, -2, "chara");
+	/* The first callback that names a skill takes the key. */
+	for (i = 0; i < g_nhook; i++) {
+		int skill = 0;
+		rq_crash_crumb("lua:on_select_key", g_actor_chara, key);
+		lua_rawgeti(L, LUA_REGISTRYINDEX, g_hook_refs[i]);
+		lua_newtable(L);
+		lua_pushinteger(L, key);
+		lua_setfield(L, -2, "key");
+		lua_pushinteger(L, g_actor_no);
+		lua_setfield(L, -2, "no");
+		lua_pushinteger(L, g_actor_chara);
+		lua_setfield(L, -2, "chara");
 
-	if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-		rq_log("battle on_select_key error: %s", lua_tostring(L, -1));
-		lua_pop(L, 1);
-		return 0;
-	}
-	if (lua_isinteger(L, -1) || lua_isnumber(L, -1)) {
-		skill = (int)lua_tointeger(L, -1);
-	} else if (lua_istable(L, -1)) {
-		lua_getfield(L, -1, "skill");
-		if (lua_isinteger(L, -1) || lua_isnumber(L, -1))
+		if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+			rq_log("battle on_select_key error: %s", lua_tostring(L, -1));
+			lua_pop(L, 1);
+			continue;
+		}
+		if (lua_isinteger(L, -1) || lua_isnumber(L, -1)) {
 			skill = (int)lua_tointeger(L, -1);
+		} else if (lua_istable(L, -1)) {
+			lua_getfield(L, -1, "skill");
+			if (lua_isinteger(L, -1) || lua_isnumber(L, -1))
+				skill = (int)lua_tointeger(L, -1);
+			lua_pop(L, 1);
+		}
 		lua_pop(L, 1);
+		if (skill > 0)
+			return skill;
 	}
-	lua_pop(L, 1);
-	return skill > 0 ? skill : 0;
+	return 0;
 }
 
 static int select_ready(void)
@@ -596,10 +604,10 @@ int rq_battle_install(struct ain *ain)
 int rq_lua_battle_on_select_key(lua_State *L)
 {
 	luaL_checktype(L, 1, LUA_TFUNCTION);
-	if (g_hook_ref != LUA_NOREF)
-		luaL_unref(L, LUA_REGISTRYINDEX, g_hook_ref);
+	if (g_nhook >= SELECT_CB_MAX)
+		return luaL_error(L, "too many on_select_key callbacks registered");
 	lua_pushvalue(L, 1);
-	g_hook_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	g_hook_refs[g_nhook++] = luaL_ref(L, LUA_REGISTRYINDEX);
 	return 0;
 }
 

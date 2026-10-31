@@ -13,10 +13,12 @@
 
 #include "system4.h"
 #include "system4/ain.h"
+#include "system4/cg.h"
 #include "system4/string.h"
 #include "system4/utfsjis.h"
 
 #include "cJSON.h"
+#include "gfx/gfx.h"
 #include "input.h"
 #include "mixer.h"
 #include "sact.h"
@@ -5655,7 +5657,7 @@ static void publish(void)
 	ui_unlock();
 }
 
-void rq_ui_on_present(void)
+static void publish_frame(void)
 {
 	long long next;
 	if (!g_ready)
@@ -5668,6 +5670,89 @@ void rq_ui_on_present(void)
 		ui_unlock();
 	}
 	atomic_store(&g_present_gen, next);
+}
+
+enum { SHOT_IDLE, SHOT_WANTED, SHOT_OK, SHOT_FAILED };
+static atomic_int g_paused;
+static atomic_int g_shot_state;
+static char g_shot_path[512];
+
+static void service_shot(void)
+{
+	int ok;
+	if (atomic_load(&g_shot_state) != SHOT_WANTED)
+		return;
+	ok = gfx_save_texture(gfx_main_surface(), g_shot_path, ALCG_PNG);
+	atomic_store(&g_shot_state, ok ? SHOT_OK : SHOT_FAILED);
+}
+
+/* The VM stays inside this swap while paused. The window keeps answering, and
+ * ui / shot keep working, because they are served from this loop. An exposed
+ * window swaps again from handle_window_events, hence the guard. */
+void rq_ui_on_present(void)
+{
+	static int in_pause;
+	publish_frame();
+	service_shot();
+	if (in_pause || !atomic_load(&g_paused))
+		return;
+	in_pause = 1;
+	while (atomic_load(&g_paused)) {
+		handle_window_events();
+		publish_frame();
+		service_shot();
+		Sleep(5);
+	}
+	in_pause = 0;
+}
+
+void rq_ui_set_paused(int on)
+{
+	atomic_store(&g_paused, on ? 1 : 0);
+}
+
+int rq_ui_paused(void)
+{
+	return atomic_load(&g_paused);
+}
+
+int rq_ui_cmd_shot(const char *path, char *err, int errsz)
+{
+	unsigned long long t0;
+	int st;
+	if (!path || !*path || strlen(path) >= sizeof g_shot_path) {
+		if (err)
+			snprintf(err, errsz, "usage: shot PATH");
+		return 0;
+	}
+	if (!g_ready) {
+		if (err)
+			snprintf(err, errsz, "not-ready");
+		return 0;
+	}
+	if (rq_dialog_open()) {
+		if (err)
+			snprintf(err, errsz, "native-dialog-open");
+		return 0;
+	}
+	snprintf(g_shot_path, sizeof g_shot_path, "%s", path);
+	atomic_store(&g_shot_state, SHOT_WANTED);
+	t0 = GetTickCount64();
+	while ((st = atomic_load(&g_shot_state)) == SHOT_WANTED) {
+		if (GetTickCount64() - t0 > FRAME_MS) {
+			if (err)
+				snprintf(err, errsz, "timeout");
+			return 0;
+		}
+		Sleep(2);
+	}
+	atomic_store(&g_shot_state, SHOT_IDLE);
+	if (st != SHOT_OK) {
+		if (err)
+			snprintf(err, errsz, "write-failed");
+		return 0;
+	}
+	return 1;
 }
 
 static int wait_published_after(long long start, unsigned long ms)

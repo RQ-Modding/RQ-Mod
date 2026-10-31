@@ -157,6 +157,21 @@ static void pulse_key(int code)
 	set_key(code, 0);
 }
 
+/* While paused the VM reads no input, so these would hang or land later. */
+static int is_input_cmd(const char *cmd)
+{
+	static const char *const names[] = {
+		"goto", "step", "hover", "press", "drag", "key", "hold", "down",
+		"release", "up", "move", "click", "wheel", "type"
+	};
+	size_t i;
+	for (i = 0; i < sizeof names / sizeof names[0]; i++) {
+		if (!_stricmp(cmd, names[i]))
+			return 1;
+	}
+	return 0;
+}
+
 static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 {
 	char buf[512], *p, *cmd, *a, *b, *c;
@@ -184,6 +199,21 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 	if (!_stricmp(cmd, "ungrab")) {
 		mouse_release_agent();
 		return 1;
+	}
+	if (!_stricmp(cmd, "pause")) {
+		rq_ui_set_paused(1);
+		return 1;
+	}
+	if (!_stricmp(cmd, "resume")) {
+		rq_ui_set_paused(0);
+		return 1;
+	}
+	if (!_stricmp(cmd, "shot"))
+		return rq_ui_cmd_shot(skip_ws(p), err, errsz);
+	if (rq_ui_paused() && is_input_cmd(cmd)) {
+		if (err)
+			snprintf(err, errsz, "paused");
+		return 0;
 	}
 	if (!_stricmp(cmd, "grid")) {
 		char *json = NULL;

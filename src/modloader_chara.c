@@ -33,7 +33,9 @@
 #include "vm/page.h"
 
 static int g_on;
-static int g_recalc_ref = LUA_NOREF;
+#define RECALC_CB_MAX 16
+static int g_recalc_refs[RECALC_CB_MAX];
+static int g_nrecalc;
 #define OFFER_CB_MAX 16
 static int g_offer_refs[OFFER_CB_MAX], g_noffer;
 #define COMBAT_CB_MAX 16
@@ -282,13 +284,16 @@ static void chara_recalc(void)
 {
 	lua_State *L = rq_lua();
 	int iic = local_get(0).i;
-	if (L && g_recalc_ref != LUA_NOREF) {
-		rq_crash_crumb("lua:on_recalc", iic, 0);
-		lua_rawgeti(L, LUA_REGISTRYINDEX, g_recalc_ref);
-		lua_pushinteger(L, iic);
-		if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
-			rq_log("chara on_recalc error: %s", lua_tostring(L, -1));
-			lua_pop(L, 1);
+	if (L) {
+		int i;
+		for (i = 0; i < g_nrecalc; i++) {
+			rq_crash_crumb("lua:on_recalc", iic, 0);
+			lua_rawgeti(L, LUA_REGISTRYINDEX, g_recalc_refs[i]);
+			lua_pushinteger(L, iic);
+			if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+				rq_log("chara on_recalc error: %s", lua_tostring(L, -1));
+				lua_pop(L, 1);
+			}
 		}
 	}
 	rq_roster_apply(iic);
@@ -762,19 +767,14 @@ int rq_chara_install(struct ain *a)
 	return 1;
 }
 
-static int bind_fn(lua_State *L, int *slot)
-{
-	luaL_checktype(L, 1, LUA_TFUNCTION);
-	if (*slot != LUA_NOREF)
-		luaL_unref(L, LUA_REGISTRYINDEX, *slot);
-	lua_pushvalue(L, 1);
-	*slot = luaL_ref(L, LUA_REGISTRYINDEX);
-	return 0;
-}
-
 int rq_lua_chara_on_recalc(lua_State *L)
 {
-	return bind_fn(L, &g_recalc_ref);
+	luaL_checktype(L, 1, LUA_TFUNCTION);
+	if (g_nrecalc >= RECALC_CB_MAX)
+		return luaL_error(L, "too many on_recalc callbacks registered");
+	lua_pushvalue(L, 1);
+	g_recalc_refs[g_nrecalc++] = luaL_ref(L, LUA_REGISTRYINDEX);
+	return 0;
 }
 
 int rq_lua_chara_on_offer(lua_State *L)

@@ -37,7 +37,9 @@
 #define CTR_FA77_BLOCK 54
 
 static int g_on;
-static int g_hook_ref = LUA_NOREF;
+#define GUARD_CB_MAX 16
+static int g_hook_refs[GUARD_CB_MAX];
+static int g_nhook;
 static int g_gi_fa = -1;
 static int g_f_battle_no = -1;
 static int g_guard_iic;
@@ -129,37 +131,40 @@ static void zero_aa(void)
 
 /*
  * Ask Lua whether to allow Counter despite FA[77].
- * true  → skip zero-out (allow rate roll)
+ * any true → skip zero-out (allow rate roll); every callback still runs
  * false / no hook / error → vanilla zero-out
  */
 static int lua_allow_guard_counter(int guarded, int rate)
 {
 	lua_State *L = rq_lua();
-	int allow = 0;
+	int allow = 0, i;
 
-	if (!L || g_hook_ref == LUA_NOREF)
+	if (!L)
 		return 0;
 
-	lua_rawgeti(L, LUA_REGISTRYINDEX, g_hook_ref);
-	lua_newtable(L);
-	lua_pushboolean(L, guarded != 0);
-	lua_setfield(L, -2, "guarded");
-	lua_pushinteger(L, local_get(CTR_LOC_IIC2).i);
-	lua_setfield(L, -2, "defender");
-	lua_pushinteger(L, local_get(CTR_LOC_IIC1).i);
-	lua_setfield(L, -2, "attacker");
-	lua_pushinteger(L, local_get(CTR_LOC_IIS).i);
-	lua_setfield(L, -2, "skill");
-	lua_pushinteger(L, rate);
-	lua_setfield(L, -2, "rate");
+	for (i = 0; i < g_nhook; i++) {
+		lua_rawgeti(L, LUA_REGISTRYINDEX, g_hook_refs[i]);
+		lua_newtable(L);
+		lua_pushboolean(L, guarded != 0);
+		lua_setfield(L, -2, "guarded");
+		lua_pushinteger(L, local_get(CTR_LOC_IIC2).i);
+		lua_setfield(L, -2, "defender");
+		lua_pushinteger(L, local_get(CTR_LOC_IIC1).i);
+		lua_setfield(L, -2, "attacker");
+		lua_pushinteger(L, local_get(CTR_LOC_IIS).i);
+		lua_setfield(L, -2, "skill");
+		lua_pushinteger(L, rate);
+		lua_setfield(L, -2, "rate");
 
-	if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-		rq_log("counter on_guard_counter error: %s", lua_tostring(L, -1));
+		if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+			rq_log("counter on_guard_counter error: %s", lua_tostring(L, -1));
+			lua_pop(L, 1);
+			continue;
+		}
+		if (lua_toboolean(L, -1))
+			allow = 1;
 		lua_pop(L, 1);
-		return 0;
 	}
-	allow = lua_toboolean(L, -1);
-	lua_pop(L, 1);
 	return allow;
 }
 
@@ -414,10 +419,10 @@ int rq_counter_install(struct ain *ain)
 int rq_lua_counter_on_guard_counter(lua_State *L)
 {
 	luaL_checktype(L, 1, LUA_TFUNCTION);
-	if (g_hook_ref != LUA_NOREF)
-		luaL_unref(L, LUA_REGISTRYINDEX, g_hook_ref);
+	if (g_nhook >= GUARD_CB_MAX)
+		return luaL_error(L, "too many on_guard_counter callbacks registered");
 	lua_pushvalue(L, 1);
-	g_hook_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	g_hook_refs[g_nhook++] = luaL_ref(L, LUA_REGISTRYINDEX);
 	return 0;
 }
 

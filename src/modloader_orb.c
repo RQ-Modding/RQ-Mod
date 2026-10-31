@@ -30,7 +30,9 @@
 #define ORB_IIC_HI 200
 
 static int g_on;
-static int g_heal_ref = LUA_NOREF;
+#define HEAL_CB_MAX 16
+static int g_heal_refs[HEAL_CB_MAX];
+static int g_nheal;
 static int g_fno_state = -1;
 static int g_fno_status = -1;
 static int g_fno_hp = -1;
@@ -112,16 +114,21 @@ static void orb_lua_heal(void)
 {
 	lua_State *L = rq_lua();
 
-	if (!L || g_heal_ref == LUA_NOREF) {
-		orb_vanilla_pta_heal();
-		return;
+	int i, ran = 0;
+
+	if (L) {
+		for (i = 0; i < g_nheal; i++) {
+			lua_rawgeti(L, LUA_REGISTRYINDEX, g_heal_refs[i]);
+			if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+				rq_log("orb on_heal error: %s", lua_tostring(L, -1));
+				lua_pop(L, 1);
+			} else {
+				ran = 1;
+			}
+		}
 	}
-	lua_rawgeti(L, LUA_REGISTRYINDEX, g_heal_ref);
-	if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
-		rq_log("orb on_heal error: %s", lua_tostring(L, -1));
-		lua_pop(L, 1);
+	if (!ran)
 		orb_vanilla_pta_heal();
-	}
 }
 
 static int patch_spring_heal(struct ain *ain, int spring_fno, int pta_heal_fno)
@@ -206,10 +213,10 @@ int rq_orb_install(struct ain *ain)
 int rq_lua_orb_on_heal(lua_State *L)
 {
 	luaL_checktype(L, 1, LUA_TFUNCTION);
-	if (g_heal_ref != LUA_NOREF)
-		luaL_unref(L, LUA_REGISTRYINDEX, g_heal_ref);
+	if (g_nheal >= HEAL_CB_MAX)
+		return luaL_error(L, "too many on_heal callbacks registered");
 	lua_pushvalue(L, 1);
-	g_heal_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	g_heal_refs[g_nheal++] = luaL_ref(L, LUA_REGISTRYINDEX);
 	return 0;
 }
 

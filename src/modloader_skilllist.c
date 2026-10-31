@@ -47,9 +47,12 @@ static int g_page = 1;
 static int g_pages = 1;
 static int g_chara;
 static int g_comp = -1;
-static int g_open_ref = LUA_NOREF;
-static int g_page_ref = LUA_NOREF;
-static int g_btn_ref = LUA_NOREF;
+#define LIST_CB_MAX 16
+struct cb_list {
+	int n;
+	int refs[LIST_CB_MAX];
+};
+static struct cb_list g_open_cb, g_page_cb, g_btn_cb;
 
 static int g_id[SLOTS];
 static int g_pt[SLOTS];
@@ -578,30 +581,26 @@ static void skilllist_slice(void)
 static void call_lua_open(void)
 {
 	lua_State *L = rq_lua();
-	int top;
+	int i;
 	g_page = 1;
-	if (!L || g_open_ref == LUA_NOREF)
+	if (!L)
 		return;
-	top = lua_gettop(L);
-	lua_rawgeti(L, LUA_REGISTRYINDEX, g_open_ref);
-	if (!lua_isfunction(L, -1)) {
-		lua_settop(L, top);
-		return;
+	for (i = 0; i < g_open_cb.n; i++) {
+		lua_rawgeti(L, LUA_REGISTRYINDEX, g_open_cb.refs[i]);
+		if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+			rq_log("skilllist: on_open error: %s", lua_tostring(L, -1));
+			lua_pop(L, 1);
+		}
 	}
-	if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
-		rq_log("skilllist: on_open error: %s", lua_tostring(L, -1));
-		lua_pop(L, 1);
-	}
-	lua_settop(L, top);
 }
 
 /* 1 and *out set when Lua (or the fallback) produced a page. 0 = deny. */
 static int call_lua_page(int dir, int *out)
 {
 	lua_State *L = rq_lua();
-	int top;
+	int i, ok = 0;
 
-	if (!L || g_page_ref == LUA_NOREF) {
+	if (!L || g_page_cb.n == 0) {
 		*out = g_page + dir;
 		if (dir == 0)
 			*out = g_page;
@@ -609,35 +608,30 @@ static int call_lua_page(int dir, int *out)
 			return 0;
 		return 1;
 	}
-	top = lua_gettop(L);
-	lua_rawgeti(L, LUA_REGISTRYINDEX, g_page_ref);
-	if (!lua_isfunction(L, -1)) {
-		lua_settop(L, top);
-		*out = g_page;
-		return 0;
-	}
-	lua_newtable(L);
-	lua_pushinteger(L, dir);
-	lua_setfield(L, -2, "dir");
-	lua_pushinteger(L, g_page);
-	lua_setfield(L, -2, "page");
-	lua_pushinteger(L, g_pages);
-	lua_setfield(L, -2, "pages");
-	if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-		rq_log("skilllist: on_page error: %s", lua_tostring(L, -1));
+	/* Every callback runs. The last one that answers (a page or false) decides. */
+	for (i = 0; i < g_page_cb.n; i++) {
+		lua_rawgeti(L, LUA_REGISTRYINDEX, g_page_cb.refs[i]);
+		lua_newtable(L);
+		lua_pushinteger(L, dir);
+		lua_setfield(L, -2, "dir");
+		lua_pushinteger(L, g_page);
+		lua_setfield(L, -2, "page");
+		lua_pushinteger(L, g_pages);
+		lua_setfield(L, -2, "pages");
+		if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+			rq_log("skilllist: on_page error: %s", lua_tostring(L, -1));
+			lua_pop(L, 1);
+			continue;
+		}
+		if (lua_type(L, -1) == LUA_TNUMBER) {
+			*out = (int)lua_tointeger(L, -1);
+			ok = *out >= 1;
+		} else if (!lua_isnil(L, -1)) {
+			ok = 0;
+		}
 		lua_pop(L, 1);
-		lua_settop(L, top);
-		return 0;
 	}
-	if (lua_type(L, -1) == LUA_TNUMBER) {
-		*out = (int)lua_tointeger(L, -1);
-		lua_settop(L, top);
-		if (*out < 1)
-			return 0;
-		return 1;
-	}
-	lua_settop(L, top);
-	return 0;
+	return ok;
 }
 
 static void play_snd(int fno)
@@ -817,23 +811,19 @@ done:
 static void call_lua_buttons(int prev, int next)
 {
 	lua_State *L = rq_lua();
-	int top;
+	int i;
 
-	if (!L || g_btn_ref == LUA_NOREF)
+	if (!L)
 		return;
-	top = lua_gettop(L);
-	lua_rawgeti(L, LUA_REGISTRYINDEX, g_btn_ref);
-	if (!lua_isfunction(L, -1)) {
-		lua_settop(L, top);
-		return;
+	for (i = 0; i < g_btn_cb.n; i++) {
+		lua_rawgeti(L, LUA_REGISTRYINDEX, g_btn_cb.refs[i]);
+		lua_pushinteger(L, prev);
+		lua_pushinteger(L, next);
+		if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+			rq_log("skilllist: on_buttons error: %s", lua_tostring(L, -1));
+			lua_pop(L, 1);
+		}
 	}
-	lua_pushinteger(L, prev);
-	lua_pushinteger(L, next);
-	if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
-		rq_log("skilllist: on_buttons error: %s", lua_tostring(L, -1));
-		lua_pop(L, 1);
-	}
-	lua_settop(L, top);
 }
 
 static void skilllist_buttons(void)
@@ -1064,29 +1054,29 @@ int rq_skilllist_install(struct ain *ain)
 	return 1;
 }
 
-static int bind_fn(lua_State *L, int *slot)
+static int add_cb(lua_State *L, struct cb_list *list)
 {
 	luaL_checktype(L, 1, LUA_TFUNCTION);
-	if (*slot != LUA_NOREF)
-		luaL_unref(L, LUA_REGISTRYINDEX, *slot);
+	if (list->n >= LIST_CB_MAX)
+		return luaL_error(L, "too many skilllist callbacks registered");
 	lua_pushvalue(L, 1);
-	*slot = luaL_ref(L, LUA_REGISTRYINDEX);
+	list->refs[list->n++] = luaL_ref(L, LUA_REGISTRYINDEX);
 	return 0;
 }
 
 int rq_lua_skilllist_on_open(lua_State *L)
 {
-	return bind_fn(L, &g_open_ref);
+	return add_cb(L, &g_open_cb);
 }
 
 int rq_lua_skilllist_on_page(lua_State *L)
 {
-	return bind_fn(L, &g_page_ref);
+	return add_cb(L, &g_page_cb);
 }
 
 int rq_lua_skilllist_on_buttons(lua_State *L)
 {
-	return bind_fn(L, &g_btn_ref);
+	return add_cb(L, &g_btn_cb);
 }
 
 int rq_lua_skilllist_set_page(lua_State *L)

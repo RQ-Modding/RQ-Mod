@@ -288,6 +288,9 @@ int rq_path_grid(char **json_out, char *err, int errsz);
 int rq_path_goto(int x, int z, int pick_portal, char **json_out, char *err, int errsz);
 int rq_path_step(int dx, int dz, char **json_out, char *err, int errsz);
 int rq_ui_cmd_hover(const char *id, char *err, int errsz);
+int rq_ui_cmd_shot(const char *path, char *err, int errsz);
+void rq_ui_set_paused(int on);
+int rq_ui_paused(void);
 int rq_ui_cmd_press(const char *id, char *err, int errsz);
 int rq_ui_cmd_drag(const char *src, const char *dst, char *err, int errsz);
 int rq_ui_has_control(const char *id);
@@ -299,7 +302,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "0.13.0"
+#define RQ_VERSION "0.14.0"
 
 struct rq_qbattle_skill {
 	int id;

@@ -64,8 +64,11 @@ static int g_gi_map = -1;
 static int g_gi_bmap = -1;
 static int g_gi_magnum = -1;
 static int g_red_base_pct = 30;
-static int g_attempt_ref = LUA_NOREF;
-static int g_result_ref = LUA_NOREF;
+#define CHEST_CB_MAX 16
+static int g_attempt_refs[CHEST_CB_MAX];
+static int g_nattempt;
+static int g_result_refs[CHEST_CB_MAX];
+static int g_nresult;
 static int g_rand_seeded;
 static int g_dialog_patched;
 static int g_pct_local = 5;
@@ -604,51 +607,59 @@ static void chest_prepare(void)
 static int chest_lua_pct(int x, int y, int id, int base)
 {
 	lua_State *L = rq_lua();
-	int pct = base;
+	int pct = base, i;
 
-	if (!L || g_attempt_ref == LUA_NOREF)
+	if (!L)
 		return pct;
-	lua_rawgeti(L, LUA_REGISTRYINDEX, g_attempt_ref);
-	chest_push_info(L, x, y, id, base);
-	if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-		rq_log("Chest open hook error: %s", lua_tostring(L, -1));
-		lua_pop(L, 1);
-		return pct;
-	}
-	if (lua_isnumber(L, -1)) {
-		pct = (int)lua_tonumber(L, -1);
-	} else if (lua_istable(L, -1)) {
-		lua_getfield(L, -1, "pct");
-		if (lua_isnumber(L, -1))
+	/* Each callback sees the percent the one before left, in info.pct. */
+	for (i = 0; i < g_nattempt; i++) {
+		lua_rawgeti(L, LUA_REGISTRYINDEX, g_attempt_refs[i]);
+		chest_push_info(L, x, y, id, base);
+		lua_pushinteger(L, pct);
+		lua_setfield(L, -2, "pct");
+		if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+			rq_log("Chest open hook error: %s", lua_tostring(L, -1));
+			lua_pop(L, 1);
+			continue;
+		}
+		if (lua_isnumber(L, -1)) {
 			pct = (int)lua_tonumber(L, -1);
+		} else if (lua_istable(L, -1)) {
+			lua_getfield(L, -1, "pct");
+			if (lua_isnumber(L, -1))
+				pct = (int)lua_tonumber(L, -1);
+			lua_pop(L, 1);
+		}
 		lua_pop(L, 1);
+		if (pct < 0)
+			pct = 0;
+		if (pct > 100)
+			pct = 100;
 	}
-	lua_pop(L, 1);
-	if (pct < 0)
-		pct = 0;
-	if (pct > 100)
-		pct = 100;
 	return pct;
 }
 
 static void chest_lua_result(int x, int y, int id, int base, int pct, int rolled, int success)
 {
 	lua_State *L = rq_lua();
-	if (!L || g_result_ref == LUA_NOREF)
+	int i;
+	if (!L)
 		return;
-	lua_rawgeti(L, LUA_REGISTRYINDEX, g_result_ref);
-	chest_push_info(L, x, y, id, base);
-	lua_pushinteger(L, pct);
-	lua_setfield(L, -2, "pct");
-	lua_pushinteger(L, rolled);
-	lua_setfield(L, -2, "rolled");
-	lua_pushboolean(L, success);
-	lua_setfield(L, -2, "success");
-	lua_pushboolean(L, !success);
-	lua_setfield(L, -2, "exploded");
-	if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
-		rq_log("Chest result hook error: %s", lua_tostring(L, -1));
-		lua_pop(L, 1);
+	for (i = 0; i < g_nresult; i++) {
+		lua_rawgeti(L, LUA_REGISTRYINDEX, g_result_refs[i]);
+		chest_push_info(L, x, y, id, base);
+		lua_pushinteger(L, pct);
+		lua_setfield(L, -2, "pct");
+		lua_pushinteger(L, rolled);
+		lua_setfield(L, -2, "rolled");
+		lua_pushboolean(L, success);
+		lua_setfield(L, -2, "success");
+		lua_pushboolean(L, !success);
+		lua_setfield(L, -2, "exploded");
+		if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+			rq_log("Chest result hook error: %s", lua_tostring(L, -1));
+			lua_pop(L, 1);
+		}
 	}
 }
 
@@ -1239,20 +1250,20 @@ int rq_chest_syscall(int code)
 int rq_lua_chest_on_attempt(lua_State *L)
 {
 	luaL_checktype(L, 1, LUA_TFUNCTION);
-	if (g_attempt_ref != LUA_NOREF)
-		luaL_unref(L, LUA_REGISTRYINDEX, g_attempt_ref);
+	if (g_nattempt >= CHEST_CB_MAX)
+		return luaL_error(L, "too many on_attempt callbacks registered");
 	lua_pushvalue(L, 1);
-	g_attempt_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	g_attempt_refs[g_nattempt++] = luaL_ref(L, LUA_REGISTRYINDEX);
 	return 0;
 }
 
 int rq_lua_chest_on_result(lua_State *L)
 {
 	luaL_checktype(L, 1, LUA_TFUNCTION);
-	if (g_result_ref != LUA_NOREF)
-		luaL_unref(L, LUA_REGISTRYINDEX, g_result_ref);
+	if (g_nresult >= CHEST_CB_MAX)
+		return luaL_error(L, "too many on_result callbacks registered");
 	lua_pushvalue(L, 1);
-	g_result_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	g_result_refs[g_nresult++] = luaL_ref(L, LUA_REGISTRYINDEX);
 	return 0;
 }
 
