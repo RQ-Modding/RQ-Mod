@@ -6,6 +6,7 @@
 
 #ifdef RQ_MODLOADER
 
+#include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -971,6 +972,8 @@ static void guard_game_calls(lua_State *L)
 {
 	static const struct { const char *module; const char *names; } k_calls[] = {
 		{ "hud", "text_width wrap cg text_begin" },
+		{ "input", "set_key set_mouse wheel release" },
+		{ "ui", "get aim" },
 		{ "loot", "list" },
 		{ "orb", "roster get_state set_state set_status get_hp get_max_hp set_hp full_heal" },
 		{ "skill", "get" },
@@ -1009,10 +1012,28 @@ static void guard_game_calls(lua_State *L)
 	}
 }
 
+/* rq.traceback([co,] msg): the sandbox has no debug library. */
+/* Real time. rq.on_frame runs per game update, which is not a steady rate. */
+static int l_time_ms(lua_State *L)
+{
+	lua_pushinteger(L, (lua_Integer)SDL_GetTicks64());
+	return 1;
+}
+
+static int l_traceback(lua_State *L)
+{
+	lua_State *from = lua_isthread(L, 1) ? lua_tothread(L, 1) : L;
+	int msg = from == L ? 1 : 2;
+	luaL_traceback(L, from, luaL_optstring(L, msg, NULL), from == L ? 1 : 0);
+	return 1;
+}
+
 static void open_rq(lua_State *L)
 {
 	lua_newtable(L);
 	set_cfn(L, "log", l_log);
+	set_cfn(L, "traceback", l_traceback);
+	set_cfn(L, "time_ms", l_time_ms);
 	set_cfn(L, "on_frame", rq_lua_on_frame);
 	lua_pushstring(L, g_rq_game_dir);
 	lua_setfield(L, -2, "game_dir");
@@ -1036,7 +1057,17 @@ static void open_rq(lua_State *L)
 	lua_newtable(L);
 	set_cfn(L, "mouse", rq_lua_input_mouse);
 	set_cfn(L, "key", rq_lua_input_key);
+	set_cfn(L, "code", rq_lua_input_code);
+	set_cfn(L, "set_key", rq_lua_input_set_key);
+	set_cfn(L, "set_mouse", rq_lua_input_set_mouse);
+	set_cfn(L, "wheel", rq_lua_input_wheel);
+	set_cfn(L, "release", rq_lua_input_release);
 	lua_setfield(L, -2, "input");
+
+	lua_newtable(L);
+	set_cfn(L, "get", rq_lua_ui_get);
+	set_cfn(L, "aim", rq_lua_ui_aim);
+	lua_setfield(L, -2, "ui");
 
 	lua_newtable(L);
 	set_cfn(L, "action", rq_lua_debug_action);

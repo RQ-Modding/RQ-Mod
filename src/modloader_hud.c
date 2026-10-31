@@ -722,6 +722,54 @@ int rq_lua_input_key(lua_State *L)
 	return 1;
 }
 
+void key_set_state(int code, int down);
+void mouse_force_pos(int x, int y);
+void mouse_release_agent(void);
+void mouse_set_wheel(int dir);
+
+/* A key name as in rqmod-ctl ("enter", "lmb", "f3") or a raw code. */
+static int input_code_at(lua_State *L, int idx)
+{
+	int code;
+	if (lua_type(L, idx) == LUA_TNUMBER)
+		return (int)lua_tointeger(L, idx);
+	code = rq_key_from_name(luaL_checkstring(L, idx));
+	if (code < 0)
+		return luaL_error(L, "unknown key '%s'", lua_tostring(L, idx));
+	return code;
+}
+
+int rq_lua_input_code(lua_State *L)
+{
+	lua_pushinteger(L, input_code_at(L, 1));
+	return 1;
+}
+
+int rq_lua_input_set_key(lua_State *L)
+{
+	key_set_state(input_code_at(L, 1), lua_toboolean(L, 2));
+	return 0;
+}
+
+int rq_lua_input_set_mouse(lua_State *L)
+{
+	mouse_force_pos((int)luaL_checkinteger(L, 1), (int)luaL_checkinteger(L, 2));
+	return 0;
+}
+
+int rq_lua_input_wheel(lua_State *L)
+{
+	mouse_set_wheel((int)luaL_checkinteger(L, 1));
+	return 0;
+}
+
+int rq_lua_input_release(lua_State *L)
+{
+	(void)L;
+	mouse_release_agent();
+	return 0;
+}
+
 int rq_lua_hud_screen(lua_State *L)
 {
 	lua_pushinteger(L, config.view_width);
@@ -985,7 +1033,16 @@ int rq_hud_tick(void)
 	for (int i = 0; i < g_on_frame_n; i++) {
 		lua_rawgeti(L, LUA_REGISTRYINDEX, g_on_frame_ref[i]);
 		if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
-			rq_log("HUD on_frame error: %s", lua_tostring(L, -1));
+			/* An error in a callback comes back every frame: log each new text once. */
+			static char last[HUD_MAX_FRAME_CB][256];
+			const char *msg = lua_tostring(L, -1);
+			if (!msg)
+				msg = "(not a string)";
+			if (strncmp(last[i], msg, sizeof last[i] - 1)) {
+				snprintf(last[i], sizeof last[i], "%s", msg);
+				rq_log("HUD on_frame error: %s", msg);
+				rq_log("HUD on_frame: the same error again will not be logged");
+			}
 			lua_pop(L, 1);
 		}
 	}

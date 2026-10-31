@@ -17,6 +17,9 @@
 #include "system4/string.h"
 #include "system4/utfsjis.h"
 
+#include "lua.h"
+#include "lauxlib.h"
+
 #include "cJSON.h"
 #include "gfx/gfx.h"
 #include "input.h"
@@ -6228,6 +6231,73 @@ int rq_query_battle(struct rq_qbattle *o)
 		snprintf(s->name, sizeof s->name, "%s", b.skills[i].name);
 	}
 	return 1;
+}
+
+/* ---- rq.ui: the rqmod-ctl dump, for Lua on the VM thread. The pipe versions
+ * wait for frames, which would never come from inside a frame. ---- */
+
+static void push_json(lua_State *L, const cJSON *j)
+{
+	const cJSON *c;
+	int n = 0;
+
+	if (cJSON_IsObject(j)) {
+		lua_newtable(L);
+		cJSON_ArrayForEach(c, j) {
+			push_json(L, c);
+			lua_setfield(L, -2, c->string);
+		}
+	} else if (cJSON_IsArray(j)) {
+		lua_newtable(L);
+		cJSON_ArrayForEach(c, j) {
+			push_json(L, c);
+			lua_rawseti(L, -2, ++n);
+		}
+	} else if (cJSON_IsString(j)) {
+		lua_pushstring(L, j->valuestring);
+	} else if (cJSON_IsNumber(j)) {
+		if (j->valuedouble == (double)(lua_Integer)j->valuedouble)
+			lua_pushinteger(L, (lua_Integer)j->valuedouble);
+		else
+			lua_pushnumber(L, j->valuedouble);
+	} else if (cJSON_IsBool(j)) {
+		lua_pushboolean(L, cJSON_IsTrue(j));
+	} else {
+		lua_pushnil(L);
+	}
+}
+
+int rq_lua_ui_get(lua_State *L)
+{
+	static struct ui_snap snap;
+	cJSON *root;
+
+	if (!g_ready) {
+		lua_pushnil(L);
+		return 1;
+	}
+	publish();
+	if (!copy_snap(&snap) || !(root = cJSON_Parse(snap.json))) {
+		lua_pushnil(L);
+		return 1;
+	}
+	push_json(L, root);
+	cJSON_Delete(root);
+	return 1;
+}
+
+/* The point a click on this control should land on, or nil. Reads the last rq.ui.get. */
+int rq_lua_ui_aim(lua_State *L)
+{
+	int x, y;
+
+	if (!g_ready || !ctrl_center(luaL_checkstring(L, 1), &x, &y)) {
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_pushinteger(L, x);
+	lua_pushinteger(L, y);
+	return 2;
 }
 
 #endif /* RQ_MODLOADER */

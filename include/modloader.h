@@ -249,6 +249,13 @@ int rq_lua_dungeon_active(struct lua_State *L);
 int rq_lua_dungeon_exploring(struct lua_State *L);
 int rq_lua_input_mouse(struct lua_State *L);
 int rq_lua_input_key(struct lua_State *L);
+int rq_lua_input_code(struct lua_State *L);
+int rq_lua_input_set_key(struct lua_State *L);
+int rq_lua_input_set_mouse(struct lua_State *L);
+int rq_lua_input_wheel(struct lua_State *L);
+int rq_lua_input_release(struct lua_State *L);
+int rq_lua_ui_get(struct lua_State *L);
+int rq_lua_ui_aim(struct lua_State *L);
 int rq_lua_hud_rect(struct lua_State *L);
 int rq_lua_hud_text(struct lua_State *L);
 int rq_lua_hud_cg(struct lua_State *L);
@@ -328,7 +335,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "0.19.1"
+#define RQ_VERSION "0.20.0"
 
 struct rq_qbattle_skill {
 	int id;
