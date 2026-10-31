@@ -40,6 +40,7 @@
 #include "modloader_order.h"
 #include "profile.h"
 #include "vm.h"
+#include "vm/heap.h"
 #include "xsystem4.h"
 
 char g_rq_game_dir[RQ_PATH_MAX];
@@ -956,6 +957,58 @@ static int l_agent_control(lua_State *L)
 	return 1;
 }
 
+/* Mods load before vm_execute_ain, when the VM stack and heap do not exist yet.
+ * These calls use them, and a crash there is an access violation pcall cannot catch. */
+static int game_call(lua_State *L)
+{
+	if (!heap || !heap_size || !heap[0].page)
+		return luaL_error(L, "rq.%s: the game is not running yet. Call it from rq.on_frame or a callback, not at the top level of a mod",
+				lua_tostring(L, lua_upvalueindex(2)));
+	return lua_tocfunction(L, lua_upvalueindex(1))(L);
+}
+
+static void guard_game_calls(lua_State *L)
+{
+	static const struct { const char *module; const char *names; } k_calls[] = {
+		{ "hud", "text_width wrap cg text_begin" },
+		{ "loot", "list" },
+		{ "orb", "roster get_state set_state set_status get_hp get_max_hp set_hp full_heal" },
+		{ "skill", "get" },
+		{ "chara", "grant rank slots set_slot set_flavor weapon_detail apply_mod offers set_offer"
+			" max_uses set_uses set_bar clear_slot recruit find is_recruited dismiss recalc"
+			" number get set skill_points add_skill_points forget" },
+		{ "item", "number get set give transform equipped remove equip" },
+		{ "shop", "in_stock stock" },
+		{ "battle", "set_flame set_buff buffs get_drop set_drop skill_usable" },
+		{ "quests", "state set_state unlock _debug_clear new_this_run current" },
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof k_calls / sizeof k_calls[0]; i++) {
+		const char *p = k_calls[i].names;
+		lua_getfield(L, -1, k_calls[i].module);
+		while (*p) {
+			char name[32], full[64];
+			size_t n = strcspn(p, " ");
+			snprintf(name, sizeof name, "%.*s", (int)n, p);
+			snprintf(full, sizeof full, "%s.%s", k_calls[i].module, name);
+			lua_getfield(L, -1, name);
+			if (lua_iscfunction(L, -1)) {
+				lua_pushstring(L, full);
+				lua_pushcclosure(L, game_call, 2);
+				lua_setfield(L, -2, name);
+			} else {
+				rq_log("guard: rq.%s is not a C function", full);
+				lua_pop(L, 1);
+			}
+			p += n;
+			if (*p == ' ')
+				p++;
+		}
+		lua_pop(L, 1);
+	}
+}
+
 static void open_rq(lua_State *L)
 {
 	lua_newtable(L);
@@ -1185,6 +1238,7 @@ static void open_rq(lua_State *L)
 
 	rq_query_bind(L);
 	rq_scene_open(L, lua_gettop(L));
+	guard_game_calls(L);
 	lua_setglobal(L, "rq");
 }
 
