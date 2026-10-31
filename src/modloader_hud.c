@@ -951,6 +951,7 @@ int rq_hud_tick(void)
 	g_left_edge = g_left && !g_prev_left;
 	g_prev_left = g_left;
 	draw_version_banner();
+	rq_item_refresh();
 	if (!L || g_on_frame_n == 0)
 		return g_drew;
 	for (int i = 0; i < g_on_frame_n; i++) {

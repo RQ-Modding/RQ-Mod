@@ -588,7 +588,7 @@ static void build_base(lua_State *L, int t, int iic, int no)
 				const char *k = lua_tostring(L, -2);
 				if (alias_jp(k) && strcmp(k, "no") && strcmp(k, "face") && strcmp(k, "class")
 				    && strcmp(k, "level") && strcmp(k, "level_max") && strcmp(k, "sex")
-				    && strncmp(k, "init_", 5))
+				    && strncmp(k, "init_", 5) && !rq_item_is_gear_key(k))
 					set_alias(L, iic, p, k, lua_gettop(L));
 			}
 			lua_pop(L, 1);
@@ -717,7 +717,22 @@ static void roster_create(void)
 
 	if (iic > 0 && L) {
 		struct tpl *t = tpl_by_no(no);
-		int ran = 0;
+		int ran = 0, i;
+		if (t) {
+			lua_rawgeti(L, LUA_REGISTRYINDEX, t->ref);
+			rq_item_give_gear(L, lua_gettop(L), iic);
+			lua_pop(L, 1);
+			ran = 1;
+		}
+		for (i = 0; i < g_nedit; i++) {
+			if (g_edit[i].no != no)
+				continue;
+			lua_rawgeti(L, LUA_REGISTRYINDEX, g_edit[i].ref);
+			if (lua_istable(L, -1))
+				rq_item_give_gear(L, lua_gettop(L), iic);
+			lua_pop(L, 1);
+			ran = 1;
+		}
 		if (t) {
 			lua_rawgeti(L, LUA_REGISTRYINDEX, t->ref);
 			lua_getfield(L, -1, "on_create");
@@ -844,6 +859,8 @@ void rq_roster_apply(int iic)
 							r = apply_learn(L, iic, lua_gettop(L));
 					} else if (!strcmp(k, "init")) {
 						r = 0; /* written during the ステータス flag of Ｃ再計算 */
+					} else if (rq_item_is_gear_key(k)) {
+						r = 0; /* given once, when the character is created */
 					} else if (!strcmp(k, "on_recalc")) {
 						if (lua_isfunction(L, -1)) {
 							lua_pushvalue(L, -1);
@@ -941,6 +958,7 @@ int rq_lua_chara_define(lua_State *L)
 
 	luaL_checktype(L, 1, LUA_TTABLE);
 	rq_image_resolve_fields(L, 1);
+	rq_item_check_gear(L, 1);
 	ensure(L);
 	lua_getfield(L, 1, "id");
 	if (!lua_isstring(L, -1) || !lua_tostring(L, -1)[0])
@@ -1090,6 +1108,7 @@ int rq_lua_chara_edit(lua_State *L)
 
 	luaL_checktype(L, 2, LUA_TTABLE);
 	rq_image_resolve_fields(L, 2);
+	rq_item_check_gear(L, 2);
 	ensure(L);
 	for (i = 0; i < g_nedit; i++) {
 		if (g_edit[i].no == no && !strcmp(g_edit[i].mod, mod)) {

@@ -32,6 +32,8 @@
 #define IMG_MAX 256
 #define IMG_BASE 900000
 #define IMG_SPAN 90000
+#define PLACEHOLDER_ID (IMG_BASE + IMG_SPAN)
+#define PLACEHOLDER_SIZE_CG 6000 /* a game item icon */
 
 enum fit { FIT_STRETCH, FIT_CONTAIN, FIT_COVER, FIT_NONE };
 
@@ -159,6 +161,46 @@ static struct cg *fit_cg(struct cg *src, int tw, int th, int mode)
 	return d;
 }
 
+/* A grey tile with a question mark, at the size of a game item icon. */
+static struct cg *make_placeholder(void)
+{
+	static const char *const glyph[7] = { ".###.", "#...#", "....#", "..##.", "..#..", ".....", "..#.." };
+	struct cg_metrics om;
+	struct cg *c = xcalloc(1, sizeof(struct cg));
+	int w = 64, h = 64, x, y, cell, gx, gy;
+
+	if (asset_cg_get_metrics_original(PLACEHOLDER_SIZE_CG, &om) && om.w > 0 && om.h > 0) {
+		w = om.w;
+		h = om.h;
+	}
+	c->type = ALCG_UNKNOWN;
+	c->metrics.w = w;
+	c->metrics.h = h;
+	c->metrics.bpp = 32;
+	c->metrics.has_pixel = true;
+	c->metrics.has_alpha = true;
+	c->metrics.pixel_pitch = w * 4;
+	c->metrics.alpha_pitch = 1;
+	c->pixels = xcalloc((size_t)w * h, 4);
+	cell = (h < w ? h : w) / 10;
+	if (cell < 1)
+		cell = 1;
+	gx = (w - 5 * cell) / 2;
+	gy = (h - 7 * cell) / 2;
+	for (y = 0; y < h; y++) {
+		for (x = 0; x < w; x++) {
+			unsigned char *o = (unsigned char *)c->pixels + ((size_t)y * w + x) * 4;
+			int edge = x < 2 || y < 2 || x >= w - 2 || y >= h - 2;
+			int mark = 0;
+			if (x >= gx && y >= gy && x < gx + 5 * cell && y < gy + 7 * cell)
+				mark = glyph[(y - gy) / cell][(x - gx) / cell] == '#';
+			o[0] = o[1] = o[2] = mark ? 230 : edge ? 150 : 90;
+			o[3] = 255;
+		}
+	}
+	return c;
+}
+
 static struct cg *decode(struct img *m)
 {
 	struct cg *cg;
@@ -168,6 +210,8 @@ static struct cg *decode(struct img *m)
 		return m->cg;
 	if (m->failed)
 		return NULL;
+	if (m->id == PLACEHOLDER_ID)
+		return m->cg = make_placeholder();
 	cg = cg_load_file(m->path);
 	if (!cg || !cg->pixels) {
 		rq_log("image: cannot decode %s", m->path);
@@ -247,6 +291,18 @@ void rq_image_redirect(int game_id, int custom_id)
 	m->failed = 0;
 	snprintf(m->path, sizeof m->path, "%s", src->path);
 	asset_cg_cache_forget(game_id);
+}
+
+/* The icon of an item whose mod gives none. */
+int rq_image_placeholder(void)
+{
+	if (!find_img(PLACEHOLDER_ID)) {
+		if (g_nimg >= IMG_MAX)
+			return 0;
+		memset(&g_img[g_nimg], 0, sizeof g_img[g_nimg]);
+		g_img[g_nimg++].id = PLACEHOLDER_ID;
+	}
+	return PLACEHOLDER_ID;
 }
 
 /* ---- Lua ---- */

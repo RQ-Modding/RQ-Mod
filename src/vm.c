@@ -604,6 +604,7 @@ static void system_call(enum syscall_code code)
 	case SYS_GLOBAL_LOAD: { // system.GlobalLoad(string szKeyName, string szFileName)
 		int filename = stack_pop().i;
 		int keyname = stack_pop().i;
+		rq_item_mark_stale();
 		stack_push(load_globals(heap_get_string(keyname)->text, heap_get_string(filename)->text, NULL, NULL));
 		heap_unref(filename);
 		heap_unref(keyname);
@@ -667,6 +668,7 @@ static void system_call(enum syscall_code code)
 	case SYS_RESUME_LOAD: {
 		int filename_slot = stack_pop().i;
 		int key_slot = stack_pop().i;
+		rq_item_mark_stale();
 		vm_load_image(heap_get_string(key_slot)->text, heap_get_string(filename_slot)->text);
 		stack_push(0);
 		break;
@@ -809,6 +811,7 @@ static void system_call(enum syscall_code code)
 		int groupname = stack_pop().i;
 		int filename = stack_pop().i;
 		int keyname = stack_pop().i;
+		rq_item_mark_stale();
 		stack_push(load_globals(heap_get_string(keyname)->text,
 					heap_get_string(filename)->text,
 					heap_get_string(groupname)->text,

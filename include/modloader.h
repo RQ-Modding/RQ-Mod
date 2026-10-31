@@ -94,6 +94,12 @@ int rq_lua_item_remove(struct lua_State *L);
 int rq_lua_item_equip(struct lua_State *L);
 int rq_lua_item_on_create(struct lua_State *L);
 int rq_item_no_from_lua(struct lua_State *L, int idx);
+void rq_item_mark_stale(void);
+void rq_item_refresh(void);
+int rq_item_is_gear_key(const char *key);
+void rq_item_check_gear(struct lua_State *L, int t);
+void rq_item_give_gear(struct lua_State *L, int t, int iic);
+int rq_image_placeholder(void);
 int rq_lua_shop_on_buy(struct lua_State *L);
 int rq_lua_loot_add(struct lua_State *L);
 int rq_lua_loot_remove(struct lua_State *L);
@@ -302,7 +308,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "0.14.0"
+#define RQ_VERSION "0.15.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -397,6 +403,7 @@ static inline bool rq_image_metrics(int id, struct cg_metrics *out) { (void)id; 
 static inline int rq_events_syscall(int code) { (void)code; return 0; }
 static inline void rq_battle_flames_clear(void) {}
 static inline int rq_item_syscall(int code) { (void)code; return 0; }
+static inline void rq_item_mark_stale(void) {}
 static inline void rq_roster_apply(int iic) { (void)iic; }
 static inline int rq_hud_syscall(int code) { (void)code; return 0; }
 static inline int rq_hud_tick(void) { return 0; }

@@ -62,6 +62,7 @@ static int g_create_cb[CB_MAX], g_ncreate;
 static int gi_item = -2, gi_restock = -1;
 static int f_make = -1, f_data = -1, f_d0 = -1, f_d1 = -1, f_free = -1;
 static int f_name = -1, f_info = -1, f_del = -1, f_equip = -1, f_recalc = -1;
+static int g_stale;
 
 static const struct { const char *alias; const char *jp; } k_fields[] = {
 	{ "place", "存在" }, { "no", "固有番号" }, { "icon", "ＣＧ番号" },
@@ -446,6 +447,8 @@ static void build_item(lua_State *L, int tab, int ii, int no, int lv)
 	char *info = tstr(L, tab, "info");
 	struct page *p;
 
+	if (!icon)
+		icon = rq_image_placeholder();
 	memset(jobs, 0, sizeof jobs);
 	lua_getfield(L, tab, "classes");
 	if (lua_istable(L, -1)) {
@@ -574,7 +577,7 @@ static int set_field(lua_State *L, int ii, struct page *p, const char *key, int 
 	return 1;
 }
 
-static void apply_edits(lua_State *L, int ii, int no)
+static void apply_edits(lua_State *L, int ii, int no, int existing)
 {
 	struct page *p = ipage(ii);
 	int i;
@@ -592,7 +595,9 @@ static void apply_edits(lua_State *L, int ii, int no)
 			while (lua_next(L, tab)) {
 				if (lua_type(L, -2) == LUA_TSTRING) {
 					const char *k = lua_tostring(L, -2);
-					if (set_field(L, ii, p, k, lua_gettop(L)) < 0)
+					/* A saved instance keeps where it is and what it is. */
+					if (!(existing && (!strcmp(k, "place") || !strcmp(k, "no")))
+					    && set_field(L, ii, p, k, lua_gettop(L)) < 0)
 						rq_log("item.edit: unknown field '%s'", k);
 				}
 				lua_pop(L, 1);
@@ -600,6 +605,40 @@ static void apply_edits(lua_State *L, int ii, int no)
 		}
 		lua_pop(L, 1);
 	}
+}
+
+/* A load brings back instances made before the edits, so they are patched on the next frame. */
+void rq_item_mark_stale(void)
+{
+	g_stale = 1;
+}
+
+void rq_item_refresh(void)
+{
+	lua_State *L = rq_lua();
+	int ii, i, count = 0;
+
+	if (!g_stale)
+		return;
+	g_stale = 0;
+	if (!L || !g_on || !g_nedit)
+		return;
+	for (ii = 1; ii <= 3000; ii++) {
+		struct page *p = ipage(ii);
+		int no, place, hit = 0;
+		if (!p || !mread(p, "固有番号", &no) || !mread(p, "存在", &place) || place == 0)
+			continue;
+		for (i = 0; i < g_nedit && !hit; i++)
+			hit = g_edit[i].no == no;
+		if (!hit)
+			continue;
+		apply_edits(L, ii, no, 1);
+		count++;
+		if (place >= 1 && place <= 200 && f_recalc >= 0)
+			ci(f_recalc, 1, place);
+	}
+	if (count)
+		rq_log("item: edits applied to %d existing items", count);
 }
 
 /* ---- syscalls ---- */
@@ -619,7 +658,7 @@ static void item_data(void)
 		lua_pop(L, 1);
 	}
 	if (g_nedit > 0)
-		apply_edits(L, ii, no);
+		apply_edits(L, ii, no, 0);
 }
 
 static void item_create(void)
@@ -802,6 +841,7 @@ int rq_lua_item_edit(lua_State *L)
 	snprintf(g_edit[i].mod, sizeof g_edit[i].mod, "%s", mod);
 	lua_pushvalue(L, 2);
 	g_edit[i].ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	g_stale = 1;
 	return 0;
 }
 
@@ -940,6 +980,76 @@ int rq_lua_item_give(lua_State *L)
 	}
 	lua_pushinteger(L, ii);
 	return 1;
+}
+
+/* ---- starting equipment of rq.chara.define / edit ---- */
+
+static const struct { const char *key; int type; } k_gear[] = {
+	{ "weapon", 1 }, { "armor", 11 }, { "item", 17 }, { "special", 21 },
+};
+#define NGEAR ((int)(sizeof k_gear / sizeof k_gear[0]))
+
+int rq_item_is_gear_key(const char *key)
+{
+	int i;
+	for (i = 0; i < NGEAR; i++) {
+		if (!strcmp(key, k_gear[i].key))
+			return 1;
+	}
+	return 0;
+}
+
+/* At define time, so a typo is an error the mod sees and not a problem in the middle of the game. */
+void rq_item_check_gear(lua_State *L, int t)
+{
+	int i, used = 0;
+
+	for (i = 0; i < NGEAR; i++) {
+		int type;
+		lua_getfield(L, t, k_gear[i].key);
+		type = lua_type(L, -1);
+		lua_pop(L, 1);
+		if (type == LUA_TNIL)
+			continue;
+		if (type != LUA_TNUMBER && type != LUA_TSTRING)
+			luaL_error(L, "%s must be an item number or a text id", k_gear[i].key);
+		used = 1;
+	}
+	if (used)
+		ensure(L);
+}
+
+/* Runs inside Ｃ生成, so problems go to the log. Items are looked up here, so the mod may define them later. */
+void rq_item_give_gear(lua_State *L, int t, int iic)
+{
+	int i;
+
+	for (i = 0; i < NGEAR; i++) {
+		int no = 0, ii, type = 0;
+		lua_getfield(L, t, k_gear[i].key);
+		if (lua_type(L, -1) == LUA_TNUMBER || lua_type(L, -1) == LUA_TSTRING)
+			no = resolve_no(L, lua_gettop(L));
+		lua_pop(L, 1);
+		if (!no)
+			continue;
+		if (no >= 1000 && !tpl_by_no(no)) {
+			rq_log("chara %s: item %d is not defined", k_gear[i].key, no);
+			continue;
+		}
+		ii = ci(f_make, 2, no, 0);
+		if (ii <= 0) {
+			rq_log("chara %s: the game refused to create item %d", k_gear[i].key, no);
+			continue;
+		}
+		mwrite(ipage(ii), "存在", 7);
+		if (!mread(ipage(ii), "種類", &type) || type != k_gear[i].type) {
+			rq_log("chara %s: item %d has type %d, it does not fit that slot", k_gear[i].key, no, type);
+			ci(f_del, 1, ii);
+			continue;
+		}
+		if (!ci(f_equip, 3, iic, type, ii))
+			rq_log("chara %s: character %d cannot equip item %d, it stays in the vault", k_gear[i].key, iic, no);
+	}
 }
 
 /* transform(ii, who): the same instance becomes another item. Keeps place and owner. */
@@ -1120,10 +1230,11 @@ int rq_lua_shop_on_buy(lua_State *L)
 
 /* ---- chest pools: rq.loot.add / remove / on_pick ---- */
 
-#define POOLS 4
+#define POOLS 5
 #define LOOT_MAX 64
-static const char *const k_pool_name[POOLS] = { "item", "special", "rare", "ultra" };
-static const char *const k_pool_fn[POOLS] = { "持ち物を選ぶ", "特殊を選ぶ", "レアアイテムを選ぶ", "ウルトラレアを選ぶ" };
+static const char *const k_pool_name[POOLS] = { "item", "special", "rare", "ultra", "gear" };
+/* 武器防具を選ぶ takes a ref int. wrap_tail passes its two local slots through as they are. */
+static const char *const k_pool_fn[POOLS] = { "持ち物を選ぶ", "特殊を選ぶ", "レアアイテムを選ぶ", "ウルトラレアを選ぶ", "武器防具を選ぶ" };
 static int g_pool_fno[POOLS];
 static int g_loot_on;
 static struct { int item, pool, unique; double chance; } g_ladd[LOOT_MAX];
@@ -1145,7 +1256,7 @@ static int pool_at(lua_State *L, int t, const char *key)
 	}
 	if (!pool) {
 		free(s);
-		return luaL_error(L, "loot pool must be item, special, rare or ultra");
+		return luaL_error(L, "loot pool must be item, special, rare, ultra or gear");
 	}
 	free(s);
 	return pool;
@@ -1226,7 +1337,7 @@ static int install_loot(lua_State *L)
 	for (i = 0; i < POOLS; i++)
 		wrap_tail(ain, g_pool_fno[i], VM_XSYS_LOOT_PICK);
 	g_loot_on = 1;
-	rq_log("item: chest pools (item, special, rare, ultra) wrapped for rq.loot");
+	rq_log("item: chest pools (item, special, rare, ultra, gear) wrapped for rq.loot");
 	return 1;
 }
 
