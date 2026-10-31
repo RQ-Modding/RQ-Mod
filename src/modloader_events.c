@@ -641,11 +641,13 @@ int rq_events_syscall(int code)
 		return 1;
 	case VM_XSYS_BATTLE_START:
 		rq_battle_flames_clear();
+		rq_battle_marks_live(1);
 		run_cbs(g_start_cb, g_nstart, local_get(0).i, 0, 1);
 		return 1;
 	case VM_XSYS_BATTLE_END: {
 		int re = stack_pop().i;
 		rq_battle_flames_clear();
+		rq_battle_marks_live(0);
 		run_cbs(g_end_cb, g_nend, 0, re, 0);
 		stack_push(re);
 		return 1;

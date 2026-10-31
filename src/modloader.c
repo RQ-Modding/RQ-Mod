@@ -397,6 +397,31 @@ static int patch_floats(struct ain *ain, int fno, float from, float to, int nth)
 	return hit;
 }
 
+/* PUSH immediates, the int side of patch_floats. */
+static int patch_ints(struct ain *ain, int fno, int32_t from, int32_t to, int nth)
+{
+	uint32_t ip, end = func_end_addr(ain, fno);
+	int hit = 0, n = 0;
+	for (ip = ain->functions[fno].address; ip + 6 <= end; ) {
+		uint16_t op = rd16(ain->code + ip);
+		int len = instr_len(op);
+		int32_t v = 0;
+		if (op == 0x00)
+			memcpy(&v, ain->code + ip + 2, 4);
+		if (op == 0x00 && v == from) {
+			if (nth < 0 || n == nth) {
+				memcpy(ain->code + ip + 2, &to, 4);
+				hit++;
+			}
+			n++;
+		}
+		if (len < 2)
+			len = 2;
+		ip += (uint32_t)len;
+	}
+	return hit;
+}
+
 static uint32_t find_op_after_float(struct ain *ain, int fno, float needle, uint16_t want_op, int nth_float)
 {
 	uint32_t start = ain->functions[fno].address;
@@ -868,6 +893,22 @@ static int l_patch_float(lua_State *L)
 	return 1;
 }
 
+static int l_patch_int(lua_State *L)
+{
+	const char *name = luaL_checkstring(L, 1);
+	int32_t from = (int32_t)luaL_checkinteger(L, 2);
+	int32_t to = (int32_t)luaL_checkinteger(L, 3);
+	int nth = (int)luaL_optinteger(L, 4, -1);
+	int fno;
+	if (!g_ain)
+		return luaL_error(L, "AIN not loaded");
+	fno = find_func_utf8(g_ain, name);
+	if (fno < 0)
+		return luaL_error(L, "function not found: %s", name);
+	lua_pushinteger(L, patch_ints(g_ain, fno, from, to, nth));
+	return 1;
+}
+
 static int l_agent_control(lua_State *L)
 {
 	const char *id = luaL_checkstring(L, 1);
@@ -927,6 +968,7 @@ static void open_rq(lua_State *L)
 
 	lua_newtable(L);
 	set_cfn(L, "patch_float", l_patch_float);
+	set_cfn(L, "patch_int", l_patch_int);
 	set_cfn(L, "skip_msgbox", l_skip_msgbox);
 	set_cfn(L, "find", l_find_funcs);
 	lua_setfield(L, -2, "ain");
@@ -1122,6 +1164,8 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "on_support", rq_lua_battle_on_support);
 	set_cfn(L, "install_flame", rq_lua_battle_install_flame);
 	set_cfn(L, "set_flame", rq_lua_battle_set_flame);
+	set_cfn(L, "set_buff", rq_lua_battle_set_buff);
+	set_cfn(L, "buffs", rq_lua_battle_buffs);
 	set_cfn(L, "get_drop", rq_lua_battle_get_drop);
 	set_cfn(L, "set_drop", rq_lua_battle_set_drop);
 	set_cfn(L, "in_ally_select", rq_lua_battle_in_ally_select);
@@ -1794,6 +1838,8 @@ void rq_mods_init(struct ain *ain)
 	open_rq(g_L);
 	n = load_mods(g_L);
 	rq_log("Loaded %d Lua mod(s). Ready.", n);
+	/* Vanilla buffs must all show with or without a mod asking for it. */
+	rq_battle_marks_install(ain);
 	/* Pipe comes up after the mod list is finished, so `mods` is complete. */
 	rq_mods_agent_start();
 }

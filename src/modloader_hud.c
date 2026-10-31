@@ -894,6 +894,33 @@ int rq_lua_hud_cg(lua_State *L)
 	return 2;
 }
 
+/* A mod buff on a battle card, in the spot of the game's Mark2. */
+void rq_hud_buff(int x, int y, int cg, int alpha, const char *text)
+{
+	struct hud_cmd *c;
+
+	if (alpha <= 0)
+		return;
+	c = push_cmd(HUD_CG);
+	if (!c)
+		return;
+	c->x = x;
+	c->y = y;
+	c->cg = cg;
+	c->a = alpha;
+	if (!text || !text[0] || alpha < 128)
+		return;
+	c = push_cmd(HUD_TEXT);
+	if (!c)
+		return;
+	c->text = strdup(text);
+	c->x = x + 13;
+	c->y = y + 17;
+	c->size = 22.0f;
+	c->r = c->g = c->b = 255;
+	c->a = 255;
+}
+
 int rq_lua_hud_hit(lua_State *L)
 {
 	int x = (int)luaL_checkinteger(L, 1);
@@ -952,6 +979,7 @@ int rq_hud_tick(void)
 	g_prev_left = g_left;
 	draw_version_banner();
 	rq_item_refresh();
+	rq_battle_marks_tick();
 	if (!L || g_on_frame_n == 0)
 		return g_drew;
 	for (int i = 0; i < g_on_frame_n; i++) {
@@ -988,7 +1016,10 @@ void rq_hud_draw(void)
 			if (!src)
 				continue;
 			r = RECT(c->x, c->y, src->w, src->h);
-			gfx_render_texture(src, &r);
+			if (c->a > 0 && c->a < 255)
+				gfx_blend_amap_alpha(gfx_main_surface(), c->x, c->y, src, 0, 0, src->w, src->h, c->a);
+			else
+				gfx_render_texture(src, &r);
 		} else if (c->kind == HUD_TEXT && c->text) {
 			Texture t;
 			Rectangle r;
