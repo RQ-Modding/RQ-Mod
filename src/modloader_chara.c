@@ -5,7 +5,8 @@
  * from the end of Ｃ再計算, the end of Ｔ購入スキル登録, the Ｃ防御力
  * call inside 物理ダメージ計算 (attack value is already final, defense is
  * not yet subtracted), the aa-bb site in 命中計算, and the tail of
- * 最終ダメージ計算 (optional final-damage percent).
+ * 最終ダメージ計算 (optional final-damage percent), and the 確率演算 roll
+ * inside クリティカル計算 (force or deny a critical).
  */
 
 #ifdef RQ_MODLOADER
@@ -33,9 +34,12 @@
 
 static int g_on;
 static int g_recalc_ref = LUA_NOREF;
-static int g_offer_ref = LUA_NOREF;
-static int g_phys_ref = LUA_NOREF;
-static int g_acc_ref = LUA_NOREF;
+#define OFFER_CB_MAX 16
+static int g_offer_refs[OFFER_CB_MAX], g_noffer;
+#define COMBAT_CB_MAX 16
+static int g_phys_refs[COMBAT_CB_MAX], g_nphys;
+static int g_acc_refs[COMBAT_CB_MAX], g_nacc;
+static int g_crit_refs[COMBAT_CB_MAX], g_ncrit;
 
 static int g_f_add = -1;
 static int g_f_rank = -1;
@@ -53,6 +57,8 @@ static int g_f_class = -1;
 static int g_f_def = -1;
 static int g_f_magic = -1;
 static int g_f_race = -1;
+static int g_f_type = -1;
+static int g_f_prob = -1;
 
 static int g_loc_paa = -1;
 static int g_loc_pi1 = -1;
@@ -62,9 +68,13 @@ static int g_loc_haa = -1;
 static int g_loc_hi1 = -1;
 static int g_loc_hi2 = -1;
 static int g_loc_his = -1;
+static int g_loc_ci1 = -1;
+static int g_loc_ci2 = -1;
+static int g_loc_cis = -1;
 static int g_gi_dm = -1;
 static int g_gi_offers = -1;
 static int g_gi_offer_pts = -1;
+static int g_gi_offer_n = -1;
 static int g_f_max_uses = -1;
 static int g_f_uses = -1;
 static int g_f_uses_max = -1;
@@ -283,36 +293,17 @@ static void chara_recalc(void)
 	rq_roster_apply(iic);
 }
 
-static void chara_offer(void)
-{
-	lua_State *L = rq_lua();
-	int iic = local_get(0).i;
-	int args[4];
-	int skill, cost, level;
+static struct page *global_array(int gi);
+static struct page *offer_page(void);
 
-	if (!L || g_offer_ref == LUA_NOREF)
-		return;
-	lua_rawgeti(L, LUA_REGISTRYINDEX, g_offer_ref);
-	lua_newtable(L);
-	lua_pushinteger(L, iic);
-	lua_setfield(L, -2, "iic");
-	args[0] = iic;
-	args[1] = -1;
-	lua_pushinteger(L, call_ints(g_f_no, args, 2));
-	lua_setfield(L, -2, "no");
-	lua_pushinteger(L, call_ints(g_f_lv, args, 2));
-	lua_setfield(L, -2, "level");
-	lua_pushinteger(L, call_ints(g_f_class, args, 2));
-	lua_setfield(L, -2, "class");
-	if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-		rq_log("chara on_offer error: %s", lua_tostring(L, -1));
-		lua_pop(L, 1);
-		return;
-	}
-	if (!lua_istable(L, -1)) {
-		lua_pop(L, 1);
-		return;
-	}
+/* One offer table on top of the Lua stack: {skill, cost, level, points?}.
+ * 取得可能スキル is filled by スキルレベル制限表示; points then replaces the
+ * price スキルポン worked out (no use-count bump, no cap of 9). */
+static void add_offer(lua_State *L, int iic)
+{
+	int args[4];
+	int skill, cost, level, points = 0, has_points;
+
 	lua_getfield(L, -1, "skill");
 	skill = lua_isnumber(L, -1) ? (int)lua_tointeger(L, -1) : 0;
 	lua_pop(L, 1);
@@ -322,18 +313,87 @@ static void chara_offer(void)
 	lua_getfield(L, -1, "level");
 	level = lua_isnumber(L, -1) ? (int)lua_tointeger(L, -1) : 0;
 	lua_pop(L, 1);
+	lua_getfield(L, -1, "points");
+	has_points = lua_isnumber(L, -1);
+	if (has_points)
+		points = (int)lua_tointeger(L, -1);
 	lua_pop(L, 1);
 	if (skill <= 0)
 		return;
 	args[0] = iic;
 	args[1] = skill;
-	args[2] = cost;
+	args[2] = has_points && cost <= 0 ? points : cost;
 	args[3] = level;
 	call_ints(g_f_offer, args, 4);
+	if (has_points && g_gi_offer_n >= 0) {
+		struct page *arr = offer_page();
+		struct page *pts = global_array(g_gi_offer_pts);
+		int idx = global_get(g_gi_offer_n).i;
+
+		/* Only a row that was written with a price (level met) is repriced. */
+		if (arr && pts && idx >= 0 && idx < arr->nr_vars && idx < pts->nr_vars
+		    && page_get_var(arr, idx).i == skill && page_get_var(pts, idx).i != 0) {
+			page_set_var(pts, idx, points);
+			rq_skilllist_note_offer(idx, skill, 1, points);
+		}
+	}
 }
 
-/* Stack holds Ｃ防御力's args. Pop them, let Lua replace local aa, call
- * defense, leave its return for the vanilla assign. */
+static void chara_offer(void)
+{
+	lua_State *L = rq_lua();
+	int iic = local_get(0).i;
+	int args[2];
+	int no, level, class_, k;
+
+	if (!L || g_noffer == 0)
+		return;
+	args[0] = iic;
+	args[1] = -1;
+	no = call_ints(g_f_no, args, 2);
+	level = call_ints(g_f_lv, args, 2);
+	class_ = call_ints(g_f_class, args, 2);
+	for (k = 0; k < g_noffer; k++) {
+		lua_rawgeti(L, LUA_REGISTRYINDEX, g_offer_refs[k]);
+		lua_newtable(L);
+		lua_pushinteger(L, iic);
+		lua_setfield(L, -2, "iic");
+		lua_pushinteger(L, no);
+		lua_setfield(L, -2, "no");
+		lua_pushinteger(L, level);
+		lua_setfield(L, -2, "level");
+		lua_pushinteger(L, class_);
+		lua_setfield(L, -2, "class");
+		if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+			rq_log("chara on_offer error: %s", lua_tostring(L, -1));
+			lua_pop(L, 1);
+			continue;
+		}
+		if (!lua_istable(L, -1)) {
+			lua_pop(L, 1);
+			continue;
+		}
+		lua_rawgeti(L, -1, 1);
+		if (lua_istable(L, -1)) {
+			/* a list of offers */
+			int i = 1;
+			do {
+				add_offer(L, iic);
+				lua_pop(L, 1);
+				lua_rawgeti(L, -1, ++i);
+			} while (lua_istable(L, -1));
+			lua_pop(L, 2);
+		} else {
+			lua_pop(L, 1);
+			add_offer(L, iic);
+			lua_pop(L, 1);
+		}
+	}
+}
+
+/* Stack holds Ｃ防御力's args. Pop them, let every Lua callback adjust local aa
+ * (each sees the attack the one before left) and multiply the final percent,
+ * call defense, leave its return for the vanilla assign. */
 static void combat_physical(void)
 {
 	lua_State *L = rq_lua();
@@ -348,33 +408,44 @@ static void combat_physical(void)
 		saved[i] = stack_pop().i;
 
 	g_final_pct = 100;
-	if (L && g_phys_ref != LUA_NOREF && g_loc_paa >= 0) {
-		args[0] = local_get(g_loc_pi1).i;
+	if (L && g_nphys > 0 && g_loc_paa >= 0) {
+		int attacker = local_get(g_loc_pi1).i;
+		int defender = local_get(g_loc_pi2).i;
+		int skill = local_get(g_loc_pis).i;
+		int magic, race, type;
+		args[0] = attacker;
 		args[1] = -1;
-		lua_rawgeti(L, LUA_REGISTRYINDEX, g_phys_ref);
-		lua_newtable(L);
-		lua_pushinteger(L, args[0]);
-		lua_setfield(L, -2, "attacker");
-		lua_pushinteger(L, local_get(g_loc_pi2).i);
-		lua_setfield(L, -2, "defender");
-		lua_pushinteger(L, local_get(g_loc_pis).i);
-		lua_setfield(L, -2, "skill");
-		lua_pushinteger(L, local_get(g_loc_paa).i);
-		lua_setfield(L, -2, "attack");
-		lua_pushinteger(L, call_ints(g_f_magic, args, 2));
-		lua_setfield(L, -2, "magic");
-		args[0] = local_get(g_loc_pi2).i;
-		lua_pushinteger(L, call_ints(g_f_race, args, 2));
-		lua_setfield(L, -2, "race");
-		if (lua_pcall(L, 1, 2, 0) != LUA_OK) {
-			rq_log("combat on_physical error: %s", lua_tostring(L, -1));
-			lua_pop(L, 1);
-		} else {
-			if (lua_isnumber(L, -2))
-				set_local(g_loc_paa, (int)lua_tointeger(L, -2));
-			if (lua_isnumber(L, -1))
-				g_final_pct = (int)lua_tointeger(L, -1);
-			lua_pop(L, 2);
+		magic = call_ints(g_f_magic, args, 2);
+		args[0] = defender;
+		race = call_ints(g_f_race, args, 2);
+		type = call_ints(g_f_type, args, 2);
+		for (i = 0; i < g_nphys; i++) {
+			lua_rawgeti(L, LUA_REGISTRYINDEX, g_phys_refs[i]);
+			lua_newtable(L);
+			lua_pushinteger(L, attacker);
+			lua_setfield(L, -2, "attacker");
+			lua_pushinteger(L, defender);
+			lua_setfield(L, -2, "defender");
+			lua_pushinteger(L, skill);
+			lua_setfield(L, -2, "skill");
+			lua_pushinteger(L, local_get(g_loc_paa).i);
+			lua_setfield(L, -2, "attack");
+			lua_pushinteger(L, magic);
+			lua_setfield(L, -2, "magic");
+			lua_pushinteger(L, race);
+			lua_setfield(L, -2, "race");
+			lua_pushinteger(L, type);
+			lua_setfield(L, -2, "defender_type");
+			if (lua_pcall(L, 1, 2, 0) != LUA_OK) {
+				rq_log("combat on_physical error: %s", lua_tostring(L, -1));
+				lua_pop(L, 1);
+			} else {
+				if (lua_isnumber(L, -2))
+					set_local(g_loc_paa, (int)lua_tointeger(L, -2));
+				if (lua_isnumber(L, -1))
+					g_final_pct = (int)((long long)g_final_pct * lua_tointeger(L, -1) / 100);
+				lua_pop(L, 2);
+			}
 		}
 	}
 
@@ -389,31 +460,82 @@ static void combat_accuracy(void)
 	lua_State *L = rq_lua();
 	int delta = 0;
 	int aa;
+	int i;
 
-	if (L && g_acc_ref != LUA_NOREF && g_loc_haa >= 0) {
-		lua_rawgeti(L, LUA_REGISTRYINDEX, g_acc_ref);
-		lua_newtable(L);
-		lua_pushinteger(L, local_get(g_loc_hi1).i);
-		lua_setfield(L, -2, "attacker");
-		lua_pushinteger(L, local_get(g_loc_hi2).i);
-		lua_setfield(L, -2, "defender");
-		lua_pushinteger(L, local_get(g_loc_his).i);
-		lua_setfield(L, -2, "skill");
-		if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-			rq_log("combat on_accuracy error: %s", lua_tostring(L, -1));
-			lua_pop(L, 1);
-		} else {
-			if (lua_isnumber(L, -1))
-				delta = (int)lua_tointeger(L, -1);
-			lua_pop(L, 1);
-		}
-		aa = local_get(g_loc_haa).i + delta;
-	} else if (g_loc_haa >= 0) {
-		aa = local_get(g_loc_haa).i;
-	} else {
-		aa = 0;
+	if (g_loc_haa < 0) {
+		stack_push(0);
+		return;
 	}
+	if (L && g_nacc > 0) {
+		for (i = 0; i < g_nacc; i++) {
+			lua_rawgeti(L, LUA_REGISTRYINDEX, g_acc_refs[i]);
+			lua_newtable(L);
+			lua_pushinteger(L, local_get(g_loc_hi1).i);
+			lua_setfield(L, -2, "attacker");
+			lua_pushinteger(L, local_get(g_loc_hi2).i);
+			lua_setfield(L, -2, "defender");
+			lua_pushinteger(L, local_get(g_loc_his).i);
+			lua_setfield(L, -2, "skill");
+			if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+				rq_log("combat on_accuracy error: %s", lua_tostring(L, -1));
+				lua_pop(L, 1);
+			} else {
+				if (lua_isnumber(L, -1))
+					delta += (int)lua_tointeger(L, -1);
+				lua_pop(L, 1);
+			}
+		}
+	}
+	aa = local_get(g_loc_haa).i + delta;
 	stack_push(aa);
+}
+
+/* The 確率演算(rate) call inside クリティカル計算 is replaced. The first Lua
+ * callback that returns true (force) or false (deny) decides; if none does,
+ * the vanilla roll runs. */
+static void combat_crit(void)
+{
+	lua_State *L = rq_lua();
+	int rate = stack_pop().i;
+	int args[2];
+	int i;
+
+	if (L && g_ncrit > 0) {
+		int attacker = local_get(g_loc_ci1).i;
+		int defender = local_get(g_loc_ci2).i;
+		int skill = local_get(g_loc_cis).i;
+		int type;
+		args[0] = defender;
+		args[1] = -1;
+		type = call_ints(g_f_type, args, 2);
+		for (i = 0; i < g_ncrit; i++) {
+			lua_rawgeti(L, LUA_REGISTRYINDEX, g_crit_refs[i]);
+			lua_newtable(L);
+			lua_pushinteger(L, attacker);
+			lua_setfield(L, -2, "attacker");
+			lua_pushinteger(L, defender);
+			lua_setfield(L, -2, "defender");
+			lua_pushinteger(L, skill);
+			lua_setfield(L, -2, "skill");
+			lua_pushinteger(L, rate);
+			lua_setfield(L, -2, "rate");
+			lua_pushinteger(L, type);
+			lua_setfield(L, -2, "defender_type");
+			if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+				rq_log("combat on_crit error: %s", lua_tostring(L, -1));
+				lua_pop(L, 1);
+			} else if (lua_isboolean(L, -1)) {
+				stack_push(lua_toboolean(L, -1) ? 1 : 0);
+				lua_pop(L, 1);
+				return;
+			} else {
+				lua_pop(L, 1);
+			}
+		}
+	}
+	stack_push(rate);
+	if (g_f_prob >= 0)
+		vm_call(g_f_prob, -1);
 }
 
 static void combat_final(void)
@@ -448,6 +570,9 @@ int rq_chara_syscall(int code)
 	case VM_XSYS_COMBAT_FINAL:
 		combat_final();
 		return 1;
+	case VM_XSYS_COMBAT_CRIT:
+		combat_crit();
+		return 1;
 	default:
 		return 0;
 	}
@@ -476,6 +601,32 @@ static int patch_defense_call(struct ain *a, int fno, int def_fno)
 	wr16(a->code + hit, CALLSYS);
 	wr32(a->code + hit + 2, VM_XSYS_COMBAT_PHYSICAL);
 	rq_log("combat: 物理ダメージ計算 defense call -> on_physical @ %u", hit);
+	return 1;
+}
+
+static int patch_crit_call(struct ain *a, int fno, int prob_fno)
+{
+	uint32_t start = a->functions[fno].address;
+	uint32_t end = func_end(a, fno);
+	uint32_t ip, hit = 0;
+	int n = 0;
+
+	for (ip = start; ip + 6 <= end; ) {
+		int len = insn_len(a->code + ip);
+		uint16_t op = rd16(a->code + ip) & (uint16_t)~OPTYPE_MASK;
+		if (op == CALLFUNC && rd32(a->code + ip + 2) == prob_fno) {
+			n++;
+			hit = ip;
+		}
+		ip += (uint32_t)len;
+	}
+	if (n != 1) {
+		rq_log("combat: 確率演算 calls in クリティカル計算 = %d (want 1)", n);
+		return 0;
+	}
+	wr16(a->code + hit, CALLSYS);
+	wr32(a->code + hit + 2, VM_XSYS_COMBAT_CRIT);
+	rq_log("combat: クリティカル計算 roll -> on_crit @ %u", hit);
 	return 1;
 }
 
@@ -511,7 +662,7 @@ static int patch_accuracy_sub(struct ain *a, int fno, int loc_aa, int loc_bb)
 
 int rq_chara_install(struct ain *a)
 {
-	int f_recalc, f_offer, f_phys, f_hit, f_final;
+	int f_recalc, f_offer, f_phys, f_hit, f_final, f_crit;
 
 	if (g_on)
 		return 1;
@@ -523,6 +674,9 @@ int rq_chara_install(struct ain *a)
 	f_phys = find_fn(a, "物理ダメージ計算");
 	f_hit = find_fn(a, "命中計算");
 	f_final = find_fn(a, "最終ダメージ計算");
+	f_crit = find_fn(a, "クリティカル計算");
+	g_f_prob = find_fn(a, "確率演算");
+	g_f_type = find_fn(a, "Ｃタイプ");
 	g_f_add = find_fn(a, "ＣＳ追加");
 	g_f_rank = find_fn(a, "ＣＳ有無／ランク");
 	g_f_slot = find_fn(a, "ＣＳ番号");
@@ -542,6 +696,7 @@ int rq_chara_install(struct ain *a)
 	g_gi_dm = find_global(a, "◆戦闘／ＤＭ");
 	g_gi_offers = find_global(a, "取得可能スキル");
 	g_gi_offer_pts = find_global(a, "取得可能スキルポイント");
+	g_gi_offer_n = find_global(a, "◆取得可能スキル番号");
 	g_f_max_uses = find_fn(a, "ＣＳ有無／最大回数");
 	g_f_uses = find_fn(a, "ＣＳ使用回数");
 	g_f_uses_max = find_fn(a, "ＣＳ使用回数最大");
@@ -549,6 +704,7 @@ int rq_chara_install(struct ain *a)
 	g_f_clear = find_fn(a, "ＣＳ初期化");
 
 	if (f_recalc < 0 || f_offer < 0 || f_phys < 0 || f_hit < 0 || f_final < 0
+	    || f_crit < 0 || g_f_prob < 0 || g_f_type < 0
 	    || g_f_add < 0 || g_f_rank < 0 || g_f_slot < 0 || g_f_owned < 0
 	    || g_f_cflavor < 0 || g_f_sflavor < 0 || g_f_weapon < 0
 	    || g_f_detail < 0 || g_f_mod < 0 || g_f_offer < 0 || g_f_no < 0
@@ -566,19 +722,25 @@ int rq_chara_install(struct ain *a)
 	g_loc_pi1 = find_local(a, f_phys, "iic1");
 	g_loc_pi2 = find_local(a, f_phys, "iic2");
 	g_loc_pis = find_local(a, f_phys, "iis");
+	g_loc_ci1 = find_local(a, f_crit, "iic1");
+	g_loc_ci2 = find_local(a, f_crit, "iic2");
+	g_loc_cis = find_local(a, f_crit, "iis");
 	g_loc_haa = find_local(a, f_hit, "aa");
 	g_loc_hi1 = find_local(a, f_hit, "iic1");
 	g_loc_hi2 = find_local(a, f_hit, "iic2");
 	g_loc_his = find_local(a, f_hit, "iis");
 	{
 		int bb = find_local(a, f_hit, "bb");
-		if (g_loc_paa < 0 || g_loc_haa < 0 || bb < 0) {
+		if (g_loc_paa < 0 || g_loc_haa < 0 || bb < 0
+		    || g_loc_ci1 < 0 || g_loc_ci2 < 0 || g_loc_cis < 0) {
 			rq_log("chara: local aa/bb missing");
 			return 0;
 		}
 		if (!patch_defense_call(a, f_phys, g_f_def))
 			return 0;
 		if (!patch_accuracy_sub(a, f_hit, g_loc_haa, bb))
+			return 0;
+		if (!patch_crit_call(a, f_crit, g_f_prob))
 			return 0;
 	}
 	if (!wrap_tail(a, f_recalc, VM_XSYS_CHARA_RECALC,
@@ -613,17 +775,37 @@ int rq_lua_chara_on_recalc(lua_State *L)
 
 int rq_lua_chara_on_offer(lua_State *L)
 {
-	return bind_fn(L, &g_offer_ref);
+	luaL_checktype(L, 1, LUA_TFUNCTION);
+	if (g_noffer >= OFFER_CB_MAX)
+		return luaL_error(L, "too many on_offer callbacks registered");
+	lua_pushvalue(L, 1);
+	g_offer_refs[g_noffer++] = luaL_ref(L, LUA_REGISTRYINDEX);
+	return 0;
+}
+
+static int add_combat_cb(lua_State *L, int *refs, int *n)
+{
+	luaL_checktype(L, 1, LUA_TFUNCTION);
+	if (*n >= COMBAT_CB_MAX)
+		return luaL_error(L, "too many combat callbacks registered");
+	lua_pushvalue(L, 1);
+	refs[(*n)++] = luaL_ref(L, LUA_REGISTRYINDEX);
+	return 0;
 }
 
 int rq_lua_combat_on_physical(lua_State *L)
 {
-	return bind_fn(L, &g_phys_ref);
+	return add_combat_cb(L, g_phys_refs, &g_nphys);
 }
 
 int rq_lua_combat_on_accuracy(lua_State *L)
 {
-	return bind_fn(L, &g_acc_ref);
+	return add_combat_cb(L, g_acc_refs, &g_nacc);
+}
+
+int rq_lua_combat_on_crit(lua_State *L)
+{
+	return add_combat_cb(L, g_crit_refs, &g_ncrit);
 }
 
 int rq_lua_chara_grant(lua_State *L)

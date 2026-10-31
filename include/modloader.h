@@ -62,6 +62,11 @@ int rq_events_install(struct ain *ain);
 int rq_events_syscall(int code);
 int rq_lua_battle_on_start(struct lua_State *L);
 int rq_lua_battle_on_end(struct lua_State *L);
+int rq_lua_battle_on_down(struct lua_State *L);
+int rq_lua_battle_on_support(struct lua_State *L);
+int rq_lua_battle_set_flame(struct lua_State *L);
+int rq_lua_battle_install_flame(struct lua_State *L);
+void rq_battle_flames_clear(void);
 int rq_lua_quests_on_clear(struct lua_State *L);
 int rq_lua_quests_state(struct lua_State *L);
 int rq_lua_quests_set_state(struct lua_State *L);
@@ -136,6 +141,7 @@ int rq_lua_store_delete(struct lua_State *L);
 int rq_lua_store_keys(struct lua_State *L);
 int rq_lua_combat_on_physical(struct lua_State *L);
 int rq_lua_combat_on_accuracy(struct lua_State *L);
+int rq_lua_combat_on_crit(struct lua_State *L);
 int rq_counter_install(struct ain *ain);
 int rq_counter_syscall(int code);
 int rq_lua_counter_on_guard_counter(struct lua_State *L);
@@ -286,7 +292,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "0.11.0"
+#define RQ_VERSION "0.13.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -376,6 +382,7 @@ static inline bool rq_image_has(int id) { (void)id; return false; }
 static inline struct cg *rq_image_load(int id) { (void)id; return NULL; }
 static inline bool rq_image_metrics(int id, struct cg_metrics *out) { (void)id; (void)out; return false; }
 static inline int rq_events_syscall(int code) { (void)code; return 0; }
+static inline void rq_battle_flames_clear(void) {}
 static inline int rq_item_syscall(int code) { (void)code; return 0; }
 static inline void rq_roster_apply(int iic) { (void)iic; }
 static inline int rq_hud_syscall(int code) { (void)code; return 0; }

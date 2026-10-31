@@ -1096,6 +1096,7 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "install", l_chara_install);
 	set_cfn(L, "on_physical", rq_lua_combat_on_physical);
 	set_cfn(L, "on_accuracy", rq_lua_combat_on_accuracy);
+	set_cfn(L, "on_crit", rq_lua_combat_on_crit);
 	lua_setfield(L, -2, "combat");
 
 	lua_newtable(L);
@@ -1116,6 +1117,10 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "on_select_key", rq_lua_battle_on_select_key);
 	set_cfn(L, "on_start", rq_lua_battle_on_start);
 	set_cfn(L, "on_end", rq_lua_battle_on_end);
+	set_cfn(L, "on_down", rq_lua_battle_on_down);
+	set_cfn(L, "on_support", rq_lua_battle_on_support);
+	set_cfn(L, "install_flame", rq_lua_battle_install_flame);
+	set_cfn(L, "set_flame", rq_lua_battle_set_flame);
 	set_cfn(L, "get_drop", rq_lua_battle_get_drop);
 	set_cfn(L, "set_drop", rq_lua_battle_set_drop);
 	set_cfn(L, "in_ally_select", rq_lua_battle_in_ally_select);

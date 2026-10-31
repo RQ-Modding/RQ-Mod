@@ -1,9 +1,12 @@
 /* Copyright (C) 2026 Rance Quest modding fork
  *
- * rq.battle.on_start / on_end. Installed the first time a mod registers one.
+ * rq.battle.on_start / on_end / on_down / on_support. Installed the first
+ * time a mod registers one.
  *   - tail of Ｔ戦闘前初期化: every start-of-battle effect of the base game has
  *     run (per-character skills, ambush, poison tea), PTA/PTB are filled.
  *   - head of 戦闘後処理(re): the battle result is known, the cleanup has not run.
+ *   - head of Ｃ状態変化(iic, state): on_down fires when the game sets state 3.
+ *   - head of Ｔ補助行動(user, target, skill): on_support, before its effects.
  */
 
 #ifdef RQ_MODLOADER
@@ -33,6 +36,10 @@
 static int g_on;
 static int g_start_cb[CB_MAX], g_nstart;
 static int g_end_cb[CB_MAX], g_nend;
+static int g_down_cb[CB_MAX], g_ndown;
+static int g_down_on;
+static int g_sup_cb[CB_MAX], g_nsup;
+static int g_sup_on;
 static int gi_pta = -2, gi_ptb = -2;
 static int gint(int *gi, const char *name);
 static int find_gi_utf(const char *utf8);
@@ -102,6 +109,131 @@ static void wrap_head1(struct ain *a, int fno, int sys)
 	emit0(&out, RETURN);
 	emit1(&out, ENDFUNC, fno);
 	commit_wrap(a, fno, &out);
+}
+
+/* Both args are pushed, CALLSYS reads them and puts them back, then the original runs. */
+static void wrap_head2(struct ain *a, int fno, int sys)
+{
+	int dup = ain_dup_function(a, fno);
+	struct buffer out;
+
+	buffer_init(&out, NULL, 0);
+	emit1(&out, FUNC, fno);
+	emit1(&out, SH_LOCALREF, 0);
+	emit1(&out, SH_LOCALREF, 1);
+	emit1(&out, CALLSYS, sys);
+	emit1(&out, CALLFUNC, dup);
+	emit0(&out, RETURN);
+	emit1(&out, ENDFUNC, fno);
+	commit_wrap(a, fno, &out);
+}
+
+/* Three args: the same idea as wrap_head2. */
+static void wrap_head3(struct ain *a, int fno, int sys)
+{
+	int dup = ain_dup_function(a, fno);
+	struct buffer out;
+
+	buffer_init(&out, NULL, 0);
+	emit1(&out, FUNC, fno);
+	emit1(&out, SH_LOCALREF, 0);
+	emit1(&out, SH_LOCALREF, 1);
+	emit1(&out, SH_LOCALREF, 2);
+	emit1(&out, CALLSYS, sys);
+	emit1(&out, CALLFUNC, dup);
+	emit0(&out, RETURN);
+	emit1(&out, ENDFUNC, fno);
+	commit_wrap(a, fno, &out);
+}
+
+static int install_support(struct ain *a)
+{
+	int f;
+
+	if (g_sup_on)
+		return 1;
+	if (!a)
+		return 0;
+	f = find_fn(a, "Ｔ補助行動");
+	if (f < 0 || a->functions[f].nr_args != 3) {
+		rq_log("events: Ｔ補助行動 missing or wrong arity (%d)", f);
+		return 0;
+	}
+	wrap_head3(a, f, VM_XSYS_BATTLE_SUPPORT);
+	g_sup_on = 1;
+	rq_log("events: Ｔ補助行動 head -> on_support");
+	return 1;
+}
+
+static void run_support(void)
+{
+	lua_State *L = rq_lua();
+	int skill = stack_pop().i;
+	int target = stack_pop().i;
+	int user = stack_pop().i;
+	int i;
+
+	if (L) {
+		for (i = 0; i < g_nsup; i++) {
+			lua_rawgeti(L, LUA_REGISTRYINDEX, g_sup_cb[i]);
+			lua_newtable(L);
+			lua_pushinteger(L, user);
+			lua_setfield(L, -2, "user");
+			lua_pushinteger(L, target);
+			lua_setfield(L, -2, "target");
+			lua_pushinteger(L, skill);
+			lua_setfield(L, -2, "skill");
+			if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+				rq_log("battle on_support error: %s", lua_tostring(L, -1));
+				lua_pop(L, 1);
+			}
+		}
+	}
+	stack_push(user);
+	stack_push(target);
+	stack_push(skill);
+}
+
+static int install_down(struct ain *a)
+{
+	int f;
+
+	if (g_down_on)
+		return 1;
+	if (!a)
+		return 0;
+	f = find_fn(a, "Ｃ状態変化");
+	if (f < 0 || a->functions[f].nr_args != 2) {
+		rq_log("events: Ｃ状態変化 missing or wrong arity (%d)", f);
+		return 0;
+	}
+	wrap_head2(a, f, VM_XSYS_BATTLE_DOWN);
+	g_down_on = 1;
+	rq_log("events: Ｃ状態変化 head -> on_down");
+	return 1;
+}
+
+static void run_down(void)
+{
+	lua_State *L = rq_lua();
+	int state = stack_pop().i;
+	int iic = stack_pop().i;
+	int i;
+
+	if (L && state == 3) {
+		for (i = 0; i < g_ndown; i++) {
+			lua_rawgeti(L, LUA_REGISTRYINDEX, g_down_cb[i]);
+			lua_newtable(L);
+			lua_pushinteger(L, iic);
+			lua_setfield(L, -2, "iic");
+			if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+				rq_log("battle on_down error: %s", lua_tostring(L, -1));
+				lua_pop(L, 1);
+			}
+		}
+	}
+	stack_push(iic);
+	stack_push(state);
 }
 
 int rq_events_install(struct ain *a)
@@ -498,11 +630,19 @@ int rq_events_syscall(int code)
 	case VM_XSYS_QUEST_CLEAR:
 		run_clear();
 		return 1;
+	case VM_XSYS_BATTLE_DOWN:
+		run_down();
+		return 1;
+	case VM_XSYS_BATTLE_SUPPORT:
+		run_support();
+		return 1;
 	case VM_XSYS_BATTLE_START:
+		rq_battle_flames_clear();
 		run_cbs(g_start_cb, g_nstart, local_get(0).i, 0, 1);
 		return 1;
 	case VM_XSYS_BATTLE_END: {
 		int re = stack_pop().i;
+		rq_battle_flames_clear();
 		run_cbs(g_end_cb, g_nend, 0, re, 0);
 		stack_push(re);
 		return 1;
@@ -532,6 +672,30 @@ int rq_lua_battle_on_start(lua_State *L)
 int rq_lua_battle_on_end(lua_State *L)
 {
 	return add_cb(L, g_end_cb, &g_nend);
+}
+
+int rq_lua_battle_on_support(lua_State *L)
+{
+	luaL_checktype(L, 1, LUA_TFUNCTION);
+	if (!ain || !install_support(ain))
+		return luaL_error(L, "battle on_support install failed (see mods/rqmod.log)");
+	if (g_nsup >= CB_MAX)
+		return luaL_error(L, "too many battle callbacks registered");
+	lua_pushvalue(L, 1);
+	g_sup_cb[g_nsup++] = luaL_ref(L, LUA_REGISTRYINDEX);
+	return 0;
+}
+
+int rq_lua_battle_on_down(lua_State *L)
+{
+	luaL_checktype(L, 1, LUA_TFUNCTION);
+	if (!ain || !install_down(ain))
+		return luaL_error(L, "battle on_down install failed (see mods/rqmod.log)");
+	if (g_ndown >= CB_MAX)
+		return luaL_error(L, "too many battle callbacks registered");
+	lua_pushvalue(L, 1);
+	g_down_cb[g_ndown++] = luaL_ref(L, LUA_REGISTRYINDEX);
+	return 0;
 }
 
 int rq_lua_quests_on_clear(lua_State *L)

@@ -58,6 +58,8 @@ static int g_fno_uses = -1;
 static int g_fno_uses_dec = -1;
 static int g_fno_lock = -1;
 
+static void flame_reapply(void);
+
 static void emit0(struct buffer *out, enum opcode op)
 {
 	buffer_write_int16(out, (uint16_t)op);
@@ -533,6 +535,9 @@ int rq_battle_syscall(int code)
 	case VM_XSYS_BATTLE_SELECT_EXEC:
 		battle_select_exec();
 		return 1;
+	case VM_XSYS_BATTLE_MARKS:
+		flame_reapply();
+		return 1;
 	default:
 		return 0;
 	}
@@ -644,6 +649,194 @@ int rq_lua_battle_skill_usable(lua_State *L)
 		ok = skill_usable_chara(chara, skill_no);
 
 	lua_pushboolean(L, ok);
+	return 1;
+}
+
+/*
+ * Ally flame. Allies already own a T_BattleMarkNum (m_sMark2) with the same
+ * "preparing" flame the enemies show before a charged attack, but the game
+ * never turns it on for them. Lua flags a character; the flame is switched on
+ * at once and again at the end of every ally status refresh (the refresh
+ * only ever clears a mark whose number matches, so it cannot erase it).
+ * Mark2 shows one mark at a time: Protect, Berserk and the like replace it.
+ */
+static int g_flame_on;
+static int g_flame_iic[5];
+static int g_fl_gi_pta = -1;
+static int g_fl_prepare = -1;
+static int g_fl_st_mgr = -1;
+static int g_fl_m_chara = -1;
+static int g_fl_m_mark2 = -1;
+static int g_fl_st_mark = -1;
+static int g_fl_gi = -2;
+
+/* iic in the ally slot no (1..5): PTA is filled before the battle UI exists. */
+static int flame_party_iic(int no)
+{
+	struct page *arr;
+	int slot;
+
+	if (g_fl_gi_pta < 0 || no < 1 || no > 5 || !heap || !heap_size || !heap[0].page)
+		return 0;
+	slot = global_get(g_fl_gi_pta).i;
+	if (!page_index_valid(slot))
+		return 0;
+	arr = heap_get_page(slot);
+	if (!arr || arr->type != ARRAY_PAGE || no >= arr->nr_vars)
+		return 0;
+	return arr->values[no].i;
+}
+
+static int flame_mark_slot(int no)
+{
+	struct page *mgr, *arr, *ch;
+	int slot;
+
+	if (no < 1 || no > 5 || g_fl_m_chara < 0 || g_fl_m_mark2 < 0)
+		return -1;
+	if (g_fl_gi == -2) {
+		char *sj = utf2sjis("g_sBattleChara", 0);
+		g_fl_gi = sj ? ain_get_global(ain, sj) : -1;
+		free(sj);
+	}
+	if (g_fl_gi < 0 || g_fl_gi >= ain->nr_globals || !heap || !heap_size || !heap[0].page)
+		return -1;
+	slot = global_get(g_fl_gi).i;
+	if (!page_index_valid(slot))
+		return -1;
+	mgr = heap_get_page(slot);
+	if (!mgr || mgr->type != STRUCT_PAGE || mgr->index != g_fl_st_mgr
+	    || g_fl_m_chara >= mgr->nr_vars)
+		return -1;
+	slot = mgr->values[g_fl_m_chara].i;
+	if (!page_index_valid(slot))
+		return -1;
+	arr = heap_get_page(slot);
+	if (!arr || arr->type != ARRAY_PAGE || no - 1 >= arr->nr_vars)
+		return -1;
+	slot = arr->values[no - 1].i;
+	if (!page_index_valid(slot))
+		return -1;
+	ch = heap_get_page(slot);
+	if (!ch || ch->type != STRUCT_PAGE || g_fl_m_mark2 >= ch->nr_vars)
+		return -1;
+	slot = ch->values[g_fl_m_mark2].i;
+	if (!page_index_valid(slot))
+		return -1;
+	ch = heap_get_page(slot);
+	return ch && ch->type == STRUCT_PAGE && ch->index == g_fl_st_mark ? slot : -1;
+}
+
+static void flame_set(int no, int on)
+{
+	int slot = flame_mark_slot(no);
+
+	if (slot < 0 || g_fl_prepare < 0)
+		return;
+	stack_push(on ? 1 : 0);
+	vm_call_method(g_fl_prepare, slot);
+	if (ain->functions[g_fl_prepare].return_type.data != AIN_VOID)
+		stack_pop();
+}
+
+static void flame_reapply(void)
+{
+	int no;
+
+	for (no = 1; no <= 5; no++) {
+		if (!g_flame_iic[no - 1])
+			continue;
+		if (flame_party_iic(no) != g_flame_iic[no - 1]) {
+			g_flame_iic[no - 1] = 0;
+			continue;
+		}
+		flame_set(no, 1);
+	}
+}
+
+/* Battle start and end: only forget the flags. The battle screen drops its own marks,
+ * and calling into it while it is torn down at the end of a fight crashes. */
+void rq_battle_flames_clear(void)
+{
+	memset(g_flame_iic, 0, sizeof g_flame_iic);
+}
+
+static void wrap_tail_ints(struct ain *a, int fno, int sys)
+{
+	int dup = ain_dup_function(a, fno);
+	int i;
+	struct buffer out;
+
+	buffer_init(&out, NULL, 0);
+	emit1(&out, FUNC, fno);
+	for (i = 0; i < a->functions[fno].nr_args; i++)
+		emit1(&out, SH_LOCALREF, i);
+	emit1(&out, CALLFUNC, dup);
+	emit1(&out, CALLSYS, sys);
+	emit0(&out, RETURN);
+	emit1(&out, ENDFUNC, fno);
+	commit_wrap(a, fno, &out);
+}
+
+static int flame_install(struct ain *a)
+{
+	int f_check, f_init, st;
+
+	if (g_flame_on)
+		return 1;
+	if (!a || !rq_events_install(a))
+		return 0;
+	f_check = find_fn(a, "戦闘味方_状態確認");
+	f_init = find_fn(a, "戦闘味方_初期状態確認");
+	g_fl_gi_pta = ain_get_global(a, "PTA");
+	g_fl_prepare = find_fn(a, "T_BattleMarkNum@setPrepare");
+	g_fl_st_mgr = find_struct(a, "T_BattleCharaManager");
+	g_fl_m_chara = find_member(a, g_fl_st_mgr, "m_asChara");
+	st = find_struct(a, "T_BattleChara");
+	g_fl_m_mark2 = find_member(a, st, "m_sMark2");
+	g_fl_st_mark = find_struct(a, "T_BattleMarkNum");
+	if (f_check < 0 || f_init < 0 || g_fl_gi_pta < 0 || g_fl_prepare < 0
+	    || g_fl_st_mgr < 0 || g_fl_m_chara < 0 || g_fl_m_mark2 < 0
+	    || g_fl_st_mark < 0) {
+		rq_log("battle: flame missing AIN (check=%d init=%d PTA=%d prepare=%d "
+		       "mgr=%d m_asChara=%d m_sMark2=%d)", f_check, f_init, g_fl_gi_pta,
+		       g_fl_prepare, g_fl_st_mgr, g_fl_m_chara, g_fl_m_mark2);
+		return 0;
+	}
+	wrap_tail_ints(a, f_check, VM_XSYS_BATTLE_MARKS);
+	wrap_tail_ints(a, f_init, VM_XSYS_BATTLE_MARKS);
+	g_flame_on = 1;
+	rq_log("battle: ally flame hooked (状態確認 tails re-apply it)");
+	return 1;
+}
+
+int rq_lua_battle_install_flame(lua_State *L)
+{
+	if (!ain || !flame_install(ain))
+		return luaL_error(L, "battle.install_flame failed (see mods/rqmod.log)");
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
+int rq_lua_battle_set_flame(lua_State *L)
+{
+	int iic = (int)luaL_checkinteger(L, 1);
+	int on = lua_toboolean(L, 2);
+	int no;
+
+	if (!g_flame_on)
+		return luaL_error(L, "call rq.battle.install_flame() first");
+	for (no = 1; no <= 5; no++) {
+		if (iic > 0 && flame_party_iic(no) == iic)
+			break;
+	}
+	if (no > 5) {
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+	g_flame_iic[no - 1] = on ? iic : 0;
+	flame_set(no, on);
+	lua_pushboolean(L, 1);
 	return 1;
 }
 
