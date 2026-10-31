@@ -67,6 +67,11 @@ int rq_lua_skill_define(struct lua_State *L);
 int rq_lua_skill_patch(struct lua_State *L);
 int rq_events_install(struct ain *ain);
 int rq_events_syscall(int code);
+/* Scenes: rq.ain.call, rq.ain.hook, rq.scene (modloader_scene.c). */
+extern int g_rq_scene_ret_on;
+int rq_scene_syscall(int code);
+void rq_scene_on_return(int fno);
+void rq_scene_open(struct lua_State *L, int rq_index);
 int rq_lua_battle_on_start(struct lua_State *L);
 int rq_lua_battle_on_end(struct lua_State *L);
 int rq_lua_battle_on_down(struct lua_State *L);
@@ -314,7 +319,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "0.17.0"
+#define RQ_VERSION "0.18.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -407,6 +412,7 @@ static inline bool rq_image_has(int id) { (void)id; return false; }
 static inline struct cg *rq_image_load(int id) { (void)id; return NULL; }
 static inline bool rq_image_metrics(int id, struct cg_metrics *out) { (void)id; (void)out; return false; }
 static inline int rq_events_syscall(int code) { (void)code; return 0; }
+static inline int rq_scene_syscall(int code) { (void)code; return 0; }
 static inline void rq_battle_flames_clear(void) {}
 static inline void rq_battle_marks_live(int on) { (void)on; }
 static inline int rq_item_syscall(int code) { (void)code; return 0; }

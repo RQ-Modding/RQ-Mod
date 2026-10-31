@@ -1181,6 +1181,7 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "find", l_find_funcs);
 
 	rq_query_bind(L);
+	rq_scene_open(L, lua_gettop(L));
 	lua_setglobal(L, "rq");
 }
 

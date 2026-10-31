@@ -1,0 +1,633 @@
+/* Copyright (C) 2026 Rance Quest modding fork
+ *
+ * Scenes and dialogue. Three layers:
+ *   - rq.ain.call: call any AIN function by name with int, bool, float or
+ *     string arguments. A scene command blocks until it ends, because vm_call
+ *     runs a nested VM loop.
+ *   - rq.ain.hook: run Lua before or after any AIN function, read and change
+ *     its arguments and result, or skip it. Needs no frame of its own: the head
+ *     stays in the function's frame and jumps to the body, and "after" fires
+ *     from the RETURN opcode, so every return path is covered.
+ *   - rq.scene and rq.quests.on_event, written in Lua over the two above.
+ */
+
+#ifdef RQ_MODLOADER
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+
+#include "lua.h"
+#include "lauxlib.h"
+
+#include "system4.h"
+#include "system4/ain.h"
+#include "system4/buffer.h"
+#include "system4/instructions.h"
+#include "system4/string.h"
+#include "system4/utfsjis.h"
+
+#include "modloader.h"
+#include "modloader_priv.h"
+#define VM_PRIVATE
+#include "vm.h"
+#include "vm/heap.h"
+#include "vm/page.h"
+
+#define HOOK_MAX 256
+#define HOOK_CB_MAX 16
+#define ARG_MAX 32
+
+struct hook {
+	int fno;
+	int before[HOOK_CB_MAX], nbefore;
+	int after[HOOK_CB_MAX], nafter;
+	int running;
+};
+
+static struct hook g_hooks[HOOK_MAX];
+static int g_nhooks;
+static uint16_t *g_ret_map;
+static int g_ret_n;
+int g_rq_scene_ret_on;
+
+static int find_fn(const char *utf8)
+{
+	char *sjis = utf2sjis(utf8, 0);
+	int fno;
+
+	if (!sjis)
+		return -1;
+	fno = ain_get_function(ain, sjis);
+	free(sjis);
+	return fno;
+}
+
+static int new_str(const char *utf)
+{
+	char *sj = utf2sjis(utf ? utf : "", 0);
+	struct string *s;
+	int slot;
+
+	if (!sj)
+		sj = strdup("");
+	s = make_string(sj, strlen(sj));
+	free(sj);
+	slot = heap_alloc_slot(VM_STRING);
+	heap[slot].s = s;
+	return slot;
+}
+
+static void push_str_slot(lua_State *L, int slot)
+{
+	char *u;
+
+	if (slot < 0 || (size_t)slot >= heap_size || !heap[slot].s) {
+		lua_pushliteral(L, "");
+		return;
+	}
+	u = sjis2utf(heap[slot].s->text, 0);
+	lua_pushstring(L, u ? u : "");
+	free(u);
+}
+
+static int is_plain(int t)
+{
+	return t == AIN_INT || t == AIN_LONG_INT || t == AIN_BOOL || t == AIN_FLOAT || t == AIN_STRING;
+}
+
+static void push_value(lua_State *L, int t, union vm_value v)
+{
+	switch (t) {
+	case AIN_INT:
+	case AIN_LONG_INT:
+		lua_pushinteger(L, v.i);
+		break;
+	case AIN_BOOL:
+		lua_pushboolean(L, v.i != 0);
+		break;
+	case AIN_FLOAT:
+		lua_pushnumber(L, v.f);
+		break;
+	case AIN_STRING:
+		push_str_slot(L, v.i);
+		break;
+	default:
+		lua_pushnil(L);
+		break;
+	}
+}
+
+/* A new value from the Lua stack. Strings come back as a new slot the VM owns. */
+static union vm_value lua_value(lua_State *L, int idx, int t)
+{
+	union vm_value v;
+
+	v.i = 0;
+	switch (t) {
+	case AIN_FLOAT:
+		v.f = (float)lua_tonumber(L, idx);
+		break;
+	case AIN_BOOL:
+		v.i = lua_toboolean(L, idx);
+		break;
+	case AIN_STRING:
+		v.i = new_str(lua_tostring(L, idx));
+		break;
+	default:
+		v.i = lua_isboolean(L, idx) ? lua_toboolean(L, idx) : (int)lua_tointeger(L, idx);
+		break;
+	}
+	return v;
+}
+
+/* ---- rq.ain.call ---- */
+
+static int l_call(lua_State *L)
+{
+	const char *name = luaL_checkstring(L, 1);
+	int fno, i, n, want = 0, rt;
+	struct ain_function *fn;
+
+	if (!ain || !heap || !heap_size || !heap[0].page)
+		return luaL_error(L, "rq.ain.call: the game is not running yet");
+	fno = find_fn(name);
+	if (fno < 0)
+		return luaL_error(L, "rq.ain.call: no function named %s", name);
+	fn = &ain->functions[fno];
+	n = lua_gettop(L) - 1;
+	for (i = 0; i < fn->nr_args; i++) {
+		int t = fn->vars[i].type.data;
+		if (t == AIN_VOID)
+			continue;
+		if (!is_plain(t))
+			return luaL_error(L, "rq.ain.call: %s: argument %d is a reference or a struct", name, want + 1);
+		want++;
+	}
+	if (n != want)
+		return luaL_error(L, "rq.ain.call: %s takes %d arguments, got %d", name, want, n);
+	/* Check first: nothing may be left on the VM stack by a Lua error. */
+	for (i = 0, n = 2; i < fn->nr_args; i++) {
+		int t = fn->vars[i].type.data;
+		if (t == AIN_VOID)
+			continue;
+		if (t == AIN_STRING)
+			luaL_checkstring(L, n);
+		else if (t == AIN_FLOAT || t == AIN_INT || t == AIN_LONG_INT) {
+			if (!lua_isboolean(L, n))
+				luaL_checknumber(L, n);
+		}
+		n++;
+	}
+	for (i = 0, n = 2; i < fn->nr_args; i++) {
+		int t = fn->vars[i].type.data;
+		if (t == AIN_VOID)
+			continue;
+		stack_push(lua_value(L, n++, t));
+	}
+	vm_call(fno, -1);
+	rt = ain->functions[fno].return_type.data;
+	if (rt == AIN_VOID)
+		return 0;
+	{
+		union vm_value r = stack_pop();
+		if (!is_plain(rt)) {
+			if (rt == AIN_STRUCT)
+				heap_unref(r.i);
+			return 0;
+		}
+		push_value(L, rt, r);
+		if (rt == AIN_STRING)
+			heap_unref(r.i);
+	}
+	return 1;
+}
+
+/* ---- rq.ain.hook ---- */
+
+static struct hook *hook_for(int fno)
+{
+	struct buffer out;
+	uint32_t base, target;
+	int id, i;
+
+	for (i = 0; i < g_nhooks; i++) {
+		if (g_hooks[i].fno == fno)
+			return &g_hooks[i];
+	}
+	if (g_nhooks >= HOOK_MAX)
+		return NULL;
+	id = g_nhooks++;
+	g_hooks[id].fno = fno;
+
+	/* FUNC; PUSH id; CALLSYS; IFZ body; RETURN; body: JUMP original */
+	base = ain->code_size;
+	target = base + 6 + 6 + 6 + 6 + 2;
+	buffer_init(&out, NULL, 0);
+	buffer_write_int16(&out, (uint16_t)FUNC);
+	buffer_write_int32(&out, (uint32_t)fno);
+	buffer_write_int16(&out, (uint16_t)PUSH);
+	buffer_write_int32(&out, (uint32_t)id);
+	buffer_write_int16(&out, (uint16_t)CALLSYS);
+	buffer_write_int32(&out, (uint32_t)VM_XSYS_SCENE_BEFORE);
+	buffer_write_int16(&out, (uint16_t)IFZ);
+	buffer_write_int32(&out, target);
+	buffer_write_int16(&out, (uint16_t)RETURN);
+	buffer_write_int16(&out, (uint16_t)JUMP);
+	buffer_write_int32(&out, ain->functions[fno].address);
+	ain->code = xrealloc(ain->code, ain->code_size + out.index);
+	memcpy(ain->code + ain->code_size, out.buf, out.index);
+	ain->code_size += out.index;
+	ain->functions[fno].address = base + 6;
+	free(out.buf);
+	return &g_hooks[id];
+}
+
+static void ret_map_set(int fno, int id)
+{
+	if (fno >= g_ret_n) {
+		int n = ain->nr_functions + 64;
+		g_ret_map = xrealloc(g_ret_map, n * sizeof *g_ret_map);
+		memset(g_ret_map + g_ret_n, 0, (n - g_ret_n) * sizeof *g_ret_map);
+		g_ret_n = n;
+	}
+	g_ret_map[fno] = (uint16_t)(id + 1);
+	g_rq_scene_ret_on = 1;
+}
+
+/* rq.ain.hook(name, { before = fn, after = fn }) */
+static int l_hook(lua_State *L)
+{
+	const char *name = luaL_checkstring(L, 1);
+	struct hook *h;
+	int fno;
+
+	luaL_checktype(L, 2, LUA_TTABLE);
+	if (!ain)
+		return luaL_error(L, "rq.ain.hook: no game loaded");
+	fno = find_fn(name);
+	if (fno < 0)
+		return luaL_error(L, "rq.ain.hook: no function named %s", name);
+	h = hook_for(fno);
+	if (!h)
+		return luaL_error(L, "rq.ain.hook: too many hooked functions");
+	lua_getfield(L, 2, "before");
+	if (lua_isfunction(L, -1)) {
+		if (h->nbefore >= HOOK_CB_MAX)
+			return luaL_error(L, "rq.ain.hook: too many callbacks on %s", name);
+		h->before[h->nbefore++] = luaL_ref(L, LUA_REGISTRYINDEX);
+	} else {
+		lua_pop(L, 1);
+	}
+	lua_getfield(L, 2, "after");
+	if (lua_isfunction(L, -1)) {
+		if (h->nafter >= HOOK_CB_MAX)
+			return luaL_error(L, "rq.ain.hook: too many callbacks on %s", name);
+		h->after[h->nafter++] = luaL_ref(L, LUA_REGISTRYINDEX);
+		ret_map_set(fno, (int)(h - g_hooks));
+	} else {
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+/* The table a callback gets: { name, args = {...} }. The current frame is the hooked function. */
+static void push_ctx(lua_State *L, struct ain_function *fn, char *name_utf)
+{
+	int i, n = 1;
+
+	lua_newtable(L);
+	lua_pushstring(L, name_utf ? name_utf : "");
+	lua_setfield(L, -2, "name");
+	lua_newtable(L);
+	for (i = 0; i < fn->nr_args; i++) {
+		int t = fn->vars[i].type.data;
+		if (t == AIN_VOID)
+			continue;
+		if (is_plain(t)) {
+			push_value(L, t, local_get(i));
+			lua_rawseti(L, -2, n);
+		}
+		n++;
+	}
+	lua_setfield(L, -2, "args");
+}
+
+/* Copy ctx.args back into the frame. Only what the callback changed. */
+static void pull_args(lua_State *L, int ctx, struct ain_function *fn)
+{
+	struct page *page = heap_get_page(call_stack[call_stack_ptr - 1].page_slot);
+	int i, n = 1;
+
+	lua_getfield(L, ctx, "args");
+	for (i = 0; i < fn->nr_args; i++) {
+		int t = fn->vars[i].type.data;
+		if (t == AIN_VOID)
+			continue;
+		if (is_plain(t)) {
+			int same;
+			lua_rawgeti(L, -1, n);
+			push_value(L, t, local_get(i));
+			same = lua_rawequal(L, -1, -2);
+			lua_pop(L, 1);
+			if (!same && !lua_isnil(L, -1)) {
+				if (t == AIN_STRING)
+					heap_unref(page->values[i].i);
+				page->values[i] = lua_value(L, -1, t);
+			}
+			lua_pop(L, 1);
+		}
+		n++;
+	}
+	lua_pop(L, 1);
+}
+
+static void run_cbs(lua_State *L, int *cbs, int n, int ctx, const char *tag)
+{
+	int i;
+
+	for (i = 0; i < n; i++) {
+		lua_rawgeti(L, LUA_REGISTRYINDEX, cbs[i]);
+		lua_pushvalue(L, ctx);
+		if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+			rq_log("ain.hook %s error: %s", tag, lua_tostring(L, -1));
+			lua_pop(L, 1);
+		}
+	}
+}
+
+/* Stack: id. Leaves [result] flag; flag != 0 returns from the function. */
+static void hook_before(void)
+{
+	int id = stack_pop().i;
+	struct hook *h = &g_hooks[id];
+	struct ain_function *fn = &ain->functions[h->fno];
+	lua_State *L = rq_lua();
+	int top, ctx, skip = 0, rt = fn->return_type.data;
+	char *utf;
+
+	if (!L || !h->nbefore || h->running) {
+		stack_push(0);
+		return;
+	}
+	top = lua_gettop(L);
+	utf = sjis2utf(fn->name, 0);
+	push_ctx(L, fn, utf);
+	ctx = lua_gettop(L);
+	h->running = 1;
+	run_cbs(L, h->before, h->nbefore, ctx, "before");
+	h->running = 0;
+	pull_args(L, ctx, fn);
+	lua_getfield(L, ctx, "skip");
+	skip = lua_toboolean(L, -1);
+	lua_pop(L, 1);
+	if (skip && rt != AIN_VOID && !is_plain(rt)) {
+		rq_log("ain.hook: cannot skip %s, it returns a struct", utf ? utf : "?");
+		skip = 0;
+	}
+	if (skip && rt != AIN_VOID) {
+		lua_getfield(L, ctx, "result");
+		if (lua_isnil(L, -1) && rt == AIN_STRING) {
+			lua_pop(L, 1);
+			lua_pushliteral(L, "");
+		}
+		stack_push(lua_value(L, -1, rt));
+		lua_pop(L, 1);
+	}
+	free(utf);
+	lua_settop(L, top);
+	stack_push(skip ? 1 : 0);
+}
+
+/* Called by RETURN with the return value on top of the stack. */
+void rq_scene_on_return(int fno)
+{
+	struct hook *h;
+	struct ain_function *fn;
+	lua_State *L;
+	int top, ctx, rt;
+	char *utf;
+
+	if (fno < 0 || fno >= g_ret_n || !g_ret_map[fno])
+		return;
+	h = &g_hooks[g_ret_map[fno] - 1];
+	L = rq_lua();
+	if (!L || h->running)
+		return;
+	fn = &ain->functions[fno];
+	rt = fn->return_type.data;
+	top = lua_gettop(L);
+	utf = sjis2utf(fn->name, 0);
+	push_ctx(L, fn, utf);
+	ctx = lua_gettop(L);
+	if (is_plain(rt)) {
+		push_value(L, rt, stack_peek(0));
+		lua_setfield(L, ctx, "result");
+	}
+	h->running = 1;
+	run_cbs(L, h->after, h->nafter, ctx, "after");
+	h->running = 0;
+	if (is_plain(rt)) {
+		int same;
+		lua_getfield(L, ctx, "result");
+		push_value(L, rt, stack_peek(0));
+		same = lua_rawequal(L, -1, -2);
+		lua_pop(L, 1);
+		if (!same && !lua_isnil(L, -1)) {
+			union vm_value old = stack_pop();
+			if (rt == AIN_STRING)
+				heap_unref(old.i);
+			stack_push(lua_value(L, -1, rt));
+		}
+	}
+	free(utf);
+	lua_settop(L, top);
+}
+
+int rq_scene_syscall(int code)
+{
+	if (code == VM_XSYS_SCENE_BEFORE) {
+		hook_before();
+		return 1;
+	}
+	return 0;
+}
+
+/* ---- rq.quests.current ---- */
+
+static int l_quest_current(lua_State *L)
+{
+	static int gi = -2;
+
+	if (gi == -2) {
+		char *sj = utf2sjis("◆iiq", 0);
+		int i;
+		gi = -1;
+		for (i = 0; sj && i < ain->nr_globals; i++) {
+			if (!strcmp(ain->globals[i].name, sj)) {
+				gi = i;
+				break;
+			}
+		}
+		free(sj);
+	}
+	if (gi < 0 || !heap || !heap_size || !heap[0].page) {
+		lua_pushinteger(L, 0);
+		return 1;
+	}
+	lua_pushinteger(L, global_get(gi).i);
+	return 1;
+}
+
+/* ---- the Lua layer ---- */
+
+static const char lua_layer[] =
+"local rq = ...\n"
+"local call, hook = rq.ain.call, rq.ain.hook\n"
+"local scene = {}\n"
+"scene.cmd = setmetatable({}, { __index = function(_, name)\n"
+"  return function(...) return call(name, ...) end\n"
+"end })\n"
+"local function text_lines(text, wait)\n"
+"  local first = true\n"
+"  for line in (tostring(text) .. '\\n'):gmatch('(.-)\\n') do\n"
+"    if not first then call('R') end\n"
+"    call('S', line)\n"
+"    first = false\n"
+"  end\n"
+"  call(wait == false and 'B' or 'A')\n"
+"end\n"
+"function scene.begin() call('ADVON') end\n"
+"function scene.finish() call('枠消去') call('ADVOFF') end\n"
+"function scene.play(fn, ...)\n"
+"  scene.begin()\n"
+"  local r = table.pack(pcall(fn, scene, ...))\n"
+"  scene.finish()\n"
+"  if not r[1] then rq.log('scene error: ' .. tostring(r[2])) return nil end\n"
+"  return table.unpack(r, 2, r.n)\n"
+"end\n"
+"function scene.once(id, fn, ...)\n"
+"  if scene.seen(id) then return false end\n"
+"  scene.seen(id, true)\n"
+"  scene.play(fn, ...)\n"
+"  return true\n"
+"end\n"
+"function scene.seen(id, set)\n"
+"  if set == nil then return call('EV', id, -2147483648) end\n"
+"  return call('EV', id, set and 1 or 0)\n"
+"end\n"
+"function scene.say(face, text, o)\n"
+"  o = o or {}\n"
+"  local f = o.page and 'セリフＥ' or (o.face == false and 'セリフ２' or 'セリフ')\n"
+"  call(f, face, o.name or '')\n"
+"  text_lines(text, o.wait)\n"
+"end\n"
+"function scene.think(face, text, o)\n"
+"  o = o or {}\n"
+"  local f = o.page and '思考Ｅ' or (o.face == false and '思考２' or '思考')\n"
+"  call(f, face, o.name or '')\n"
+"  text_lines(text, o.wait)\n"
+"end\n"
+"function scene.narrate(text, o)\n"
+"  o = o or {}\n"
+"  call(o.paper and 'ト書き_paper' or (o.page and 'ト書きＥ' or 'ト書き'))\n"
+"  text_lines(text, o.wait)\n"
+"end\n"
+"function scene.text(s) call('S', s) end\n"
+"function scene.br() call('R') end\n"
+"function scene.wait() call('A') end\n"
+"function scene.show() call('B') end\n"
+"function scene.clear_text() call('枠消去') end\n"
+"function scene.speed(ms) call('字速度', ms) end\n"
+"function scene.wallpaper(cg, e, t) call('壁紙表示', cg, e or 1, t or 500) end\n"
+"function scene.mask_wallpaper(cg, e, t) call('マスク壁紙表示', cg, e or 1, t or 500) end\n"
+"function scene.background(cg, e, t, name, flag) call('背景表示', cg, e or 1, t or 500, name or '', flag or false) end\n"
+"function scene.background_in(cg, t, name, flag) call('背景イン', cg, t or 500, name or '', flag or false) end\n"
+"function scene.background_out(t) call('背景アウト', t or 500) end\n"
+"function scene.portrait(cg, e, t) call('立ち絵表示', cg, e or 1, t or 200) end\n"
+"function scene.mini(cg, e, t) call('ミニイベント表示', cg, e or 1, t or 200) end\n"
+"function scene.cg(cg, e, t) call('イベントＣＧ表示', cg, e or 1, t or 500) end\n"
+"function scene.set(wall, back, portrait, mini) call('セット表示', wall or 0, back or 0, portrait or 0, mini or 0) end\n"
+"function scene.effect_set(e, wall, back, portrait, mini, ecg) call('エフェクトセット表示', e or 1, wall or 0, back or 0, portrait or 0, mini or 0, ecg or 0) end\n"
+"function scene.black(e, t) call('黒画面', e or 1, t or 500) end\n"
+"function scene.white(e, t) call('白画面', e or 1, t or 500) end\n"
+"function scene.flash(t) call('画面フラッシュ', t or 200) end\n"
+"function scene.shake(mode, flag) call('全画面揺れ', mode or 1, flag or false) end\n"
+"function scene.shake_face(mode, flag) call('顔揺れ', mode or 1, flag or false) end\n"
+"function scene.shake_portrait(mode, flag) call('立ち絵揺れ', mode or 1, flag or false) end\n"
+"function scene.music(no, e, t) call('音楽', no, e or -1, t or -1) end\n"
+"function scene.sound(no) call('効果音', no) end\n"
+"function scene.jingle(no, wait) call('Ｒ８ジングル', no, wait or false) end\n"
+"function scene.clear() call('画面消去') end\n"
+"function scene.wait_click() return call('キー待ち_クリック') end\n"
+"function scene.register_face(cg, name, tone) call('顔登録', cg, name, tone or 1) end\n"
+"function scene.choice(items, o)\n"
+"  o = o or {}\n"
+"  if o.x then call('選択_位置設定', o.x, o.y or 360) else call('選択初期') end\n"
+"  for i, it in ipairs(items) do\n"
+"    if it == '-' then\n"
+"      call('選択_区切り追加')\n"
+"    elseif type(it) == 'string' then\n"
+"      call('選択_項目追加', i, it, -1, -1, -1, '', -1)\n"
+"    else\n"
+"      call('選択_項目追加', it.id or i, it.text, it.r or -1, it.g or -1, it.b or -1, it.comment or '', it.sound or -1)\n"
+"    end\n"
+"  end\n"
+"  return call('選択_実行', o.cancel or false, 0, 0, false)\n"
+"end\n"
+"function scene.before(name, fn) hook(name, { before = fn }) end\n"
+"function scene.after(name, fn) hook(name, { after = fn }) end\n"
+"function scene.replace(name, fn)\n"
+"  hook(name, { before = function(h)\n"
+"    h.skip = true\n"
+"    local r = fn(h)\n"
+"    if r ~= nil then h.result = r end\n"
+"  end })\n"
+"end\n"
+"rq.scene = scene\n"
+"local kinds = { [4] = 'map_event', [5] = 'warp', [6] = 'warp_cancel', [7] = 'before_battle',\n"
+"  [8] = 'after_battle', [9] = 'chest', [10] = 'contact', [11] = 'before_warp' }\n"
+"local function event_of(h)\n"
+"  local a = h.args\n"
+"  local kind = a[1] == 8 and 'start' or (a[1] == 7 and 'map_load' or kinds[a[3]] or 'other')\n"
+"  return { quest = rq.quests.current(), kind = kind, no = a[2], code = a[1], fg = a[3], result = h.result }\n"
+"end\n"
+"function rq.quests.on_event(fn)\n"
+"  hook('クエスト処理', { before = function(h)\n"
+"    local r = fn(event_of(h))\n"
+"    if r ~= nil then h.skip = true h.result = r end\n"
+"  end })\n"
+"end\n"
+"function rq.quests.on_event_after(fn)\n"
+"  hook('クエスト処理', { after = function(h)\n"
+"    local r = fn(event_of(h))\n"
+"    if r ~= nil then h.result = r end\n"
+"  end })\n"
+"end\n";
+
+void rq_scene_open(lua_State *L, int rq_index)
+{
+	lua_getfield(L, rq_index, "ain");
+	lua_pushcfunction(L, l_call);
+	lua_setfield(L, -2, "call");
+	lua_pushcfunction(L, l_hook);
+	lua_setfield(L, -2, "hook");
+	lua_pop(L, 1);
+	lua_getfield(L, rq_index, "quests");
+	lua_pushcfunction(L, l_quest_current);
+	lua_setfield(L, -2, "current");
+	lua_pop(L, 1);
+	if (luaL_loadstring(L, lua_layer) != LUA_OK) {
+		rq_log("scene layer: %s", lua_tostring(L, -1));
+		lua_pop(L, 1);
+		return;
+	}
+	lua_pushvalue(L, rq_index);
+	if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+		rq_log("scene layer: %s", lua_tostring(L, -1));
+		lua_pop(L, 1);
+	}
+}
+
+#endif /* RQ_MODLOADER */
