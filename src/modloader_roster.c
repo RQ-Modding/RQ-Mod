@@ -269,6 +269,14 @@ static struct page *slot_page(int slot)
 	return heap_get_page(slot);
 }
 
+static struct page *cpage(int iic);
+
+/* A number past Ｃ is a fatal VM error in the game's getters, so calls check it first. */
+int rq_chara_exists(int iic)
+{
+	return cpage(iic) != NULL;
+}
+
 static struct page *cpage(int iic)
 {
 	struct page *arr;
@@ -1214,7 +1222,7 @@ int rq_lua_chara_skill_points(lua_State *L)
 {
 	int iic = (int)luaL_checkinteger(L, 1);
 	ensure(L);
-	lua_pushinteger(L, ci(f_points, 2, iic, -1));
+	lua_pushinteger(L, cpage(iic) ? ci(f_points, 2, iic, -1) : 0);
 	return 1;
 }
 
@@ -1224,6 +1232,8 @@ int rq_lua_chara_add_skill_points(lua_State *L)
 	int delta = (int)luaL_checkinteger(L, 2);
 	int now;
 
+	if (!cpage(iic))
+		return luaL_error(L, "no character at %d", iic);
 	ensure(L);
 	now = ci(f_points, 2, iic, -1) + delta;
 	if (now < 0)
@@ -1239,6 +1249,8 @@ int rq_lua_chara_forget(lua_State *L)
 	int skill = (int)luaL_checkinteger(L, 2);
 	int row, cost = 0;
 
+	if (!cpage(iic))
+		return luaL_error(L, "no character at %d", iic);
 	ensure(L);
 	row = ci(f_cs_find, 3, iic, skill, 0);
 	if (!row) {

@@ -812,11 +812,28 @@ int rq_lua_combat_on_crit(lua_State *L)
 	return add_combat_cb(L, g_crit_refs, &g_ncrit);
 }
 
+static int need_chara(lua_State *L, int idx)
+{
+	int iic = (int)luaL_checkinteger(L, idx);
+	if (!rq_chara_exists(iic))
+		return luaL_error(L, "no character at %d", iic);
+	return iic;
+}
+
+/* The game's Ｓ has 1001 entries. */
+static int need_skill(lua_State *L, int idx, int min)
+{
+	int id = (int)luaL_checkinteger(L, idx);
+	if (id < min || id > 1000)
+		return luaL_error(L, "no skill number %d", id);
+	return id;
+}
+
 int rq_lua_chara_grant(lua_State *L)
 {
 	int args[3];
-	args[0] = (int)luaL_checkinteger(L, 1);
-	args[1] = (int)luaL_checkinteger(L, 2);
+	args[0] = need_chara(L, 1);
+	args[1] = need_skill(L, 2, 1);
 	args[2] = (int)luaL_checkinteger(L, 3);
 	lua_pushinteger(L, call_ints(g_f_add, args, 3));
 	return 1;
@@ -828,6 +845,10 @@ int rq_lua_chara_rank(lua_State *L)
 	args[0] = (int)luaL_checkinteger(L, 1);
 	args[1] = (int)luaL_checkinteger(L, 2);
 	args[2] = 0;
+	if (!rq_chara_exists(args[0])) {
+		lua_pushinteger(L, 0);
+		return 1;
+	}
 	lua_pushinteger(L, call_ints(g_f_rank, args, 3));
 	return 1;
 }
@@ -838,6 +859,8 @@ int rq_lua_chara_slots(lua_State *L)
 	int slot, n = 0;
 	int args[3];
 	lua_newtable(L);
+	if (!rq_chara_exists(iic))
+		return 1;
 	for (slot = 1; slot <= 20; slot++) {
 		int owned, skill;
 		args[0] = iic;
@@ -867,20 +890,22 @@ int rq_lua_chara_slots(lua_State *L)
 int rq_lua_chara_set_slot(lua_State *L)
 {
 	int args[3];
-	args[0] = (int)luaL_checkinteger(L, 1);
+	args[0] = need_chara(L, 1);
 	args[1] = (int)luaL_checkinteger(L, 2);
-	args[2] = (int)luaL_checkinteger(L, 3);
+	args[2] = need_skill(L, 3, 0);
 	call_ints(g_f_slot, args, 3);
 	return 0;
 }
 
 int rq_lua_chara_set_flavor(lua_State *L)
 {
-	int iic = (int)luaL_checkinteger(L, 1);
+	int iic = need_chara(L, 1);
 	int slot = (int)luaL_checkinteger(L, 2);
 	int args[3];
 	int skill;
 	char *flavor;
+	if (slot < 1)
+		return luaL_error(L, "no skill slot %d", slot);
 	args[0] = iic;
 	args[1] = slot;
 	args[2] = -1;
@@ -896,6 +921,10 @@ int rq_lua_chara_weapon_detail(lua_State *L)
 	int iic = (int)luaL_checkinteger(L, 1);
 	int args[2];
 	int w;
+	if (!rq_chara_exists(iic)) {
+		lua_pushinteger(L, 0);
+		return 1;
+	}
 	args[0] = iic;
 	args[1] = -1;
 	w = call_ints(g_f_weapon, args, 2);
@@ -999,7 +1028,7 @@ int rq_lua_chara_set_offer(lua_State *L)
 int rq_lua_chara_set_uses(lua_State *L)
 {
 	int args[3];
-	args[0] = (int)luaL_checkinteger(L, 1);
+	args[0] = need_chara(L, 1);
 	args[1] = (int)luaL_checkinteger(L, 2);
 	args[2] = (int)luaL_checkinteger(L, 4);
 	call_ints(g_f_uses_max, args, 3);
@@ -1011,7 +1040,7 @@ int rq_lua_chara_set_uses(lua_State *L)
 int rq_lua_chara_set_bar(lua_State *L)
 {
 	int args[3];
-	args[0] = (int)luaL_checkinteger(L, 1);
+	args[0] = need_chara(L, 1);
 	args[1] = (int)luaL_checkinteger(L, 2);
 	args[2] = (int)luaL_checkinteger(L, 3);
 	call_ints(g_f_hotbar, args, 3);
@@ -1021,7 +1050,7 @@ int rq_lua_chara_set_bar(lua_State *L)
 int rq_lua_chara_clear_slot(lua_State *L)
 {
 	int args[2];
-	args[0] = (int)luaL_checkinteger(L, 1);
+	args[0] = need_chara(L, 1);
 	args[1] = (int)luaL_checkinteger(L, 2);
 	call_ints(g_f_clear, args, 2);
 	return 0;
@@ -1033,7 +1062,7 @@ int rq_lua_chara_max_uses(lua_State *L)
 	args[0] = (int)luaL_checkinteger(L, 1);
 	args[1] = (int)luaL_checkinteger(L, 2);
 	args[2] = 0;
-	lua_pushinteger(L, call_ints(g_f_max_uses, args, 3));
+	lua_pushinteger(L, rq_chara_exists(args[0]) ? call_ints(g_f_max_uses, args, 3) : 0);
 	return 1;
 }
 

@@ -252,16 +252,25 @@ int rq_lua_orb_roster(lua_State *L)
 	return 1;
 }
 
+/* Writing to no one is a mistake in the mod, and reading says 0 like rq.chara.rank. */
+static int need_chara(lua_State *L, int idx)
+{
+	int iic = (int)luaL_checkinteger(L, idx);
+	if (!rq_chara_exists(iic))
+		return luaL_error(L, "no character at %d", iic);
+	return iic;
+}
+
 int rq_lua_orb_get_state(lua_State *L)
 {
 	int iic = (int)luaL_checkinteger(L, 1);
-	lua_pushinteger(L, call_ii(g_fno_state, iic, -1));
+	lua_pushinteger(L, rq_chara_exists(iic) ? call_ii(g_fno_state, iic, -1) : 0);
 	return 1;
 }
 
 int rq_lua_orb_set_state(lua_State *L)
 {
-	int iic = (int)luaL_checkinteger(L, 1);
+	int iic = need_chara(L, 1);
 	int state = (int)luaL_checkinteger(L, 2);
 	call_ii(g_fno_state, iic, state);
 	return 0;
@@ -269,7 +278,7 @@ int rq_lua_orb_set_state(lua_State *L)
 
 int rq_lua_orb_set_status(lua_State *L)
 {
-	int iic = (int)luaL_checkinteger(L, 1);
+	int iic = need_chara(L, 1);
 	int status = (int)luaL_checkinteger(L, 2);
 	call_ii(g_fno_status, iic, status);
 	return 0;
@@ -278,20 +287,20 @@ int rq_lua_orb_set_status(lua_State *L)
 int rq_lua_orb_get_hp(lua_State *L)
 {
 	int iic = (int)luaL_checkinteger(L, 1);
-	lua_pushinteger(L, call_ii(g_fno_hp, iic, -1));
+	lua_pushinteger(L, rq_chara_exists(iic) ? call_ii(g_fno_hp, iic, -1) : 0);
 	return 1;
 }
 
 int rq_lua_orb_get_max_hp(lua_State *L)
 {
 	int iic = (int)luaL_checkinteger(L, 1);
-	lua_pushinteger(L, call_ii(g_fno_hpmax, iic, -1));
+	lua_pushinteger(L, rq_chara_exists(iic) ? call_ii(g_fno_hpmax, iic, -1) : 0);
 	return 1;
 }
 
 int rq_lua_orb_set_hp(lua_State *L)
 {
-	int iic = (int)luaL_checkinteger(L, 1);
+	int iic = need_chara(L, 1);
 	int hp = (int)luaL_checkinteger(L, 2);
 	call_ii(g_fno_hp, iic, hp);
 	return 0;
@@ -299,7 +308,7 @@ int rq_lua_orb_set_hp(lua_State *L)
 
 int rq_lua_orb_full_heal(lua_State *L)
 {
-	int iic = (int)luaL_checkinteger(L, 1);
+	int iic = need_chara(L, 1);
 	call_supply_full(iic);
 	return 0;
 }

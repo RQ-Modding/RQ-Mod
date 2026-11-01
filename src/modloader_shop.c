@@ -195,6 +195,8 @@ int rq_lua_shop_stock(struct lua_State *L)
 	int ii;
 	if (!g_on)
 		return luaL_error(L, "shop.stock: call rq.shop.install first");
+	if (!rq_item_known(no))
+		return luaL_error(L, "shop.stock: no item number %d", no);
 	ii = call_stock(no);
 	lua_pushinteger(L, ii);
 	return 1;

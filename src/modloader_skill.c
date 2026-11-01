@@ -344,8 +344,13 @@ static const char *salias_jp(const char *alias)
 /* Number, or text id hashed into the mod range. Errors on a collision. */
 static int skill_id_at(lua_State *L, int idx, int define)
 {
-	if (lua_type(L, idx) == LUA_TNUMBER)
-		return (int)lua_tointeger(L, idx);
+	if (lua_type(L, idx) == LUA_TNUMBER) {
+		int id = (int)lua_tointeger(L, idx);
+		/* The game's Ｓ has 1001 entries, and a number past it is a fatal VM error. */
+		if (id < 0 || id > 1000)
+			return luaL_error(L, "no skill number %d", id);
+		return id;
+	}
 	if (lua_type(L, idx) == LUA_TSTRING) {
 		const char *s = lua_tostring(L, idx);
 		uint32_t h = 2166136261u;

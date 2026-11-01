@@ -1146,6 +1146,11 @@ int rq_lua_item_equipped(lua_State *L)
 }
 
 /* Item number or text id at idx, for modules that do not know the registry. */
+int rq_item_known(int no)
+{
+	return no > 0 && (no < 1000 || tpl_by_no(no));
+}
+
 int rq_item_no_from_lua(lua_State *L, int idx)
 {
 	return resolve_no(L, idx);

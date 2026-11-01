@@ -171,6 +171,10 @@ static int l_call(lua_State *L)
 	fn = &ain->functions[fno];
 	if (is_method(fn->name))
 		return luaL_error(L, "rq.ain.call: %s is a method and needs an object", name);
+	/* A save image would hold this Lua call on its stack, and a load replaces the stack
+	 * under it: loading from here is an access violation. */
+	if (!strcmp(name, "SYS_セーブ実行") || !strcmp(name, "SYS_ロード実行"))
+		return luaL_error(L, "rq.ain.call: %s cannot run from Lua", name);
 	n = lua_gettop(L) - 1;
 	for (i = 0; i < fn->nr_args; i++) {
 		int t = fn->vars[i].type.data;
@@ -798,6 +802,15 @@ static const char lua_layer[] =
 "      quest_wanted = nil\n"
 "    end\n"
 "  end })\n"
+"end\n"
+"function rq.battle.time()\n"
+"  return rq.ain.call('戦闘情報_回数')\n"
+"end\n"
+"function rq.battle.set_time(n)\n"
+"  if math.type(n) ~= 'integer' or n < 0 or n > 999 then\n"
+"    error('rq.battle.set_time: expected a whole number from 0 to 999', 2)\n"
+"  end\n"
+"  rq.ain.call('戦闘情報_回数設定', n, false)\n"
 "end\n"
 "local in_counter, counter_hooked\n"
 "function rq.battle.on_use(fn)\n"
