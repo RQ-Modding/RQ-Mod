@@ -221,7 +221,40 @@ static int l_call(lua_State *L)
 
 /* ---- rq.ain.global ---- */
 
-/* Finds a global, then walks the indexes at stack positions first..last. */
+/* A value that is a heap slot of an array or a struct. A plain value is not, even when
+ * its number happens to be a valid slot, and a reference to a plain value is a slot and
+ * a variable number. */
+static int holds_page(int t)
+{
+	return !is_plain(t) && t != AIN_REF_INT && t != AIN_REF_FLOAT && t != AIN_REF_BOOL
+		&& t != AIN_REF_LONG_INT && t != AIN_REF_FUNC_TYPE;
+}
+
+static int field_number(lua_State *L, struct page *page, const char *global, const char *field)
+{
+	struct ain_struct *st;
+	char *sj, *utf;
+	int i;
+
+	if (page->index < 0 || page->index >= ain->nr_structures)
+		luaL_error(L, "rq.ain.global: %s: bad struct at field %s", global, field);
+	st = &ain->structures[page->index];
+	sj = utf2sjis(field, 0);
+	for (i = 0; sj && i < st->nr_members && i < page->nr_vars; i++) {
+		if (!strcmp(st->members[i].name, sj)) {
+			free(sj);
+			return i;
+		}
+	}
+	free(sj);
+	utf = sjis2utf(st->name, 0);
+	lua_pushfstring(L, "rq.ain.global: %s: struct %s has no field %s", global, utf ? utf : "?", field);
+	free(utf);
+	lua_error(L);
+	return -1;
+}
+
+/* Finds a global, then walks the indexes and field names at stack positions first..last. */
 static void walk_global(lua_State *L, int first, int last, struct page **page, int *varno, int *type)
 {
 	const char *name = luaL_checkstring(L, 1);
@@ -239,16 +272,24 @@ static void walk_global(lua_State *L, int first, int last, struct page **page, i
 	*varno = gi;
 	*type = variable_type(*page, gi, NULL, NULL);
 	for (i = first; i <= last; i++) {
-		int at = (int)luaL_checkinteger(L, i);
 		int slot = (*page)->values[*varno].i;
-		struct page *arr = page_index_valid(slot) ? heap_get_page(slot) : NULL;
-		if (!arr || arr->type != ARRAY_PAGE)
-			luaL_error(L, "rq.ain.global: %s has no array at index %d", name, i - first + 1);
-		if (at < 0 || at >= arr->nr_vars)
-			luaL_error(L, "rq.ain.global: %s: index %d is out of range (size %d)", name, at, arr->nr_vars);
-		*page = arr;
+		struct page *inner = holds_page(*type) && page_index_valid(slot) ? heap_get_page(slot) : NULL;
+		int at;
+
+		if (lua_type(L, i) == LUA_TSTRING) {
+			if (!inner || inner->type != STRUCT_PAGE)
+				luaL_error(L, "rq.ain.global: %s has no struct at step %d", name, i - first + 1);
+			at = field_number(L, inner, name, lua_tostring(L, i));
+		} else {
+			at = (int)luaL_checkinteger(L, i);
+			if (!inner || inner->type != ARRAY_PAGE)
+				luaL_error(L, "rq.ain.global: %s has no array at step %d", name, i - first + 1);
+			if (at < 0 || at >= inner->nr_vars)
+				luaL_error(L, "rq.ain.global: %s: index %d is out of range (size %d)", name, at, inner->nr_vars);
+		}
+		*page = inner;
 		*varno = at;
-		*type = variable_type(arr, at, NULL, NULL);
+		*type = variable_type(inner, at, NULL, NULL);
 	}
 }
 
@@ -259,7 +300,7 @@ static int l_global(lua_State *L)
 
 	walk_global(L, 2, lua_gettop(L), &page, &varno, &type);
 	if (!is_plain(type))
-		return luaL_error(L, "rq.ain.global: %s is an array or a struct: give an index, or read a plain value", lua_tostring(L, 1));
+		return luaL_error(L, "rq.ain.global: %s is an array or a struct: give an index or a field, or read a plain value", lua_tostring(L, 1));
 	push_value(L, type, page->values[varno]);
 	return 1;
 }
@@ -274,7 +315,7 @@ static int l_set_global(lua_State *L)
 		return luaL_error(L, "rq.ain.set_global: expected a name and a value");
 	walk_global(L, 2, top - 1, &page, &varno, &type);
 	if (!is_plain(type))
-		return luaL_error(L, "rq.ain.set_global: %s is an array or a struct: give an index, or set a plain value", lua_tostring(L, 1));
+		return luaL_error(L, "rq.ain.set_global: %s is an array or a struct: give an index or a field, or set a plain value", lua_tostring(L, 1));
 	if (type == AIN_STRING)
 		luaL_checkstring(L, top);
 	else if (!lua_isboolean(L, top))
@@ -290,7 +331,7 @@ static int l_global_len(lua_State *L)
 
 	walk_global(L, 2, lua_gettop(L), &page, &varno, &type);
 	slot = page->values[varno].i;
-	arr = !is_plain(type) && page_index_valid(slot) ? heap_get_page(slot) : NULL;
+	arr = holds_page(type) && page_index_valid(slot) ? heap_get_page(slot) : NULL;
 	if (!arr || arr->type != ARRAY_PAGE)
 		return luaL_error(L, "rq.ain.global_len: %s is not an array", lua_tostring(L, 1));
 	lua_pushinteger(L, arr->nr_vars);
