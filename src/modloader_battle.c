@@ -675,10 +675,16 @@ int rq_lua_battle_skill_usable(lua_State *L)
  * only ever clears a mark whose number matches, so it cannot erase it).
  * Mark2 shows one mark at a time, so the marks of a card take turns (below).
  * A mod's buff is a mark too, so it sits in the card's z order, under the game's windows.
+ * Enemy cards have the same Mark2, and there the game does use the flame. A card goes by
+ * battle number, as in the game: 1 to 5 are allies, 11 to 15 enemies.
  */
 static int g_flame_on;
 static int g_flame_iic[5];
 static int g_fl_gi_pta = -1;
+static int g_fl_gi_ptb = -1;
+static int g_fl_gi_monster = -2;
+static int g_fl_st_mon_mgr = -1, g_fl_m_monster = -1, g_fl_m_mon_mark2 = -1;
+static int g_fl_charging = -1;
 static int g_fl_prepare = -1;
 static int g_fl_st_mgr = -1;
 static int g_fl_m_chara = -1;
@@ -691,6 +697,7 @@ static int g_fl_m_mark = -1, g_fl_m_number = -1, g_fl_m_flash = -1;
 static int g_fl_m_partno = -1, g_fl_m_markno = -1;
 static int g_fl_set_text = -1;
 
+#define CARDS 10
 #define CARD_MARKS 16
 #define BUFF_MAX 8
 #define MARK_HOLD_MS 1500u
@@ -708,62 +715,100 @@ struct card {
 	char shown_text[16];
 	uint32_t t0;
 };
-static struct card g_card[5];
-static struct { char key[32]; char text[16]; int cg, anim; } g_buff[5][BUFF_MAX];
-static int g_nbuff[5];
+static struct card g_card[CARDS];
+static struct { char key[32]; char text[16]; int cg, anim; } g_buff[CARDS][BUFF_MAX];
+static int g_nbuff[CARDS];
 static int g_marks_live, g_marks_dirty;
 
-/* iic in the ally slot no (1..5): PTA is filled before the battle UI exists. */
-static int flame_party_iic(int no)
+static int is_ally_no(int no)
+{
+	return no >= 1 && no <= 5;
+}
+
+static int is_enemy_no(int no)
+{
+	return no >= 11 && no <= 15;
+}
+
+static int card_index(int no)
+{
+	return is_ally_no(no) ? no - 1 : no - 6;
+}
+
+static int card_no(int index)
+{
+	return index < 5 ? index + 1 : index + 6;
+}
+
+/* iic in the card no: PTA and PTB are filled before the battle UI exists. */
+static int card_iic(int no)
 {
 	struct page *arr;
-	int slot;
+	int slot, gi = is_ally_no(no) ? g_fl_gi_pta : g_fl_gi_ptb;
+	int i = is_ally_no(no) ? no : no - 10;
 
-	if (g_fl_gi_pta < 0 || no < 1 || no > 5 || !heap || !heap_size || !heap[0].page)
+	if (gi < 0 || (!is_ally_no(no) && !is_enemy_no(no)) || !heap || !heap_size || !heap[0].page)
 		return 0;
-	slot = global_get(g_fl_gi_pta).i;
+	slot = global_get(gi).i;
 	if (!page_index_valid(slot))
 		return 0;
 	arr = heap_get_page(slot);
-	if (!arr || arr->type != ARRAY_PAGE || no >= arr->nr_vars)
+	if (!arr || arr->type != ARRAY_PAGE || i >= arr->nr_vars)
 		return 0;
-	return arr->values[no].i;
+	return arr->values[i].i;
+}
+
+static int manager_global(int *gi, const char *name)
+{
+	if (*gi == -2) {
+		char *sj = utf2sjis(name, 0);
+		*gi = sj ? ain_get_global(ain, sj) : -1;
+		free(sj);
+	}
+	return *gi;
 }
 
 static int flame_mark_slot(int no)
 {
 	struct page *mgr, *arr, *ch;
-	int slot;
+	int slot, gi, st_mgr, m_list, m_mark2, i;
 
-	if (no < 1 || no > 5 || g_fl_m_chara < 0 || g_fl_m_mark2 < 0)
+	if (is_ally_no(no)) {
+		gi = manager_global(&g_fl_gi, "g_sBattleChara");
+		st_mgr = g_fl_st_mgr;
+		m_list = g_fl_m_chara;
+		m_mark2 = g_fl_m_mark2;
+		i = no - 1;
+	} else if (is_enemy_no(no)) {
+		gi = manager_global(&g_fl_gi_monster, "g_sBattleMonster");
+		st_mgr = g_fl_st_mon_mgr;
+		m_list = g_fl_m_monster;
+		m_mark2 = g_fl_m_mon_mark2;
+		i = no - 11;
+	} else {
 		return -1;
-	if (g_fl_gi == -2) {
-		char *sj = utf2sjis("g_sBattleChara", 0);
-		g_fl_gi = sj ? ain_get_global(ain, sj) : -1;
-		free(sj);
 	}
-	if (g_fl_gi < 0 || g_fl_gi >= ain->nr_globals || !heap || !heap_size || !heap[0].page)
+	if (m_list < 0 || m_mark2 < 0 || gi < 0 || gi >= ain->nr_globals || !heap || !heap_size || !heap[0].page)
 		return -1;
-	slot = global_get(g_fl_gi).i;
+	slot = global_get(gi).i;
 	if (!page_index_valid(slot))
 		return -1;
 	mgr = heap_get_page(slot);
-	if (!mgr || mgr->type != STRUCT_PAGE || mgr->index != g_fl_st_mgr
-	    || g_fl_m_chara >= mgr->nr_vars)
+	if (!mgr || mgr->type != STRUCT_PAGE || mgr->index != st_mgr || m_list >= mgr->nr_vars)
 		return -1;
-	slot = mgr->values[g_fl_m_chara].i;
+	slot = mgr->values[m_list].i;
 	if (!page_index_valid(slot))
 		return -1;
 	arr = heap_get_page(slot);
-	if (!arr || arr->type != ARRAY_PAGE || no - 1 >= arr->nr_vars)
+	if (!arr || arr->type != ARRAY_PAGE || i >= arr->nr_vars)
 		return -1;
-	slot = arr->values[no - 1].i;
+	slot = arr->values[i].i;
 	if (!page_index_valid(slot))
 		return -1;
 	ch = heap_get_page(slot);
-	if (!ch || ch->type != STRUCT_PAGE || g_fl_m_mark2 >= ch->nr_vars)
+	if (!ch || ch->type != STRUCT_PAGE || m_mark2 >= ch->nr_vars)
 		return -1;
-	slot = ch->values[g_fl_m_mark2].i;
+	slot = ch->values[m_mark2].i;
 	if (!page_index_valid(slot))
 		return -1;
 	ch = heap_get_page(slot);
@@ -839,7 +884,7 @@ static void card_add(struct card *c, int mark, int status, int cg, const char *k
 /* The list is rebuilt from the battle data, so the turn stays on the mark it was on. */
 static void card_fill(int no)
 {
-	struct card *c = &g_card[no - 1];
+	struct card *c = &g_card[card_index(no)];
 	struct card_mark old = { 0 };
 	char text[16];
 	int v, i;
@@ -847,7 +892,7 @@ static void card_fill(int no)
 	if (c->n > 0)
 		old = c->e[c->cur];
 	c->n = 0;
-	if (g_flame_iic[no - 1])
+	if (is_ally_no(no) ? g_flame_iic[no - 1] : mark_data(g_fl_charging, no))
 		card_add(c, 31, 1, 0, "", "");
 	if ((v = mark_data(g_fl_data[0], no)) > 0) {
 		snprintf(text, sizeof text, "%d%%", v);
@@ -863,11 +908,11 @@ static void card_fill(int no)
 		snprintf(text, sizeof text, "%dx", v);
 		card_add(c, 36, v, 0, "", text);
 	}
-	for (i = 0; i < g_nbuff[no - 1]; i++)
+	for (i = 0; i < g_nbuff[card_index(no)]; i++)
 	{
-		card_add(c, 0, 1, g_buff[no - 1][i].cg, g_buff[no - 1][i].key, g_buff[no - 1][i].text);
-		if (c->n > 0 && !strcmp(c->e[c->n - 1].key, g_buff[no - 1][i].key))
-			c->e[c->n - 1].anim = g_buff[no - 1][i].anim;
+		card_add(c, 0, 1, g_buff[card_index(no)][i].cg, g_buff[card_index(no)][i].key, g_buff[card_index(no)][i].text);
+		if (c->n > 0 && !strcmp(c->e[c->n - 1].key, g_buff[card_index(no)][i].key))
+			c->e[c->n - 1].anim = g_buff[card_index(no)][i].anim;
 	}
 	for (i = 0; i < c->n; i++) {
 		if (c->e[i].mark == old.mark && !strcmp(c->e[i].key, old.key)) {
@@ -881,7 +926,7 @@ static void card_fill(int no)
 
 static void card_apply(int no)
 {
-	struct card *c = &g_card[no - 1];
+	struct card *c = &g_card[card_index(no)];
 	struct card_mark *e = c->n > 0 ? &c->e[c->cur] : NULL;
 	int slot = flame_mark_slot(no), anim = 0;
 
@@ -899,7 +944,7 @@ static void card_apply(int no)
 		    && mark->values[g_fl_m_markno].i == ANIM_MARK_NO) {
 			if (strcmp(c->shown_text, e->text)) {
 				mark_call_text(slot, e->text);
-				snprintf(c->shown_text, sizeof c->shown_text, "%s", e->text);
+				memcpy(c->shown_text, e->text, sizeof c->shown_text);
 			}
 			return;
 		}
@@ -908,7 +953,7 @@ static void card_apply(int no)
 		mark_call_set(slot, ANIM_MARK_NO, 1, e->text);
 		rq_anim_redirect(0);
 		c->shown_anim = anim;
-		snprintf(c->shown_text, sizeof c->shown_text, "%s", e->text);
+		memcpy(c->shown_text, e->text, sizeof c->shown_text);
 		return;
 	}
 	/* The game skips a set of the number it already has, and the flame has the one
@@ -924,13 +969,15 @@ static void card_apply(int no)
 
 static void marks_refresh(void)
 {
-	int no;
+	int i;
 
-	for (no = 1; no <= 5; no++) {
-		if (g_flame_iic[no - 1] && flame_party_iic(no) != g_flame_iic[no - 1])
+	for (i = 0; i < CARDS; i++) {
+		int no = card_no(i);
+
+		if (is_ally_no(no) && g_flame_iic[no - 1] && card_iic(no) != g_flame_iic[no - 1])
 			g_flame_iic[no - 1] = 0;
-		if (flame_party_iic(no) <= 0 || flame_mark_slot(no) < 0) {
-			g_card[no - 1].n = 0;
+		if (card_iic(no) <= 0 || flame_mark_slot(no) < 0) {
+			g_card[i].n = 0;
 			continue;
 		}
 		card_fill(no);
@@ -941,7 +988,7 @@ static void marks_refresh(void)
 void rq_battle_marks_tick(void)
 {
 	uint32_t now;
-	int no;
+	int i;
 
 	if (!g_marks_live)
 		return;
@@ -950,10 +997,10 @@ void rq_battle_marks_tick(void)
 		marks_refresh();
 	}
 	now = SDL_GetTicks();
-	for (no = 1; no <= 5; no++) {
-		struct card *c = &g_card[no - 1];
+	for (i = 0; i < CARDS; i++) {
+		struct card *c = &g_card[i];
 		struct page *mark, *flash;
-		int slot, alpha = 255;
+		int no = card_no(i), slot, alpha = 255;
 
 		if (c->n <= 0 || (slot = flame_mark_slot(no)) < 0)
 			continue;
@@ -979,10 +1026,10 @@ void rq_battle_marks_tick(void)
 
 void rq_battle_marks_reload(void)
 {
-	int no;
+	int i;
 
-	for (no = 0; no < 5; no++)
-		g_card[no].shown_anim = 0;
+	for (i = 0; i < CARDS; i++)
+		g_card[i].shown_anim = 0;
 	g_marks_dirty = g_marks_live;
 }
 
@@ -1020,7 +1067,7 @@ static void wrap_tail_ints(struct ain *a, int fno, int sys)
 
 static int flame_install(struct ain *a)
 {
-	int f_check, f_init, st;
+	int f_check, f_init, f_mon_check, f_mon_init, st;
 
 	if (g_flame_on)
 		return 1;
@@ -1028,7 +1075,14 @@ static int flame_install(struct ain *a)
 		return 0;
 	f_check = find_fn(a, "戦闘味方_状態確認");
 	f_init = find_fn(a, "戦闘味方_初期状態確認");
+	f_mon_check = find_fn(a, "戦闘敵_状態確認");
+	f_mon_init = find_fn(a, "戦闘敵_初期状態確認");
+	g_fl_charging = find_fn(a, "戦闘データ_溜め中");
 	g_fl_gi_pta = ain_get_global(a, "PTA");
+	g_fl_gi_ptb = ain_get_global(a, "PTB");
+	g_fl_st_mon_mgr = find_struct(a, "T_BattleMonsterManager");
+	g_fl_m_monster = find_member(a, g_fl_st_mon_mgr, "m_asMonster");
+	g_fl_m_mon_mark2 = find_member(a, find_struct(a, "T_BattleMonster"), "m_sMark2");
 	g_fl_prepare = find_fn(a, "T_BattleMarkNum@setPrepare");
 	g_fl_st_mgr = find_struct(a, "T_BattleCharaManager");
 	g_fl_m_chara = find_member(a, g_fl_st_mgr, "m_asChara");
@@ -1058,6 +1112,16 @@ static int flame_install(struct ain *a)
 	}
 	wrap_tail_ints(a, f_check, VM_XSYS_BATTLE_MARKS);
 	wrap_tail_ints(a, f_init, VM_XSYS_BATTLE_MARKS);
+	if (f_mon_check >= 0 && f_mon_init >= 0 && g_fl_gi_ptb >= 0 && g_fl_charging >= 0
+	    && g_fl_st_mon_mgr >= 0 && g_fl_m_monster >= 0 && g_fl_m_mon_mark2 >= 0) {
+		wrap_tail_ints(a, f_mon_check, VM_XSYS_BATTLE_MARKS);
+		wrap_tail_ints(a, f_mon_init, VM_XSYS_BATTLE_MARKS);
+	} else {
+		g_fl_gi_ptb = -1;
+		rq_log("battle: enemy cards keep one mark, AIN missing (check=%d init=%d PTB=%d charging=%d "
+		       "mgr=%d m_asMonster=%d m_sMark2=%d)", f_mon_check, f_mon_init, g_fl_gi_ptb, g_fl_charging,
+		       g_fl_st_mon_mgr, g_fl_m_monster, g_fl_m_mon_mark2);
+	}
 	g_flame_on = 1;
 	rq_log("battle: card marks hooked (状態確認 tails rebuild them)");
 	return 1;
@@ -1085,7 +1149,7 @@ int rq_lua_battle_set_flame(lua_State *L)
 	if (!g_flame_on)
 		return luaL_error(L, "call rq.battle.install_flame() first");
 	for (no = 1; no <= 5; no++) {
-		if (iic > 0 && flame_party_iic(no) == iic)
+		if (iic > 0 && card_iic(no) == iic)
 			break;
 	}
 	if (no > 5) {
@@ -1101,10 +1165,10 @@ int rq_lua_battle_set_flame(lua_State *L)
 
 static int card_of_iic(int iic)
 {
-	int no;
-	for (no = 1; no <= 5; no++) {
-		if (iic > 0 && flame_party_iic(no) == iic)
-			return no;
+	int i;
+	for (i = 0; i < CARDS; i++) {
+		if (iic > 0 && card_iic(card_no(i)) == iic)
+			return card_no(i);
 	}
 	return 0;
 }
@@ -1114,7 +1178,7 @@ int rq_lua_battle_set_buff(lua_State *L)
 {
 	int iic = (int)luaL_checkinteger(L, 1);
 	const char *key = luaL_checkstring(L, 2);
-	int no = card_of_iic(iic), i, n;
+	int no = card_of_iic(iic), idx = card_index(no), i, n;
 
 	if (strlen(key) >= sizeof g_buff[0][0].key)
 		return luaL_error(L, "set_buff key is too long");
@@ -1124,15 +1188,15 @@ int rq_lua_battle_set_buff(lua_State *L)
 		lua_pushboolean(L, 0);
 		return 1;
 	}
-	n = g_nbuff[no - 1];
+	n = g_nbuff[idx];
 	for (i = 0; i < n; i++) {
-		if (!strcmp(g_buff[no - 1][i].key, key))
+		if (!strcmp(g_buff[idx][i].key, key))
 			break;
 	}
 	if (lua_isnoneornil(L, 3)) {
 		if (i < n) {
-			memmove(&g_buff[no - 1][i], &g_buff[no - 1][i + 1], sizeof g_buff[0][0] * (n - i - 1));
-			g_nbuff[no - 1]--;
+			memmove(&g_buff[idx][i], &g_buff[idx][i + 1], sizeof g_buff[0][0] * (n - i - 1));
+			g_nbuff[idx]--;
 		}
 	} else {
 		const char *text;
@@ -1153,15 +1217,15 @@ int rq_lua_battle_set_buff(lua_State *L)
 			return luaL_error(L, "set_buff icon %d is no CG, is larger than 1024 pixels, or there are too many (max 128 with the GIFs)", cg);
 		if (i == n) {
 			if (n >= BUFF_MAX)
-				return luaL_error(L, "too many buffs on one character (max %d)", BUFF_MAX);
-			g_nbuff[no - 1]++;
+				return luaL_error(L, "too many buffs on one card (max %d)", BUFF_MAX);
+			g_nbuff[idx]++;
 		}
-		snprintf(g_buff[no - 1][i].key, sizeof g_buff[0][0].key, "%s", key);
-		g_buff[no - 1][i].cg = cg;
-		g_buff[no - 1][i].anim = anim;
+		snprintf(g_buff[idx][i].key, sizeof g_buff[0][0].key, "%s", key);
+		g_buff[idx][i].cg = cg;
+		g_buff[idx][i].anim = anim;
 		lua_getfield(L, 3, "text");
 		text = lua_tostring(L, -1);
-		snprintf(g_buff[no - 1][i].text, sizeof g_buff[0][0].text, "%s", text ? text : "");
+		snprintf(g_buff[idx][i].text, sizeof g_buff[0][0].text, "%s", text ? text : "");
 		lua_pop(L, 1);
 	}
 	card_fill(no);
@@ -1179,8 +1243,8 @@ int rq_lua_battle_buffs(lua_State *L)
 	if (!no || flame_mark_slot(no) < 0)
 		return 1;
 	card_fill(no);
-	for (i = 0; i < g_card[no - 1].n; i++) {
-		struct card_mark *e = &g_card[no - 1].e[i];
+	for (i = 0; i < g_card[card_index(no)].n; i++) {
+		struct card_mark *e = &g_card[card_index(no)].e[i];
 		lua_newtable(L);
 		if (e->mark > 0) {
 			lua_pushinteger(L, e->mark);
