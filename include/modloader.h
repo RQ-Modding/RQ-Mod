@@ -256,6 +256,8 @@ int rq_lua_input_wheel(struct lua_State *L);
 int rq_lua_input_release(struct lua_State *L);
 int rq_lua_ui_get(struct lua_State *L);
 int rq_lua_ui_aim(struct lua_State *L);
+int rq_lua_ui_shot(struct lua_State *L);
+int rq_lua_ui_shot_result(struct lua_State *L);
 int rq_lua_hud_rect(struct lua_State *L);
 int rq_lua_hud_text(struct lua_State *L);
 int rq_lua_hud_cg(struct lua_State *L);
@@ -316,6 +318,7 @@ void rq_ui_init(void);
 void rq_ui_on_present(void);
 void rq_ui_on_parts_input(void);
 int rq_ui_wants_frame(void);
+void rq_ui_on_update(void);
 int rq_ui_cmd_ui(char **json_out, char *err, int errsz);
 int rq_path_grid(char **json_out, char *err, int errsz);
 int rq_path_goto(int x, int z, int pick_portal, char **json_out, char *err, int errsz);
@@ -335,7 +338,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "0.20.0"
+#define RQ_VERSION "0.21.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -447,6 +450,7 @@ static inline void rq_ui_init(void) {}
 static inline void rq_ui_on_present(void) {}
 static inline void rq_ui_on_parts_input(void) {}
 static inline int rq_ui_wants_frame(void) { return 0; }
+static inline void rq_ui_on_update(void) {}
 static inline void rq_ui_note_sprite_text(int sp_no, const char *sjis)
 {
 	(void)sp_no;

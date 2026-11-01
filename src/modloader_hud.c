@@ -1016,6 +1016,7 @@ static void draw_version_banner(void)
 int rq_hud_tick(void)
 {
 	lua_State *L = rq_lua();
+	rq_ui_on_update();
 	g_block_mouse = 0;
 	g_block_keys = 0;
 	clear_cmds();

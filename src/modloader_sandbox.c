@@ -31,6 +31,7 @@ static int g_io_input = LUA_NOREF;
 static int g_io_output = LUA_NOREF;
 static int g_os_remove = LUA_NOREF;
 static int g_os_rename = LUA_NOREF;
+static int g_load = LUA_NOREF;
 
 static int path_is_abs(const char *p)
 {
@@ -279,6 +280,31 @@ static int sand_os_rename(lua_State *L)
 	return call_orig(L, g_os_rename, 2);
 }
 
+/* A chunk's name says which mod it belongs to, for rq.log and for the folder the
+ * sandbox allows. So a chunk stays in the mod that loads it, whatever name it asks for. */
+static int sand_load(lua_State *L)
+{
+	char dir[RQ_PATH_MAX];
+	const char *name = luaL_optstring(L, 2, "load");
+	const char *p;
+	const char *base = name;
+
+	for (p = name; *p; p++) {
+		if (*p == '\\' || *p == '/')
+			base = p + 1;
+	}
+	if (*base == '@' || *base == '=')
+		base++;
+	if (lua_gettop(L) < 2)
+		lua_settop(L, 2);
+	if (caller_dir(L, dir, (int)sizeof dir))
+		lua_pushfstring(L, "@%s\\%s", dir, base);
+	else
+		lua_pushfstring(L, "=%s", base);
+	lua_replace(L, 2);
+	return call_orig(L, g_load, lua_gettop(L));
+}
+
 static int sand_dofile(lua_State *L)
 {
 	const char *path = luaL_checkstring(L, 1);
@@ -440,6 +466,10 @@ void rq_sandbox_install(lua_State *L)
 	set_fn(L, "os", "tmpname", sand_deny_tmp);
 	set_fn(L, "package", "loadlib", sand_deny_loadlib);
 
+	lua_getglobal(L, "load");
+	g_load = luaL_ref(L, LUA_REGISTRYINDEX);
+	lua_pushcfunction(L, sand_load);
+	lua_setglobal(L, "load");
 	lua_pushcfunction(L, sand_dofile);
 	lua_setglobal(L, "dofile");
 	lua_pushcfunction(L, sand_loadfile_fix);

@@ -267,6 +267,14 @@ struct ui_snap {
 static atomic_flag g_lock = ATOMIC_FLAG_INIT;
 static int g_ready;
 static atomic_int g_wants;
+/* rq.ui.shot. Only the VM thread reads these, so a pending one never clashes with the pipe. */
+static int g_lua_shot_wanted;
+static int g_lua_shot_result;
+static char g_lua_shot_path[512];
+/* rq.ui.get or aim built the list during this update. */
+static int g_lua_built;
+/* A named screen was seen, so an empty screen is no longer the boot. */
+static int g_seen_screen;
 static atomic_llong g_present_gen;
 static atomic_llong g_published;
 static atomic_llong g_input_gen;
@@ -448,7 +456,12 @@ void rq_ui_on_parts_input(void)
 
 int rq_ui_wants_frame(void)
 {
-	return atomic_load(&g_wants) > 0;
+	return atomic_load(&g_wants) > 0 || g_lua_shot_wanted;
+}
+
+void rq_ui_on_update(void)
+{
+	g_lua_built = 0;
 }
 
 static void clean_copy(char *dst, int n, const char *src)
@@ -834,14 +847,10 @@ static void classify(void)
 			|| blob_has(U8_CAUTION) || blob_has(U8_YEARS)
 			|| blob_has(U8_AGE) || strstr(g_blob, "18"))
 		snprintf(g_screen, sizeof g_screen, "disclaimer");
-	else if (g_nctrls == 0 && text_len < 8)
-		snprintf(g_screen, sizeof g_screen, "boot");
 	else if (g_nctrls == 0 && text_len >= 60)
 		snprintf(g_screen, sizeof g_screen, "disclaimer");
-	else if (g_nctrls == 0)
+	else if (g_nctrls == 0 && !g_seen_screen)
 		snprintf(g_screen, sizeof g_screen, "boot");
-	else if (g_nctrls <= 8)
-		snprintf(g_screen, sizeof g_screen, "title");
 	else
 		snprintf(g_screen, sizeof g_screen, "other");
 
@@ -5648,6 +5657,8 @@ static void publish(void)
 	}
 	emit_agent_controls();
 	hover_agent();
+	if (strcmp(g_screen, "boot") && strcmp(g_screen, "disclaimer") && strcmp(g_screen, "other"))
+		g_seen_screen = 1;
 	memset(&stage, 0, sizeof stage);
 	snprintf(stage.screen, sizeof stage.screen, "%s", g_screen);
 	snprintf(stage.hover, sizeof stage.hover, "%s", g_hover);
@@ -5683,6 +5694,11 @@ static char g_shot_path[512];
 static void service_shot(void)
 {
 	int ok;
+	if (g_lua_shot_wanted) {
+		ok = gfx_save_texture(gfx_main_surface(), g_lua_shot_path, ALCG_PNG);
+		g_lua_shot_result = ok ? 1 : -1;
+		g_lua_shot_wanted = 0;
+	}
 	if (atomic_load(&g_shot_state) != SHOT_WANTED)
 		return;
 	ok = gfx_save_texture(gfx_main_surface(), g_shot_path, ALCG_PNG);
@@ -6277,6 +6293,7 @@ int rq_lua_ui_get(lua_State *L)
 		return 1;
 	}
 	publish();
+	g_lua_built = 1;
 	if (!copy_snap(&snap) || !(root = cJSON_Parse(snap.json))) {
 		lua_pushnil(L);
 		return 1;
@@ -6286,18 +6303,59 @@ int rq_lua_ui_get(lua_State *L)
 	return 1;
 }
 
-/* The point a click on this control should land on, or nil. Reads the last rq.ui.get. */
+/* The point a click on this control should land on, or nil. */
 int rq_lua_ui_aim(lua_State *L)
 {
+	const char *id = luaL_checkstring(L, 1);
 	int x, y;
 
-	if (!g_ready || !ctrl_center(luaL_checkstring(L, 1), &x, &y)) {
+	if (!g_ready) {
+		lua_pushnil(L);
+		return 1;
+	}
+	if (!g_lua_built) {
+		publish();
+		g_lua_built = 1;
+	}
+	if (!ctrl_center(id, &x, &y)) {
 		lua_pushnil(L);
 		return 1;
 	}
 	lua_pushinteger(L, x);
 	lua_pushinteger(L, y);
 	return 2;
+}
+
+/* Saved at the next drawn frame, because waiting for it here would hang the VM thread. */
+int rq_lua_ui_shot(lua_State *L)
+{
+	const char *rel = luaL_checkstring(L, 1);
+	char full[1024];
+
+	if (!g_ready)
+		return luaL_error(L, "rq.ui.shot: the game is not running yet");
+	if (!rq_sandbox_resolve(L, rel, full, (int)sizeof full))
+		return luaL_error(L, "rq.ui.shot: %s is outside the mod folder", rel);
+	if (strlen(full) >= sizeof g_lua_shot_path)
+		return luaL_error(L, "rq.ui.shot: path too long");
+	if (g_lua_shot_wanted)
+		return luaL_error(L, "rq.ui.shot: another shot is waiting for a frame");
+	snprintf(g_lua_shot_path, sizeof g_lua_shot_path, "%s", full);
+	g_lua_shot_result = 0;
+	g_lua_shot_wanted = 1;
+	return 0;
+}
+
+/* true or false once, then nil again. nil also means the shot is still waiting. */
+int rq_lua_ui_shot_result(lua_State *L)
+{
+	if (g_lua_shot_wanted || !g_lua_shot_result) {
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_pushboolean(L, g_lua_shot_result > 0);
+	g_lua_shot_result = 0;
+	return 1;
 }
 
 #endif /* RQ_MODLOADER */

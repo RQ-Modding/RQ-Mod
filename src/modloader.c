@@ -973,7 +973,7 @@ static void guard_game_calls(lua_State *L)
 	static const struct { const char *module; const char *names; } k_calls[] = {
 		{ "hud", "text_width wrap cg text_begin" },
 		{ "input", "set_key set_mouse wheel release" },
-		{ "ui", "get aim" },
+		{ "ui", "get aim shot shot_result" },
 		{ "loot", "list" },
 		{ "orb", "roster get_state set_state set_status get_hp get_max_hp set_hp full_heal" },
 		{ "skill", "get" },
@@ -1067,6 +1067,8 @@ static void open_rq(lua_State *L)
 	lua_newtable(L);
 	set_cfn(L, "get", rq_lua_ui_get);
 	set_cfn(L, "aim", rq_lua_ui_aim);
+	set_cfn(L, "shot", rq_lua_ui_shot);
+	set_cfn(L, "shot_result", rq_lua_ui_shot_result);
 	lua_setfield(L, -2, "ui");
 
 	lua_newtable(L);
