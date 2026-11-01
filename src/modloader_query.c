@@ -394,6 +394,16 @@ static void push_unit(lua_State *L, int id)
 	lua_setfield(L, -2, "learned");
 }
 
+int rq_query_chara_named(int id)
+{
+	struct page *c = chara_page(id);
+	char name[80];
+	if (!c)
+		return 0;
+	fstr_utf(c, "名前", name, (int)sizeof name);
+	return name[0] != 0;
+}
+
 static int unit_recruited(int id)
 {
 	struct page *c = chara_page(id);
@@ -402,6 +412,11 @@ static int unit_recruited(int id)
 		return 0;
 	fstr_utf(c, "名前", name, (int)sizeof name);
 	return name[0] != 0;
+}
+
+int rq_query_unit_recruited(int id)
+{
+	return unit_recruited(id);
 }
 
 static int l_units(lua_State *L)

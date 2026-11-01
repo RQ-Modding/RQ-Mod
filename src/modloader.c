@@ -982,7 +982,9 @@ static void guard_game_calls(lua_State *L)
 			" number get set skill_points add_skill_points forget" },
 		{ "item", "number get set give transform equipped remove equip" },
 		{ "shop", "in_stock stock" },
-		{ "battle", "set_flame set_buff buffs get_drop set_drop skill_usable" },
+		{ "battle", "set_flame set_buff buffs get_drop set_drop skill_usable start" },
+		{ "party", "get set" },
+		{ "random", "seed" },
 		{ "quests", "state set_state unlock _debug_clear new_this_run current" },
 	};
 	size_t i;
@@ -1260,7 +1262,18 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "in_ally_select", rq_lua_battle_in_ally_select);
 	set_cfn(L, "actor", rq_lua_battle_actor);
 	set_cfn(L, "skill_usable", rq_lua_battle_skill_usable);
+	set_cfn(L, "start", rq_lua_battle_start);
 	lua_setfield(L, -2, "battle");
+
+	lua_newtable(L);
+	set_cfn(L, "get", rq_lua_party_get);
+	set_cfn(L, "set", rq_lua_party_set);
+	lua_setfield(L, -2, "party");
+
+	lua_newtable(L);
+	set_cfn(L, "seed", rq_lua_random_seed);
+	set_cfn(L, "fix", rq_lua_random_fix);
+	lua_setfield(L, -2, "random");
 
 	/* Aliases so camera-zoom / skip-network-popup stay unchanged. */
 	set_cfn(L, "dungeon_camera", l_dungeon_camera);

@@ -338,7 +338,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "0.21.0"
+#define RQ_VERSION "0.22.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -366,6 +366,18 @@ struct rq_qbattle {
 };
 
 int rq_query_battle(struct rq_qbattle *out);
+int rq_query_chara_named(int id);
+int rq_query_unit_recruited(int id);
+int rq_lua_party_get(struct lua_State *L);
+int rq_lua_party_set(struct lua_State *L);
+int rq_lua_battle_start(struct lua_State *L);
+int rq_lua_random_seed(struct lua_State *L);
+int rq_lua_random_fix(struct lua_State *L);
+/* hll/Math.c: every roll of the game and the loader. A negative value stops fixing. */
+void rq_random_seed(int seed);
+void rq_random_fix(int value);
+int rq_random_int(int max);
+float rq_random_float(void);
 int rq_query_facts(char **json_out);
 void rq_query_bind(struct lua_State *L);
 void rq_sandbox_install(struct lua_State *L);

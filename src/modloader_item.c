@@ -1294,7 +1294,7 @@ static void loot_pick(void)
 		for (i = 0; i < g_nladd; i++) {
 			if (g_ladd[i].pool && g_ladd[i].pool != pool)
 				continue;
-			if ((double)rand() / ((double)RAND_MAX + 1.0) * 100.0 >= g_ladd[i].chance)
+			if (rq_random_float() * 100.0 >= g_ladd[i].chance)
 				continue;
 			if (g_ladd[i].unique && item_owned(g_ladd[i].item))
 				continue;

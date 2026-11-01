@@ -204,6 +204,84 @@ static int l_call(lua_State *L)
 	return 1;
 }
 
+/* ---- rq.ain.global ---- */
+
+/* Finds a global, then walks the indexes at stack positions first..last. */
+static void walk_global(lua_State *L, int first, int last, struct page **page, int *varno, int *type)
+{
+	const char *name = luaL_checkstring(L, 1);
+	char *sj;
+	int i, gi;
+
+	if (!ain || !heap || !heap_size || !heap[0].page)
+		luaL_error(L, "rq.ain.global: the game is not running yet");
+	sj = utf2sjis(name, 0);
+	gi = sj ? ain_get_global(ain, sj) : -1;
+	free(sj);
+	if (gi < 0)
+		luaL_error(L, "rq.ain.global: no global named %s", name);
+	*page = heap[0].page;
+	*varno = gi;
+	*type = variable_type(*page, gi, NULL, NULL);
+	for (i = first; i <= last; i++) {
+		int at = (int)luaL_checkinteger(L, i);
+		int slot = (*page)->values[*varno].i;
+		struct page *arr = page_index_valid(slot) ? heap_get_page(slot) : NULL;
+		if (!arr || arr->type != ARRAY_PAGE)
+			luaL_error(L, "rq.ain.global: %s has no array at index %d", name, i - first + 1);
+		if (at < 0 || at >= arr->nr_vars)
+			luaL_error(L, "rq.ain.global: %s: index %d is out of range (size %d)", name, at, arr->nr_vars);
+		*page = arr;
+		*varno = at;
+		*type = variable_type(arr, at, NULL, NULL);
+	}
+}
+
+static int l_global(lua_State *L)
+{
+	struct page *page;
+	int varno, type;
+
+	walk_global(L, 2, lua_gettop(L), &page, &varno, &type);
+	if (!is_plain(type))
+		return luaL_error(L, "rq.ain.global: %s is an array or a struct: give an index, or read a plain value", lua_tostring(L, 1));
+	push_value(L, type, page->values[varno]);
+	return 1;
+}
+
+static int l_set_global(lua_State *L)
+{
+	struct page *page;
+	int top = lua_gettop(L);
+	int varno, type;
+
+	if (top < 2)
+		return luaL_error(L, "rq.ain.set_global: expected a name and a value");
+	walk_global(L, 2, top - 1, &page, &varno, &type);
+	if (!is_plain(type))
+		return luaL_error(L, "rq.ain.set_global: %s is an array or a struct: give an index, or set a plain value", lua_tostring(L, 1));
+	if (type == AIN_STRING)
+		luaL_checkstring(L, top);
+	else if (!lua_isboolean(L, top))
+		luaL_checknumber(L, top);
+	variable_set(page, varno, type, lua_value(L, top, type));
+	return 0;
+}
+
+static int l_global_len(lua_State *L)
+{
+	struct page *page, *arr;
+	int varno, type, slot;
+
+	walk_global(L, 2, lua_gettop(L), &page, &varno, &type);
+	slot = page->values[varno].i;
+	arr = !is_plain(type) && page_index_valid(slot) ? heap_get_page(slot) : NULL;
+	if (!arr || arr->type != ARRAY_PAGE)
+		return luaL_error(L, "rq.ain.global_len: %s is not an array", lua_tostring(L, 1));
+	lua_pushinteger(L, arr->nr_vars);
+	return 1;
+}
+
 /* ---- rq.ain.hook ---- */
 
 static struct hook *hook_for(int fno)
@@ -586,6 +664,25 @@ static const char lua_layer[] =
 "  end })\n"
 "end\n"
 "rq.scene = scene\n"
+"local hit_mode, in_hit, hit_hooked\n"
+"function rq.battle.force_hit(mode)\n"
+"  if mode ~= nil and mode ~= 'hit' and mode ~= 'miss' then\n"
+"    error('rq.battle.force_hit: expected hit, miss or nil', 2)\n"
+"  end\n"
+"  hit_mode = mode\n"
+"  if not mode or hit_hooked then return end\n"
+"  hit_hooked = true\n"
+"  hook('命中計算', {\n"
+"    before = function() in_hit = true end,\n"
+"    after = function() in_hit = false end,\n"
+"  })\n"
+"  hook('確率演算', { before = function(h)\n"
+"    if in_hit and hit_mode then\n"
+"      h.result = hit_mode == 'hit'\n"
+"      h.skip = true\n"
+"    end\n"
+"  end })\n"
+"end\n"
 "local kinds = { [4] = 'map_event', [5] = 'warp', [6] = 'warp_cancel', [7] = 'before_battle',\n"
 "  [8] = 'after_battle', [9] = 'chest', [10] = 'contact', [11] = 'before_warp' }\n"
 "local function event_of(h)\n"
@@ -613,6 +710,12 @@ void rq_scene_open(lua_State *L, int rq_index)
 	lua_setfield(L, -2, "call");
 	lua_pushcfunction(L, l_hook);
 	lua_setfield(L, -2, "hook");
+	lua_pushcfunction(L, l_global);
+	lua_setfield(L, -2, "global");
+	lua_pushcfunction(L, l_set_global);
+	lua_setfield(L, -2, "set_global");
+	lua_pushcfunction(L, l_global_len);
+	lua_setfield(L, -2, "global_len");
 	lua_pop(L, 1);
 	lua_getfield(L, rq_index, "quests");
 	lua_pushcfunction(L, l_quest_current);

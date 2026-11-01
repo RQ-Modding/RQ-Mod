@@ -30,6 +30,10 @@
 
 static struct mt19937 mt;
 static bool mt_initialized;
+#ifdef RQ_MODLOADER
+#include "modloader.h"
+static int rq_fixed = -1;
+#endif
 
 static uint32_t math_genrand(void)
 {
@@ -128,13 +132,43 @@ static void Math_SwapF(float *a, float *b)
 
 static int Math_Rand(void)
 {
+#ifdef RQ_MODLOADER
+	if (rq_fixed >= 0)
+		return rq_fixed;
+#endif
 	return math_genrand() & 0x7fffffff;
 }
 
 static float Math_RandF(void)
 {
+#ifdef RQ_MODLOADER
+	if (rq_fixed >= 0)
+		return (rq_fixed % 100) / 100.0f;
+#endif
 	return (float)(math_genrand() * (1.0 / 4294967296.0));
 }
+
+#ifdef RQ_MODLOADER
+void rq_random_seed(int seed)
+{
+	Math_SetSeed(seed);
+}
+
+void rq_random_fix(int value)
+{
+	rq_fixed = value;
+}
+
+int rq_random_int(int max)
+{
+	return Math_Rand() % max + 1;
+}
+
+float rq_random_float(void)
+{
+	return Math_RandF();
+}
+#endif
 
 static void shuffle_array(int *a, int len)
 {

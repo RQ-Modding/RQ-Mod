@@ -706,7 +706,7 @@ static int chest_attempt(int vanilla_pct)
 		id = chest_id_at(x, y);
 		pct = chest_lua_pct(x, y, id, vanilla_pct);
 	}
-	rolled = (rand() % 100) + 1;
+	rolled = rq_random_int(100);
 	success = rolled <= pct;
 	if (!success)
 		loot_discard_lock(x, y);
