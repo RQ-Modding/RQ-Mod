@@ -144,6 +144,19 @@ static union vm_value lua_value(lua_State *L, int idx, int t)
 
 /* ---- rq.ain.call ---- */
 
+/* Class@method. struct_type is not filled in for this game, and '@' can be the second
+ * byte of a Shift-JIS character. */
+static int is_method(const char *name)
+{
+	const char *p;
+
+	for (p = name; *p; p += SJIS_2BYTE(*p) ? 2 : 1) {
+		if (*p == '@')
+			return 1;
+	}
+	return 0;
+}
+
 static int l_call(lua_State *L)
 {
 	const char *name = luaL_checkstring(L, 1);
@@ -156,6 +169,8 @@ static int l_call(lua_State *L)
 	if (fno < 0)
 		return luaL_error(L, "rq.ain.call: no function named %s", name);
 	fn = &ain->functions[fno];
+	if (is_method(fn->name))
+		return luaL_error(L, "rq.ain.call: %s is a method and needs an object", name);
 	n = lua_gettop(L) - 1;
 	for (i = 0; i < fn->nr_args; i++) {
 		int t = fn->vars[i].type.data;
@@ -701,6 +716,102 @@ static const char lua_layer[] =
 "    local r = fn(event_of(h))\n"
 "    if r ~= nil then h.result = r end\n"
 "  end })\n"
+"end\n"
+"local quest_wanted, quest_hooked\n"
+"local function leave_for_quest(h, tab)\n"
+"  if quest_wanted then\n"
+"    h.skip = true\n"
+"    h.result = tab\n"
+"  end\n"
+"end\n"
+"function rq.quests.start(no)\n"
+"  if math.type(no) ~= 'integer' then\n"
+"    error('rq.quests.start: expected a quest number', 2)\n"
+"  end\n"
+"  if quest_wanted then\n"
+"    error('rq.quests.start: quest ' .. quest_wanted .. ' is already starting', 2)\n"
+"  end\n"
+"  if rq.quests.current() ~= 0 then\n"
+"    error('rq.quests.start: a quest is running', 2)\n"
+"  end\n"
+"  if not rq.ain.call('クエスト_確認', no) or rq.ain.call('クエスト_名前', no) == '' then\n"
+"    error('rq.quests.start: no quest number ' .. no, 2)\n"
+"  end\n"
+"  if not rq.ain.call('クエスト_有効', no) then\n"
+"    error('rq.quests.start: this party cannot take quest ' .. no, 2)\n"
+"  end\n"
+"  local screen = rq.ui.get().screen\n"
+"  if screen ~= 'hub' and screen ~= 'quests' then\n"
+"    error('rq.quests.start: only from the hub or the quest list, not ' .. tostring(screen), 2)\n"
+"  end\n"
+"  quest_wanted = no\n"
+"  if quest_hooked then return end\n"
+"  quest_hooked = true\n"
+"  hook('T_Town@checkKey', { before = function(h) leave_for_quest(h, 600014) end })\n"
+"  hook('T_Quest@checkKey', { before = function(h)\n"
+"    if h.args[1] == 0 then leave_for_quest(h, 600001) end\n"
+"  end })\n"
+"  hook('T_Quest@run', { after = function(h)\n"
+"    if quest_wanted then\n"
+"      h.result = quest_wanted\n"
+"      quest_wanted = nil\n"
+"    end\n"
+"  end })\n"
+"end\n"
+"local type = type\n"
+"local function removable(register)\n"
+"  local free = {}\n"
+"  return function(fn)\n"
+"    if type(fn) ~= 'function' then return register(fn) end\n"
+"    local cell = free[#free]\n"
+"    if cell then\n"
+"      free[#free] = nil\n"
+"      cell.fn = fn\n"
+"    else\n"
+"      cell = { fn = fn }\n"
+"      register(function(...)\n"
+"        local f = cell.fn\n"
+"        if f then return f(...) end\n"
+"      end)\n"
+"    end\n"
+"    local live = true\n"
+"    return function()\n"
+"      if live then\n"
+"        live = false\n"
+"        cell.fn = nil\n"
+"        free[#free + 1] = cell\n"
+"      end\n"
+"    end\n"
+"  end\n"
+"end\n"
+"for key, value in pairs(rq) do\n"
+"  if type(value) == 'function' and key:sub(1, 3) == 'on_' then\n"
+"    rq[key] = removable(value)\n"
+"  elseif type(value) == 'table' then\n"
+"    for name, fn in pairs(value) do\n"
+"      if type(fn) == 'function' and type(name) == 'string' and name:sub(1, 3) == 'on_' then\n"
+"        value[name] = removable(fn)\n"
+"      end\n"
+"    end\n"
+"  end\n"
+"end\n"
+"local raw_hook, hook_slots = rq.ain.hook, {}\n"
+"function rq.ain.hook(name, spec)\n"
+"  if type(spec) ~= 'table' then return raw_hook(name, spec) end\n"
+"  raw_hook(name, {})\n"
+"  local removers = {}\n"
+"  for _, phase in ipairs({ 'before', 'after' }) do\n"
+"    if type(spec[phase]) == 'function' then\n"
+"      local key = phase .. ':' .. name\n"
+"      hook_slots[key] = hook_slots[key] or removable(function(fn)\n"
+"        raw_hook(name, { [phase] = fn })\n"
+"      end)\n"
+"      removers[#removers + 1] = hook_slots[key](spec[phase])\n"
+"    end\n"
+"  end\n"
+"  return function()\n"
+"    for _, remove in ipairs(removers) do remove() end\n"
+"  end\n"
 "end\n";
 
 void rq_scene_open(lua_State *L, int rq_index)

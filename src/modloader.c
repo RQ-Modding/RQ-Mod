@@ -188,18 +188,20 @@ static const char *lua_mod_tag(lua_State *L)
 	lua_Debug ar;
 	const char *src, *mods, *slash, *dot;
 	size_t n;
+	int level;
 	static char tag[64];
 
-	if (!lua_getstack(L, 1, &ar) || !lua_getinfo(L, "S", &ar) || !ar.source)
-		return "lua";
-	src = ar.source;
-	if (src[0] == '@')
-		src++;
-	mods = strstr(src, "\\mods\\");
-	if (!mods)
-		mods = strstr(src, "/mods/");
-	if (!mods)
-		return "lua";
+	/* The nearest level in a mod file: the loader's own Lua layer can sit in between. */
+	for (level = 1, mods = NULL; !mods; level++) {
+		if (!lua_getstack(L, level, &ar) || !lua_getinfo(L, "S", &ar))
+			return "lua";
+		src = ar.source ? ar.source : "";
+		if (src[0] == '@')
+			src++;
+		mods = strstr(src, "\\mods\\");
+		if (!mods)
+			mods = strstr(src, "/mods/");
+	}
 	mods += 6;
 	slash = strpbrk(mods, "\\/");
 	if (slash) {
