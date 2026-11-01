@@ -341,7 +341,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "0.26.0"
+#define RQ_VERSION "0.27.0"
 
 struct rq_qbattle_skill {
 	int id;

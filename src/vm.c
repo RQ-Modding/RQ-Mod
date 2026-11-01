@@ -500,6 +500,13 @@ static void delegate_call(int dg_no, int return_address)
 	}
 }
 
+/*
+ * Calls of vm_execute now on the C stack. The game itself runs at depth 1, so more means a
+ * call from C, usually a mod's Lua. A saved image cannot hold that C frame, and a load cannot
+ * replace the VM under it.
+ */
+static int vm_call_depth;
+
 void vm_call(int fno, int struct_page)
 {
 	size_t saved_ip = instr_ptr;
@@ -510,7 +517,9 @@ void vm_call(int fno, int struct_page)
 		stack_push(struct_page);
 		method_call(fno, VM_RETURN);
 	}
+	vm_call_depth++;
 	vm_execute();
+	vm_call_depth--;
 	instr_ptr = saved_ip;
 }
 
@@ -533,7 +542,9 @@ void vm_call_method(int fno, int struct_page)
 
 	rq_mods_on_vm_call(fno, struct_page);
 	method_call(fno, VM_RETURN);
+	vm_call_depth++;
 	vm_execute();
+	vm_call_depth--;
 	instr_ptr = saved_ip;
 }
 
@@ -659,7 +670,12 @@ static void system_call(enum syscall_code code)
 		union vm_value *success = stack_pop_var();
 		struct string *filename = stack_peek_string(0);
 		struct string *keyname = stack_peek_string(1);
-		success->i = vm_save_image(keyname->text, filename->text);
+		if (vm_call_depth > 1) {
+			WARNING("save refused: it runs under a call from a mod");
+			success->i = 0;
+		} else {
+			success->i = vm_save_image(keyname->text, filename->text);
+		}
 		heap_unref(stack_pop().i);
 		heap_unref(stack_pop().i);
 		stack_push(1);
@@ -668,6 +684,8 @@ static void system_call(enum syscall_code code)
 	case SYS_RESUME_LOAD: {
 		int filename_slot = stack_pop().i;
 		int key_slot = stack_pop().i;
+		if (vm_call_depth > 1)
+			VM_ERROR("A load cannot run under a call from a mod");
 		rq_item_mark_stale();
 		vm_load_image(heap_get_string(key_slot)->text, heap_get_string(filename_slot)->text);
 		stack_push(0);
@@ -2533,6 +2551,7 @@ int vm_execute_ain(struct ain *program)
 	}
 	stack_ptr = 0;
 	call_stack_ptr = 0;
+	vm_call_depth = 0;
 #ifdef RQ_PROFILE
 	rq_prof_ain_unwind();
 #endif
