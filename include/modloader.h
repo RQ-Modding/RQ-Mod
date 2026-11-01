@@ -256,6 +256,7 @@ int rq_lua_input_wheel(struct lua_State *L);
 int rq_lua_input_release(struct lua_State *L);
 int rq_lua_ui_get(struct lua_State *L);
 int rq_lua_ui_aim(struct lua_State *L);
+int rq_lua_dungeon_grid(struct lua_State *L);
 int rq_lua_ui_shot(struct lua_State *L);
 int rq_lua_ui_shot_result(struct lua_State *L);
 int rq_lua_hud_rect(struct lua_State *L);
@@ -338,7 +339,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "0.24.0"
+#define RQ_VERSION "0.25.0"
 
 struct rq_qbattle_skill {
 	int id;

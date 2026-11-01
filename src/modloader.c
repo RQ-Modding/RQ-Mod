@@ -986,6 +986,7 @@ static void guard_game_calls(lua_State *L)
 		{ "shop", "in_stock stock" },
 		{ "battle", "set_flame set_buff buffs get_drop set_drop skill_usable start" },
 		{ "party", "get set" },
+		{ "dungeon", "grid" },
 		{ "random", "seed" },
 		{ "quests", "state set_state unlock _debug_clear new_this_run current" },
 	};
@@ -1056,6 +1057,7 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "active", rq_lua_dungeon_active);
 	set_cfn(L, "exploring", rq_lua_dungeon_exploring);
 	set_cfn(L, "on_map", rq_lua_dungeon_on_map);
+	set_cfn(L, "grid", rq_lua_dungeon_grid);
 	lua_setfield(L, -2, "dungeon");
 
 	lua_newtable(L);

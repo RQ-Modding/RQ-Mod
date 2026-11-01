@@ -6304,6 +6304,29 @@ int rq_lua_ui_get(lua_State *L)
 }
 
 /* The point a click on this control should land on, or nil. */
+int rq_lua_dungeon_grid(lua_State *L)
+{
+	char err[64] = "";
+	char *json = NULL;
+	cJSON *root;
+
+	if (!rq_path_grid(&json, err, (int)sizeof err)) {
+		lua_pushnil(L);
+		lua_pushstring(L, err);
+		return 2;
+	}
+	root = cJSON_Parse(json);
+	free(json);
+	if (!root) {
+		lua_pushnil(L);
+		lua_pushliteral(L, "json");
+		return 2;
+	}
+	push_json(L, root);
+	cJSON_Delete(root);
+	return 1;
+}
+
 int rq_lua_ui_aim(lua_State *L)
 {
 	const char *id = luaL_checkstring(L, 1);
