@@ -71,6 +71,8 @@ int rq_lua_image_gif_info(struct lua_State *L);
 int rq_anim_find(const char *name, uint8_t **data, size_t *size);
 int rq_anim_handle(const char *key);
 void rq_anim_redirect(int handle);
+int rq_anim_of_cg(int no);
+void rq_anim_cg_changed(int no);
 int rq_sandbox_resolve(struct lua_State *L, const char *rel, char *out, int n);
 int rq_lua_skill_define(struct lua_State *L);
 int rq_lua_skill_patch(struct lua_State *L);
@@ -93,7 +95,7 @@ void rq_battle_marks_tick(void);
 int rq_battle_marks_install(struct ain *a);
 int rq_lua_battle_set_buff(struct lua_State *L);
 int rq_lua_battle_buffs(struct lua_State *L);
-void rq_hud_buff(int x, int y, int cg, int alpha, const char *text);
+void rq_battle_marks_reload(void);
 int rq_lua_quests_on_clear(struct lua_State *L);
 int rq_lua_quests_state(struct lua_State *L);
 int rq_lua_quests_set_state(struct lua_State *L);
@@ -341,7 +343,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "0.27.0"
+#define RQ_VERSION "0.27.1"
 
 struct rq_qbattle_skill {
 	int id;

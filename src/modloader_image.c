@@ -52,6 +52,12 @@ struct img {
 static struct img g_img[IMG_MAX];
 static int g_nimg;
 
+static void cg_changed(int id)
+{
+	asset_cg_cache_forget(id);
+	rq_anim_cg_changed(id);
+}
+
 static struct img *find_img(int id)
 {
 	int i;
@@ -290,7 +296,7 @@ void rq_image_redirect(int game_id, int custom_id)
 	m->keep_size = 0;
 	m->failed = 0;
 	snprintf(m->path, sizeof m->path, "%s", src->path);
-	asset_cg_cache_forget(game_id);
+	cg_changed(game_id);
 }
 
 /* The icon of an item whose mod gives none. */
@@ -403,7 +409,7 @@ static int add_image(lua_State *L, const char *key, const char *rel, int opts, i
 	m->w = opts && opt_int(L, opts, "w") ? opt_int(L, opts, "w") : def_w;
 	m->h = opts && opt_int(L, opts, "h") ? opt_int(L, opts, "h") : def_h;
 	set_path(L, m, rel);
-	asset_cg_cache_forget(id);
+	cg_changed(id);
 	return id;
 }
 
@@ -441,7 +447,7 @@ int rq_lua_image_replace(lua_State *L)
 		lua_pop(L, 1);
 	}
 	set_path(L, m, path);
-	asset_cg_cache_forget(id);
+	cg_changed(id);
 	return 0;
 }
 
@@ -455,7 +461,7 @@ int rq_lua_image_restore(lua_State *L)
 			if (g_img[i].cg)
 				cg_free(g_img[i].cg);
 			g_img[i] = g_img[--g_nimg];
-			asset_cg_cache_forget(id);
+			cg_changed(id);
 			lua_pushboolean(L, 1);
 			return 1;
 		}

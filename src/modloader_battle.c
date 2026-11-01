@@ -674,6 +674,7 @@ int rq_lua_battle_skill_usable(lua_State *L)
  * at once and again at the end of every ally status refresh (the refresh
  * only ever clears a mark whose number matches, so it cannot erase it).
  * Mark2 shows one mark at a time, so the marks of a card take turns (below).
+ * A mod's buff is a mark too, so it sits in the card's z order, under the game's windows.
  */
 static int g_flame_on;
 static int g_flame_iic[5];
@@ -686,8 +687,9 @@ static int g_fl_st_mark = -1;
 static int g_fl_gi = -2;
 static int g_fl_set = -1;
 static int g_fl_data[5] = { -1, -1, -1, -1, -1 };
-static int g_fl_m_mark = -1, g_fl_m_show = -1, g_fl_m_flash = -1;
-static int g_fl_m_x = -1, g_fl_m_y = -1, g_fl_m_partno = -1, g_fl_m_markno = -1;
+static int g_fl_m_mark = -1, g_fl_m_number = -1, g_fl_m_flash = -1;
+static int g_fl_m_partno = -1, g_fl_m_markno = -1;
+static int g_fl_set_text = -1;
 
 #define CARD_MARKS 16
 #define BUFF_MAX 8
@@ -703,6 +705,7 @@ struct card_mark {
 struct card {
 	struct card_mark e[CARD_MARKS];
 	int n, cur, shown_anim;
+	char shown_text[16];
 	uint32_t t0;
 };
 static struct card g_card[5];
@@ -798,6 +801,17 @@ static void mark_call_set(int slot, int mark, int status, const char *text)
 		stack_pop();
 }
 
+static void mark_call_text(int slot, const char *text)
+{
+	struct page *num = heap_get_page(slot);
+
+	if (g_fl_set_text < 0 || g_fl_m_number < 0 || !num || !page_index_valid(num->values[g_fl_m_number].i))
+		return;
+	stack_push(mark_str(text));
+	stack_push(0);
+	vm_call_method(g_fl_set_text, num->values[g_fl_m_number].i);
+}
+
 static int mark_data(int fno, int no)
 {
 	if (fno < 0)
@@ -868,30 +882,42 @@ static void card_fill(int no)
 static void card_apply(int no)
 {
 	struct card *c = &g_card[no - 1];
-	int slot = flame_mark_slot(no);
+	struct card_mark *e = c->n > 0 ? &c->e[c->cur] : NULL;
+	int slot = flame_mark_slot(no), anim = 0;
 
 	if (slot < 0)
 		return;
-	if (c->n > 0 && c->e[c->cur].anim) {
-		/* T_BattleMark only takes its fixed numbers, so an animated buff borrows one
-		 * and the load is pointed at the GIF. Marks restart when set, so a mark that
-		 * already shows this GIF is left alone. */
-		struct card_mark *e = &c->e[c->cur];
+	if (e && e->mark <= 0)
+		anim = e->anim ? e->anim : rq_anim_of_cg(e->cg);
+	if (anim) {
+		/* T_BattleMark only takes its fixed numbers, so a mod's buff borrows one and
+		 * the load is pointed at its file. Marks restart when set, so a mark that
+		 * already shows this file only takes the new text. */
 		struct page *mark = mark_child(heap_get_page(slot), g_fl_m_mark);
 
-		if (c->shown_anim == e->anim && mark && g_fl_m_markno >= 0
-		    && mark->values[g_fl_m_markno].i == ANIM_MARK_NO)
+		if (c->shown_anim == anim && mark && g_fl_m_markno >= 0
+		    && mark->values[g_fl_m_markno].i == ANIM_MARK_NO) {
+			if (strcmp(c->shown_text, e->text)) {
+				mark_call_text(slot, e->text);
+				snprintf(c->shown_text, sizeof c->shown_text, "%s", e->text);
+			}
 			return;
+		}
 		mark_call_set(slot, 0, 0, "");
-		rq_anim_redirect(e->anim);
+		rq_anim_redirect(anim);
 		mark_call_set(slot, ANIM_MARK_NO, 1, e->text);
 		rq_anim_redirect(0);
-		c->shown_anim = e->anim;
+		c->shown_anim = anim;
+		snprintf(c->shown_text, sizeof c->shown_text, "%s", e->text);
 		return;
 	}
+	/* The game skips a set of the number it already has, and the flame has the one
+	 * a mod's buff borrows. */
+	if (c->shown_anim)
+		mark_call_set(slot, 0, 0, "");
 	c->shown_anim = 0;
-	if (c->n > 0 && c->e[c->cur].mark > 0)
-		mark_call_set(slot, c->e[c->cur].mark, c->e[c->cur].status, c->e[c->cur].text);
+	if (e && e->mark > 0)
+		mark_call_set(slot, e->mark, e->status, e->text);
 	else
 		mark_call_set(slot, 0, 0, "");
 }
@@ -926,8 +952,8 @@ void rq_battle_marks_tick(void)
 	now = SDL_GetTicks();
 	for (no = 1; no <= 5; no++) {
 		struct card *c = &g_card[no - 1];
-		struct page *num, *mark, *flash;
-		int slot, alpha = 255, show = 0;
+		struct page *mark, *flash;
+		int slot, alpha = 255;
 
 		if (c->n <= 0 || (slot = flame_mark_slot(no)) < 0)
 			continue;
@@ -944,22 +970,20 @@ void rq_battle_marks_tick(void)
 			else if (e >= MARK_FADE_MS + MARK_HOLD_MS)
 				alpha = (int)(255 * (MARK_FADE_MS * 2 + MARK_HOLD_MS - e) / MARK_FADE_MS);
 		}
-		num = heap_get_page(slot);
-		mark = mark_child(num, g_fl_m_mark);
-		if (!mark)
-			continue;
-		if (c->e[c->cur].mark > 0 || c->e[c->cur].anim) {
-			flash = mark_child(mark, g_fl_m_flash);
-			if (c->n > 1 && flash && g_fl_m_partno >= 0 && flash->values[g_fl_m_partno].i > 0)
-				PE_SetAlpha(flash->values[g_fl_m_partno].i, alpha);
-			continue;
-		}
-		if (g_fl_m_show >= 0)
-			show = num->values[g_fl_m_show].i;
-		if (show && g_fl_m_x >= 0 && g_fl_m_y >= 0)
-			rq_hud_buff(mark->values[g_fl_m_x].i, mark->values[g_fl_m_y].i, c->e[c->cur].cg,
-				    alpha, c->e[c->cur].text);
+		mark = mark_child(heap_get_page(slot), g_fl_m_mark);
+		flash = mark_child(mark, g_fl_m_flash);
+		if (flash && g_fl_m_partno >= 0 && flash->values[g_fl_m_partno].i > 0)
+			PE_SetAlpha(flash->values[g_fl_m_partno].i, alpha);
 	}
+}
+
+void rq_battle_marks_reload(void)
+{
+	int no;
+
+	for (no = 0; no < 5; no++)
+		g_card[no].shown_anim = 0;
+	g_marks_dirty = g_marks_live;
 }
 
 void rq_battle_marks_live(int on)
@@ -1018,12 +1042,11 @@ static int flame_install(struct ain *a)
 	g_fl_data[3] = find_fn(a, "戦闘データ_全体加護");
 	g_fl_data[4] = find_fn(a, "戦闘データ_バリア");
 	g_fl_m_mark = find_member(a, g_fl_st_mark, "m_sMark");
-	g_fl_m_show = find_member(a, g_fl_st_mark, "m_bShow");
+	g_fl_m_number = find_member(a, g_fl_st_mark, "m_sNumber");
+	g_fl_set_text = find_fn(a, "T_DrawText@setText");
 	st = find_struct(a, "T_BattleMark");
 	g_fl_m_flash = find_member(a, st, "m_sMark");
 	g_fl_m_markno = find_member(a, st, "m_nMarkNo");
-	g_fl_m_x = find_member(a, st, "m_nX");
-	g_fl_m_y = find_member(a, st, "m_nY");
 	g_fl_m_partno = find_member(a, find_struct(a, "T_PartsFlash"), "m_nNo");
 	if (f_check < 0 || f_init < 0 || g_fl_gi_pta < 0 || g_fl_prepare < 0
 	    || g_fl_st_mgr < 0 || g_fl_m_chara < 0 || g_fl_m_mark2 < 0
@@ -1126,6 +1149,8 @@ int rq_lua_battle_set_buff(lua_State *L)
 			return luaL_error(L, "set_buff needs icon (a CG number, rq.image.add gives one) or anim (an rq.image.add_gif key)");
 		cg = (int)lua_tointeger(L, -1);
 		lua_pop(L, 1);
+		if (!anim && !rq_anim_of_cg(cg))
+			return luaL_error(L, "set_buff icon %d is no CG, is larger than 1024 pixels, or there are too many (max 128 with the GIFs)", cg);
 		if (i == n) {
 			if (n >= BUFF_MAX)
 				return luaL_error(L, "too many buffs on one character (max %d)", BUFF_MAX);

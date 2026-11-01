@@ -5,6 +5,7 @@
  * rectangle shape and one PlaceObject2 per GIF frame, on a 30 fps timeline
  * (T_PartsFlash::update always runs at 30). parts_flash_load asks rq_anim_find
  * before the archive, so a key named like a game file replaces it.
+ * A still CG becomes a one-frame file the same way, for the marks on battle cards.
  */
 
 #ifdef RQ_MODLOADER
@@ -20,7 +21,10 @@
 #include "lauxlib.h"
 
 #include "system4.h"
+#include "system4/cg.h"
 #include "system4/utfsjis.h"
+
+#include "asset_manager.h"
 
 #include "modloader.h"
 #include "modloader_priv.h"
@@ -179,6 +183,37 @@ static int out_bitmap(struct out *o, int id, const uint8_t *argb, int w, int h)
 	return 1;
 }
 
+static size_t swf_begin(struct out *o, int w, int h)
+{
+	size_t frames_at;
+
+	out_bytes(o, "FWS\x08", 4);
+	out_u32(o, 0);
+	out_rect(o, w, h);
+	out_u16(o, 30 << 8);
+	frames_at = o->n;
+	out_u16(o, 0);
+	return frames_at;
+}
+
+static void swf_end(struct out *o, size_t frames_at, int frames)
+{
+	out_tag(o, SWF_TAG_END, NULL, 0);
+	o->d[frames_at] = frames & 0xff;
+	o->d[frames_at + 1] = (frames >> 8) & 0xff;
+	o->d[4] = o->n & 0xff;
+	o->d[5] = (o->n >> 8) & 0xff;
+	o->d[6] = (o->n >> 16) & 0xff;
+	o->d[7] = (o->n >> 24) & 0xff;
+}
+
+static void out_place(struct out *o, int shape)
+{
+	uint8_t place[5] = { SWF_PLACE_HAS_CHARACTER, 1, 0, (uint8_t)shape, (uint8_t)(shape >> 8) };
+
+	out_tag(o, SWF_TAG_PLACE_OBJECT2, place, sizeof place);
+}
+
 /* ---- GIF ---- */
 
 struct gif {
@@ -324,7 +359,7 @@ static const char *gif_to_swf(const uint8_t *data, size_t size, int draw_w, int 
 	int cw, ch, global_n = 0, flags;
 	int disposal = 0, transparent = -1, delay = 0;
 	int count = 0, cum_cs = 0, shown = 0;
-	size_t frames_at, len_at = 4;
+	size_t frames_at;
 
 	if (size < 13 || (memcmp(data, "GIF87a", 6) && memcmp(data, "GIF89a", 6)))
 		return "not a GIF file";
@@ -349,12 +384,7 @@ static const char *gif_to_swf(const uint8_t *data, size_t size, int draw_w, int 
 	canvas = xcalloc((size_t)cw * ch, 4);
 	saved = xmalloc((size_t)cw * ch * 4);
 
-	out_bytes(&o, "FWS\x08", 4);
-	out_u32(&o, 0);
-	out_rect(&o, draw_w, draw_h);
-	out_u16(&o, 30 << 8);
-	frames_at = o.n;
-	out_u16(&o, 0);
+	frames_at = swf_begin(&o, draw_w, draw_h);
 
 	while (!err) {
 		int block;
@@ -447,11 +477,7 @@ static const char *gif_to_swf(const uint8_t *data, size_t size, int draw_w, int 
 				break;
 			}
 			out_shape(&o, id + 1, id, draw_w, draw_h);
-			{
-				uint8_t place[5] = { SWF_PLACE_HAS_CHARACTER, 1, 0,
-						     (uint8_t)(id + 1), (uint8_t)((id + 1) >> 8) };
-				out_tag(&o, SWF_TAG_PLACE_OBJECT2, place, sizeof place);
-			}
+			out_place(&o, id + 1);
 			/* Browsers treat a delay under 20 ms as 100 ms. The running total
 			 * decides how many 30 fps frames each one holds, so rounding adds up. */
 			cum_cs += delay >= 2 ? delay : 10;
@@ -494,13 +520,7 @@ static const char *gif_to_swf(const uint8_t *data, size_t size, int draw_w, int 
 		free(o.d);
 		return err;
 	}
-	out_tag(&o, SWF_TAG_END, NULL, 0);
-	o.d[frames_at] = shown & 0xff;
-	o.d[frames_at + 1] = (shown >> 8) & 0xff;
-	o.d[len_at] = o.n & 0xff;
-	o.d[len_at + 1] = (o.n >> 8) & 0xff;
-	o.d[len_at + 2] = (o.n >> 16) & 0xff;
-	o.d[len_at + 3] = (o.n >> 24) & 0xff;
+	swf_end(&o, frames_at, shown);
 
 	free(m->swf);
 	m->swf = o.d;
@@ -571,6 +591,93 @@ int rq_anim_handle(const char *key)
 	return m ? (int)(m - g_anim) + 1 : 0;
 }
 
+static struct anim *anim_free_slot(void)
+{
+	int i;
+
+	for (i = 0; i < g_nanim; i++) {
+		if (!g_anim[i].swf)
+			break;
+	}
+	if (i == ANIM_MAX)
+		return NULL;
+	memset(&g_anim[i], 0, sizeof g_anim[i]);
+	if (i == g_nanim)
+		g_nanim = i + 1;
+	return &g_anim[i];
+}
+
+static void cg_name(int no, char *out, size_t n)
+{
+	snprintf(out, n, "rq/cg/%d", no);
+}
+
+/* The handle of a CG as a one-frame file, made the first time it is asked for. 0 if no such CG. */
+int rq_anim_of_cg(int no)
+{
+	char name[256];
+	struct anim *m;
+	struct cg *cg;
+	struct out o = { 0 };
+	uint8_t *argb;
+	size_t frames_at, i, cells;
+	int w, h, ok;
+
+	cg_name(no, name, sizeof name);
+	if ((m = anim_by_name(name)))
+		return (int)(m - g_anim) + 1;
+	if (no <= 0 || !(cg = asset_cg_load(no)))
+		return 0;
+	w = cg->metrics.w;
+	h = cg->metrics.h;
+	if (w <= 0 || h <= 0 || w > ANIM_SIDE_MAX || h > ANIM_SIDE_MAX || !(m = anim_free_slot())) {
+		cg_free(cg);
+		return 0;
+	}
+	cells = (size_t)w * h;
+	argb = xmalloc(cells * 4);
+	for (i = 0; i < cells; i++) {
+		const uint8_t *p = (const uint8_t *)cg->pixels + i * 4;
+		argb[i * 4] = p[3];
+		argb[i * 4 + 1] = p[0];
+		argb[i * 4 + 2] = p[1];
+		argb[i * 4 + 3] = p[2];
+	}
+	cg_free(cg);
+	frames_at = swf_begin(&o, w, h);
+	ok = out_bitmap(&o, 1, argb, w, h);
+	free(argb);
+	if (!ok) {
+		free(o.d);
+		return 0;
+	}
+	out_shape(&o, 2, 1, w, h);
+	out_place(&o, 2);
+	out_tag(&o, SWF_TAG_SHOW_FRAME, NULL, 0);
+	swf_end(&o, frames_at, 1);
+	m->swf = o.d;
+	m->size = o.n;
+	m->w = w;
+	m->h = h;
+	m->frames = 1;
+	snprintf(m->name, sizeof m->name, "%s", name);
+	return (int)(m - g_anim) + 1;
+}
+
+/* A CG's picture changed, so a card showing it has to load it again. */
+void rq_anim_cg_changed(int no)
+{
+	char name[256];
+	struct anim *m;
+
+	cg_name(no, name, sizeof name);
+	if (!(m = anim_by_name(name)))
+		return;
+	free(m->swf);
+	m->swf = NULL;
+	rq_battle_marks_reload();
+}
+
 /* ---- Lua ---- */
 
 int rq_lua_image_add_gif(lua_State *L)
@@ -583,7 +690,7 @@ int rq_lua_image_add_gif(lua_State *L)
 	uint8_t *data;
 	long len;
 	FILE *f;
-	int w = 0, h = 0, i;
+	int w = 0, h = 0;
 
 	if (!key[0] || strlen(key) >= sizeof m->key)
 		return luaL_error(L, "add_gif key must be 1 to 103 bytes");
@@ -618,17 +725,9 @@ int rq_lua_image_add_gif(lua_State *L)
 
 	anim_full_name(key, name, sizeof name);
 	m = anim_by_name(name);
-	if (!m) {
-		for (i = 0; i < g_nanim; i++) {
-			if (!g_anim[i].swf)
-				break;
-		}
-		if (i == ANIM_MAX) {
-			free(data);
-			return luaL_error(L, "too many GIFs (max %d)", ANIM_MAX);
-		}
-		m = &g_anim[i];
-		memset(m, 0, sizeof *m);
+	if (!m && !(m = anim_free_slot())) {
+		free(data);
+		return luaL_error(L, "too many GIFs (max %d, with the still icons on battle cards)", ANIM_MAX);
 	}
 	err = gif_to_swf(data, (size_t)len, w, h, m);
 	free(data);
@@ -636,8 +735,6 @@ int rq_lua_image_add_gif(lua_State *L)
 		return luaL_error(L, "GIF '%s': %s", rel, err);
 	snprintf(m->name, sizeof m->name, "%s", name);
 	snprintf(m->key, sizeof m->key, "%s", key);
-	if (m - g_anim >= g_nanim)
-		g_nanim = (int)(m - g_anim) + 1;
 	lua_pushstring(L, key);
 	return 1;
 }
