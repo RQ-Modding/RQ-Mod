@@ -698,14 +698,14 @@ static int g_fl_m_partno = -1, g_fl_m_markno = -1;
 static int g_fl_set_text = -1;
 
 #define CARDS 10
-#define CARD_MARKS 16
 #define BUFF_MAX 8
+#define CARD_MARKS (6 + BUFF_MAX * 2) /* the game's marks, a character's buffs, a rank's buffs */
 #define MARK_HOLD_MS 1500u
 #define MARK_FADE_MS 250u
 #define ANIM_MARK_NO 31
 
 struct card_mark {
-	int mark, status, cg, anim;
+	int mark, status, cg, anim, rank;
 	char key[32];
 	char text[16];
 };
@@ -716,8 +716,19 @@ struct card {
 	uint32_t t0;
 };
 static struct card g_card[CARDS];
-static struct { char key[32]; char text[16]; int cg, anim; } g_buff[CARDS][BUFF_MAX];
-static int g_nbuff[CARDS];
+struct buff_list {
+	struct { char key[32]; char text[16]; int cg, anim; } e[BUFF_MAX];
+	int n;
+};
+/* A buff belongs to a character or to a rank, not to the card. There is one entry for
+ * everyone who stood on a card in this fight, so it also says who was in the fight. */
+struct chara_buffs {
+	int iic;
+	struct buff_list list;
+};
+static struct chara_buffs *g_chara_buff;
+static int g_nchara_buff, g_chara_buff_cap;
+static struct buff_list g_rank_buff[CARDS];
 static int g_marks_live, g_marks_dirty;
 
 static int is_ally_no(int no)
@@ -756,6 +767,30 @@ static int card_iic(int no)
 	if (!arr || arr->type != ARRAY_PAGE || i >= arr->nr_vars)
 		return 0;
 	return arr->values[i].i;
+}
+
+/* A flame goes with the character when the party changes places, and ends when they leave it. */
+static int flame_on(int iic)
+{
+	int i;
+
+	for (i = 0; iic > 0 && i < 5; i++) {
+		if (g_flame_iic[i] == iic)
+			return 1;
+	}
+	return 0;
+}
+
+static void flames_tidy(void)
+{
+	int i, no;
+
+	for (i = 0; i < 5; i++) {
+		for (no = 1; no <= 5 && card_iic(no) != g_flame_iic[i]; no++)
+			;
+		if (no > 5)
+			g_flame_iic[i] = 0;
+	}
 }
 
 static int manager_global(int *gi, const char *name)
@@ -877,8 +912,41 @@ static void card_add(struct card *c, int mark, int status, int cg, const char *k
 	e->status = status;
 	e->cg = cg;
 	e->anim = 0;
+	e->rank = 0;
 	snprintf(e->key, sizeof e->key, "%s", key);
 	snprintf(e->text, sizeof e->text, "%s", text);
+}
+
+static struct buff_list *chara_buffs(int iic, int create)
+{
+	struct chara_buffs *b;
+	int i;
+
+	for (i = 0; i < g_nchara_buff; i++) {
+		if (g_chara_buff[i].iic == iic)
+			return &g_chara_buff[i].list;
+	}
+	if (!create)
+		return NULL;
+	if (g_nchara_buff == g_chara_buff_cap) {
+		g_chara_buff_cap = g_chara_buff_cap ? g_chara_buff_cap * 2 : 16;
+		g_chara_buff = xrealloc(g_chara_buff, sizeof *g_chara_buff * g_chara_buff_cap);
+	}
+	b = &g_chara_buff[g_nchara_buff++];
+	memset(b, 0, sizeof *b);
+	b->iic = iic;
+	return &b->list;
+}
+
+static void card_add_buffs(struct card *c, const struct buff_list *l, int rank)
+{
+	int i;
+
+	for (i = 0; l && i < l->n; i++) {
+		card_add(c, 0, 1, l->e[i].cg, l->e[i].key, l->e[i].text);
+		c->e[c->n - 1].anim = l->e[i].anim;
+		c->e[c->n - 1].rank = rank;
+	}
 }
 
 /* The list is rebuilt from the battle data, so the turn stays on the mark it was on. */
@@ -892,7 +960,7 @@ static void card_fill(int no)
 	if (c->n > 0)
 		old = c->e[c->cur];
 	c->n = 0;
-	if (is_ally_no(no) ? g_flame_iic[no - 1] : mark_data(g_fl_charging, no))
+	if (is_ally_no(no) ? flame_on(card_iic(no)) : mark_data(g_fl_charging, no))
 		card_add(c, 31, 1, 0, "", "");
 	if ((v = mark_data(g_fl_data[0], no)) > 0) {
 		snprintf(text, sizeof text, "%d%%", v);
@@ -908,12 +976,8 @@ static void card_fill(int no)
 		snprintf(text, sizeof text, "%dx", v);
 		card_add(c, 36, v, 0, "", text);
 	}
-	for (i = 0; i < g_nbuff[card_index(no)]; i++)
-	{
-		card_add(c, 0, 1, g_buff[card_index(no)][i].cg, g_buff[card_index(no)][i].key, g_buff[card_index(no)][i].text);
-		if (c->n > 0 && !strcmp(c->e[c->n - 1].key, g_buff[card_index(no)][i].key))
-			c->e[c->n - 1].anim = g_buff[card_index(no)][i].anim;
-	}
+	card_add_buffs(c, chara_buffs(card_iic(no), 0), 0);
+	card_add_buffs(c, &g_rank_buff[card_index(no)], 1);
 	for (i = 0; i < c->n; i++) {
 		if (c->e[i].mark == old.mark && !strcmp(c->e[i].key, old.key)) {
 			c->cur = i;
@@ -971,15 +1035,15 @@ static void marks_refresh(void)
 {
 	int i;
 
+	flames_tidy();
 	for (i = 0; i < CARDS; i++) {
 		int no = card_no(i);
 
-		if (is_ally_no(no) && g_flame_iic[no - 1] && card_iic(no) != g_flame_iic[no - 1])
-			g_flame_iic[no - 1] = 0;
 		if (card_iic(no) <= 0 || flame_mark_slot(no) < 0) {
 			g_card[i].n = 0;
 			continue;
 		}
+		chara_buffs(card_iic(no), 1);
 		card_fill(no);
 		card_apply(no);
 	}
@@ -1045,7 +1109,8 @@ void rq_battle_flames_clear(void)
 {
 	memset(g_flame_iic, 0, sizeof g_flame_iic);
 	memset(g_card, 0, sizeof g_card);
-	memset(g_nbuff, 0, sizeof g_nbuff);
+	g_nchara_buff = 0;
+	memset(g_rank_buff, 0, sizeof g_rank_buff);
 }
 
 static void wrap_tail_ints(struct ain *a, int fno, int sys)
@@ -1144,7 +1209,7 @@ int rq_lua_battle_set_flame(lua_State *L)
 {
 	int iic = (int)luaL_checkinteger(L, 1);
 	int on = lua_toboolean(L, 2);
-	int no;
+	int no, i;
 
 	if (!g_flame_on)
 		return luaL_error(L, "call rq.battle.install_flame() first");
@@ -1156,7 +1221,17 @@ int rq_lua_battle_set_flame(lua_State *L)
 		lua_pushboolean(L, 0);
 		return 1;
 	}
-	g_flame_iic[no - 1] = on ? iic : 0;
+	flames_tidy();
+	for (i = 0; i < 5; i++) {
+		if (g_flame_iic[i] == iic)
+			g_flame_iic[i] = 0;
+	}
+	for (i = 0; on && i < 5; i++) {
+		if (!g_flame_iic[i]) {
+			g_flame_iic[i] = iic;
+			break;
+		}
+	}
 	card_fill(no);
 	card_apply(no);
 	lua_pushboolean(L, 1);
@@ -1173,30 +1248,19 @@ static int card_of_iic(int iic)
 	return 0;
 }
 
-/* set_buff(iic, key, {icon = cg [, text]}) adds or changes; set_buff(iic, key) removes. */
-int rq_lua_battle_set_buff(lua_State *L)
+/* The table at index 3 adds or changes the buff, no table removes it. */
+static void buff_list_set(lua_State *L, struct buff_list *l, const char *key, const char *fn)
 {
-	int iic = (int)luaL_checkinteger(L, 1);
-	const char *key = luaL_checkstring(L, 2);
-	int no = card_of_iic(iic), idx = card_index(no), i, n;
+	int i;
 
-	if (strlen(key) >= sizeof g_buff[0][0].key)
-		return luaL_error(L, "set_buff key is too long");
-	if (!lua_isnoneornil(L, 3))
-		luaL_checktype(L, 3, LUA_TTABLE);
-	if (!no) {
-		lua_pushboolean(L, 0);
-		return 1;
-	}
-	n = g_nbuff[idx];
-	for (i = 0; i < n; i++) {
-		if (!strcmp(g_buff[idx][i].key, key))
+	for (i = 0; i < l->n; i++) {
+		if (!strcmp(l->e[i].key, key))
 			break;
 	}
 	if (lua_isnoneornil(L, 3)) {
-		if (i < n) {
-			memmove(&g_buff[idx][i], &g_buff[idx][i + 1], sizeof g_buff[0][0] * (n - i - 1));
-			g_nbuff[idx]--;
+		if (i < l->n) {
+			memmove(&l->e[i], &l->e[i + 1], sizeof l->e[0] * (l->n - i - 1));
+			l->n--;
 		}
 	} else {
 		const char *text;
@@ -1205,59 +1269,127 @@ int rq_lua_battle_set_buff(lua_State *L)
 		if (!lua_isnil(L, -1)) {
 			anim = rq_anim_handle(luaL_checkstring(L, -1));
 			if (!anim)
-				return luaL_error(L, "set_buff anim '%s' was not added with rq.image.add_gif", lua_tostring(L, -1));
+				luaL_error(L, "%s anim '%s' was not added with rq.image.add_gif", fn, lua_tostring(L, -1));
 		}
 		lua_pop(L, 1);
 		lua_getfield(L, 3, "icon");
 		if (!lua_isinteger(L, -1) && !anim)
-			return luaL_error(L, "set_buff needs icon (a CG number, rq.image.add gives one) or anim (an rq.image.add_gif key)");
+			luaL_error(L, "%s needs icon (a CG number, rq.image.add gives one) or anim (an rq.image.add_gif key)", fn);
 		cg = (int)lua_tointeger(L, -1);
 		lua_pop(L, 1);
 		if (!anim && !rq_anim_of_cg(cg))
-			return luaL_error(L, "set_buff icon %d is no CG, is larger than 1024 pixels, or there are too many (max 128 with the GIFs)", cg);
-		if (i == n) {
-			if (n >= BUFF_MAX)
-				return luaL_error(L, "too many buffs on one card (max %d)", BUFF_MAX);
-			g_nbuff[idx]++;
+			luaL_error(L, "%s icon %d is no CG, is larger than 1024 pixels, or there are too many (max 128 with the GIFs)", fn, cg);
+		if (i == l->n) {
+			if (l->n >= BUFF_MAX)
+				luaL_error(L, "%s: too many buffs (max %d)", fn, BUFF_MAX);
+			l->n++;
 		}
-		snprintf(g_buff[idx][i].key, sizeof g_buff[0][0].key, "%s", key);
-		g_buff[idx][i].cg = cg;
-		g_buff[idx][i].anim = anim;
+		snprintf(l->e[i].key, sizeof l->e[0].key, "%s", key);
+		l->e[i].cg = cg;
+		l->e[i].anim = anim;
 		lua_getfield(L, 3, "text");
 		text = lua_tostring(L, -1);
-		snprintf(g_buff[idx][i].text, sizeof g_buff[0][0].text, "%s", text ? text : "");
+		snprintf(l->e[i].text, sizeof l->e[0].text, "%s", text ? text : "");
 		lua_pop(L, 1);
 	}
-	card_fill(no);
-	card_apply(no);
+}
+
+static const char *buff_args(lua_State *L, const char *fn)
+{
+	const char *key = luaL_checkstring(L, 2);
+
+	if (strlen(key) >= sizeof g_rank_buff[0].e[0].key)
+		luaL_error(L, "%s key is too long", fn);
+	if (!lua_isnoneornil(L, 3))
+		luaL_checktype(L, 3, LUA_TTABLE);
+	return key;
+}
+
+/* set_buff(iic, key, {icon = cg [, text]}) adds or changes; set_buff(iic, key) removes. */
+int rq_lua_battle_set_buff(lua_State *L)
+{
+	int iic = (int)luaL_checkinteger(L, 1);
+	const char *key = buff_args(L, "set_buff");
+	int no = card_of_iic(iic);
+	struct buff_list *l = iic > 0 ? chara_buffs(iic, no != 0) : NULL;
+
+	if (!l) {
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+	buff_list_set(L, l, key, "set_buff");
+	if (no) {
+		card_fill(no);
+		card_apply(no);
+	}
 	lua_pushboolean(L, 1);
 	return 1;
 }
 
-/* buffs(iic): what the card shows in turn. Vanilla marks have mark, mod buffs have key and icon. */
+/* set_rank_buff(no, key, def): the same for a battle number, whoever stands there. */
+int rq_lua_battle_set_rank_buff(lua_State *L)
+{
+	int no = (int)luaL_checkinteger(L, 1);
+	const char *key = buff_args(L, "set_rank_buff");
+
+	if (!is_ally_no(no) && !is_enemy_no(no)) {
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+	buff_list_set(L, &g_rank_buff[card_index(no)], key, "set_rank_buff");
+	if (card_iic(no) > 0) {
+		card_fill(no);
+		card_apply(no);
+	}
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
+static void push_buff(lua_State *L, int index, const char *key, int cg, const char *text, int rank)
+{
+	lua_newtable(L);
+	lua_pushstring(L, key);
+	lua_setfield(L, -2, "key");
+	lua_pushinteger(L, cg);
+	lua_setfield(L, -2, "icon");
+	if (rank) {
+		lua_pushboolean(L, 1);
+		lua_setfield(L, -2, "rank");
+	}
+	lua_pushstring(L, text);
+	lua_setfield(L, -2, "text");
+	lua_rawseti(L, -2, index);
+}
+
+/* buffs(iic): what the card shows in turn. Vanilla marks have mark, mod buffs have key and icon.
+ * Someone off the cards only has the buffs that wait for their return. */
 int rq_lua_battle_buffs(lua_State *L)
 {
-	int no = card_of_iic((int)luaL_checkinteger(L, 1)), i;
+	int iic = (int)luaL_checkinteger(L, 1);
+	int no = card_of_iic(iic), i;
 
 	lua_newtable(L);
-	if (!no || flame_mark_slot(no) < 0)
+	if (!no) {
+		const struct buff_list *l = iic > 0 ? chara_buffs(iic, 0) : NULL;
+		for (i = 0; l && i < l->n; i++)
+			push_buff(L, i + 1, l->e[i].key, l->e[i].cg, l->e[i].text, 0);
+		return 1;
+	}
+	if (flame_mark_slot(no) < 0)
 		return 1;
 	card_fill(no);
 	for (i = 0; i < g_card[card_index(no)].n; i++) {
 		struct card_mark *e = &g_card[card_index(no)].e[i];
-		lua_newtable(L);
 		if (e->mark > 0) {
+			lua_newtable(L);
 			lua_pushinteger(L, e->mark);
 			lua_setfield(L, -2, "mark");
+			lua_pushstring(L, e->text);
+			lua_setfield(L, -2, "text");
+			lua_rawseti(L, -2, i + 1);
 		} else {
-			lua_pushstring(L, e->key);
-			lua_setfield(L, -2, "key");
-			lua_pushinteger(L, e->cg);
-			lua_setfield(L, -2, "icon");
+			push_buff(L, i + 1, e->key, e->cg, e->text, e->rank);
 		}
-		lua_pushstring(L, e->text);
-		lua_setfield(L, -2, "text");
-		lua_rawseti(L, -2, i + 1);
 	}
 	return 1;
 }

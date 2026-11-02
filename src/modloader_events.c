@@ -1,12 +1,13 @@
 /* Copyright (C) 2026 Rance Quest modding fork
  *
- * rq.battle.on_start / on_end / on_down / on_support. Installed the first
+ * rq.battle.on_start / on_end / on_down / on_support / on_switch. Installed the first
  * time a mod registers one.
  *   - tail of Ｔ戦闘前初期化: every start-of-battle effect of the base game has
  *     run (per-character skills, ambush, poison tea), PTA/PTB are filled.
  *   - head of 戦闘後処理(re): the battle result is known, the cleanup has not run.
  *   - head of Ｃ状態変化(iic, state): on_down fires when the game sets state 3.
  *   - head of Ｔ補助行動(user, target, skill): on_support, before its effects.
+ *   - around 戦闘_入れ替え後処理: on_switch, with the cards made again and on screen.
  */
 
 #ifdef RQ_MODLOADER
@@ -40,6 +41,9 @@ static int g_down_cb[CB_MAX], g_ndown;
 static int g_down_on;
 static int g_sup_cb[CB_MAX], g_nsup;
 static int g_sup_on;
+static int g_switch_cb[CB_MAX], g_nswitch;
+static int g_switch_on;
+static int g_switch_old[5];
 static int gi_pta = -2, gi_ptb = -2;
 static int gint(int *gi, const char *name);
 static int find_gi_utf(const char *utf8);
@@ -236,6 +240,75 @@ static void run_down(void)
 	}
 	stack_push(iic);
 	stack_push(state);
+}
+
+static int install_switch(struct ain *a)
+{
+	struct buffer out;
+	int f, dup;
+
+	if (g_switch_on)
+		return 1;
+	if (!a)
+		return 0;
+	gi_pta = find_gi("PTA");
+	f = find_fn(a, "戦闘_入れ替え後処理");
+	if (f < 0 || gi_pta < 0 || a->functions[f].nr_args != 2) {
+		rq_log("events: 戦闘_入れ替え後処理 missing or wrong arity (%d)", f);
+		return 0;
+	}
+	dup = ain_dup_function(a, f);
+	buffer_init(&out, NULL, 0);
+	emit1(&out, FUNC, f);
+	emit1(&out, CALLSYS, VM_XSYS_BATTLE_SWITCH_BEFORE);
+	emit1(&out, SH_LOCALREF, 0);
+	emit1(&out, SH_LOCALREF, 1);
+	emit1(&out, CALLFUNC, dup);
+	emit1(&out, CALLSYS, VM_XSYS_BATTLE_SWITCH_AFTER);
+	emit0(&out, RETURN);
+	emit1(&out, ENDFUNC, f);
+	commit_wrap(a, f, &out);
+	g_switch_on = 1;
+	rq_log("events: 戦闘_入れ替え後処理 around -> on_switch");
+	return 1;
+}
+
+static void read_ranks(int *ranks)
+{
+	struct page *arr = NULL;
+	int slot = global_get(gi_pta).i, i;
+
+	if (page_index_valid(slot))
+		arr = heap_get_page(slot);
+	for (i = 0; i < 5; i++)
+		ranks[i] = arr && arr->type == ARRAY_PAGE && i + 1 < arr->nr_vars ? arr->values[i + 1].i : 0;
+}
+
+static void run_switch(void)
+{
+	lua_State *L = rq_lua();
+	int now[5], i, k;
+
+	read_ranks(now);
+	for (i = 0; L && i < 5; i++) {
+		if (now[i] == g_switch_old[i])
+			continue;
+		rq_crash_crumb("lua:on_switch", g_switch_old[i], now[i]);
+		for (k = 0; k < g_nswitch; k++) {
+			lua_rawgeti(L, LUA_REGISTRYINDEX, g_switch_cb[k]);
+			lua_newtable(L);
+			lua_pushinteger(L, g_switch_old[i]);
+			lua_setfield(L, -2, "left");
+			lua_pushinteger(L, now[i]);
+			lua_setfield(L, -2, "came_in");
+			lua_pushinteger(L, i + 1);
+			lua_setfield(L, -2, "rank");
+			if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+				rq_log("battle on_switch error: %s", lua_tostring(L, -1));
+				lua_pop(L, 1);
+			}
+		}
+	}
 }
 
 int rq_events_install(struct ain *a)
@@ -639,6 +712,12 @@ int rq_events_syscall(int code)
 	case VM_XSYS_BATTLE_SUPPORT:
 		run_support();
 		return 1;
+	case VM_XSYS_BATTLE_SWITCH_BEFORE:
+		read_ranks(g_switch_old);
+		return 1;
+	case VM_XSYS_BATTLE_SWITCH_AFTER:
+		run_switch();
+		return 1;
 	case VM_XSYS_BATTLE_START:
 		rq_battle_flames_clear();
 		rq_battle_marks_live(1);
@@ -688,6 +767,18 @@ int rq_lua_battle_on_support(lua_State *L)
 		return luaL_error(L, "too many battle callbacks registered");
 	lua_pushvalue(L, 1);
 	g_sup_cb[g_nsup++] = luaL_ref(L, LUA_REGISTRYINDEX);
+	return 0;
+}
+
+int rq_lua_battle_on_switch(lua_State *L)
+{
+	luaL_checktype(L, 1, LUA_TFUNCTION);
+	if (!ain || !install_switch(ain))
+		return luaL_error(L, "battle on_switch install failed (see mods/rqmod.log)");
+	if (g_nswitch >= CB_MAX)
+		return luaL_error(L, "too many battle callbacks registered");
+	lua_pushvalue(L, 1);
+	g_switch_cb[g_nswitch++] = luaL_ref(L, LUA_REGISTRYINDEX);
 	return 0;
 }
 

@@ -5151,10 +5151,13 @@ static int fill_battle(struct page *sel)
 		for (i = 0; i < chrome->nr_vars; i++) {
 			struct page *btn = arr_at(chrome, i);
 			struct tbtn b;
-			if (!tbtn_read(btn, &b) || b.id != 100021 || !b.visible)
+			if (!tbtn_read(btn, &b) || !b.visible)
 				continue;
-			emit_named_btn(btn, i, "auto", "Auto", "battle",
-				g_bstate.auto_flag ? "on" : "off", 0);
+			if (b.id == 100021)
+				emit_named_btn(btn, i, "auto", "Auto", "battle",
+					g_bstate.auto_flag ? "on" : "off", 0);
+			else if (b.id == 100003 && b.active)
+				emit_named_btn(btn, i, "switch", "Switch", "battle", "", 0);
 		}
 	}
 	snprintf(g_screen, sizeof g_screen, "battle");

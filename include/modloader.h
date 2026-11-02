@@ -87,6 +87,7 @@ int rq_lua_battle_on_start(struct lua_State *L);
 int rq_lua_battle_on_end(struct lua_State *L);
 int rq_lua_battle_on_down(struct lua_State *L);
 int rq_lua_battle_on_support(struct lua_State *L);
+int rq_lua_battle_on_switch(struct lua_State *L);
 int rq_lua_battle_set_flame(struct lua_State *L);
 int rq_lua_battle_install_flame(struct lua_State *L);
 void rq_battle_flames_clear(void);
@@ -94,6 +95,7 @@ void rq_battle_marks_live(int on);
 void rq_battle_marks_tick(void);
 int rq_battle_marks_install(struct ain *a);
 int rq_lua_battle_set_buff(struct lua_State *L);
+int rq_lua_battle_set_rank_buff(struct lua_State *L);
 int rq_lua_battle_buffs(struct lua_State *L);
 void rq_battle_marks_reload(void);
 int rq_lua_quests_on_clear(struct lua_State *L);
@@ -343,7 +345,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "0.28.0"
+#define RQ_VERSION "0.29.0"
 
 struct rq_qbattle_skill {
 	int id;

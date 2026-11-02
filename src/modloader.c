@@ -1257,9 +1257,11 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "on_end", rq_lua_battle_on_end);
 	set_cfn(L, "on_down", rq_lua_battle_on_down);
 	set_cfn(L, "on_support", rq_lua_battle_on_support);
+	set_cfn(L, "on_switch", rq_lua_battle_on_switch);
 	set_cfn(L, "install_flame", rq_lua_battle_install_flame);
 	set_cfn(L, "set_flame", rq_lua_battle_set_flame);
 	set_cfn(L, "set_buff", rq_lua_battle_set_buff);
+	set_cfn(L, "set_rank_buff", rq_lua_battle_set_rank_buff);
 	set_cfn(L, "buffs", rq_lua_battle_buffs);
 	set_cfn(L, "get_drop", rq_lua_battle_get_drop);
 	set_cfn(L, "set_drop", rq_lua_battle_set_drop);
