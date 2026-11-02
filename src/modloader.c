@@ -304,6 +304,35 @@ static uint32_t func_end_addr(struct ain *ain, int fno)
 	return end;
 }
 
+/* The loader wraps some game functions (a hook at their head or tail): the name then
+ * leads to a short wrapper, and the game's code is in a copy with the same name that
+ * the wrapper calls. Follows such calls down to the code, so a patch reaches it.
+ * A call to the same number is recursion, not a wrapper. */
+static int body_fno(struct ain *ain, int fno)
+{
+	for (int depth = 0; depth < 16; depth++) {
+		uint32_t ip = ain->functions[fno].address;
+		uint32_t end = func_end_addr(ain, fno);
+		int next = -1;
+		for (; ip + 6 <= end; ) {
+			uint16_t op = rd16(ain->code + ip);
+			if (op == 0x30) {
+				int32_t to = rd32(ain->code + ip + 2);
+				if (to >= 0 && to < ain->nr_functions && to != fno
+				    && !strcmp(ain->functions[to].name, ain->functions[fno].name)) {
+					next = to;
+					break;
+				}
+			}
+			ip += (uint32_t)instr_len(op);
+		}
+		if (next < 0)
+			return fno;
+		fno = next;
+	}
+	return fno;
+}
+
 static int find_func_utf8(struct ain *ain, const char *utf8)
 {
 	char *sjis = utf2sjis(utf8, 0);
@@ -422,6 +451,42 @@ static int patch_ints(struct ain *ain, int fno, int32_t from, int32_t to, int nt
 		}
 		if (len < 2)
 			len = 2;
+		ip += (uint32_t)len;
+	}
+	return hit;
+}
+
+/* Patches the first PUSH from that comes within `window` instructions after a read of
+ * global gi (SH_GLOBALREF gi, or PUSHGLOBALPAGE then PUSH gi). nth_ref picks one read
+ * (0-based), or every read when negative. A PUSH right after a page push is a
+ * variable's index, not a value, so it is skipped. */
+static int patch_ints_after(struct ain *ain, int fno, int gi, int32_t from, int32_t to,
+			    int nth_ref, int window)
+{
+	uint32_t ip, end = func_end_addr(ain, fno);
+	uint16_t prev = 0xffff;
+	int hit = 0, ref = 0, armed = 0;
+	for (ip = ain->functions[fno].address; ip + 2 <= end; ) {
+		uint16_t op = rd16(ain->code + ip);
+		int len = instr_len(op);
+		int32_t v = 0;
+		if (op_nargs(op) >= 1 && ip + 6 <= end)
+			v = rd32(ain->code + ip + 2);
+		int is_index = op == 0x00 && (prev == 0x04 || prev == 0x05 || prev == 0x5b);
+		int is_ref = (op == 0x5d && v == gi) || (op == 0x00 && prev == 0x04 && v == gi);
+		if (is_ref) {
+			armed = (nth_ref < 0 || ref == nth_ref) ? window : 0;
+			ref++;
+		} else if (armed > 0) {
+			if (op == 0x00 && !is_index && v == from) {
+				memcpy(ain->code + ip + 2, &to, 4);
+				hit++;
+				armed = 0;
+			} else {
+				armed--;
+			}
+		}
+		prev = op;
 		ip += (uint32_t)len;
 	}
 	return hit;
@@ -893,7 +958,7 @@ static int l_patch_float(lua_State *L)
 	fno = find_func_utf8(g_ain, name);
 	if (fno < 0)
 		return luaL_error(L, "function not found: %s", name);
-	n = patch_floats(g_ain, fno, from, to, nth);
+	n = patch_floats(g_ain, body_fno(g_ain, fno), from, to, nth);
 	lua_pushinteger(L, n);
 	return 1;
 }
@@ -910,7 +975,34 @@ static int l_patch_int(lua_State *L)
 	fno = find_func_utf8(g_ain, name);
 	if (fno < 0)
 		return luaL_error(L, "function not found: %s", name);
-	lua_pushinteger(L, patch_ints(g_ain, fno, from, to, nth));
+	lua_pushinteger(L, patch_ints(g_ain, body_fno(g_ain, fno), from, to, nth));
+	return 1;
+}
+
+/* rq.ain.patch_int_after(name, global, from, to [, nth_ref [, window]]) */
+static int l_patch_int_after(lua_State *L)
+{
+	const char *name = luaL_checkstring(L, 1);
+	const char *global = luaL_checkstring(L, 2);
+	int32_t from = (int32_t)luaL_checkinteger(L, 3);
+	int32_t to = (int32_t)luaL_checkinteger(L, 4);
+	int nth = (int)luaL_optinteger(L, 5, -1);
+	int window = (int)luaL_optinteger(L, 6, 8);
+	int fno, gi;
+	char *sjis;
+	if (!g_ain)
+		return luaL_error(L, "AIN not loaded");
+	fno = find_func_utf8(g_ain, name);
+	if (fno < 0)
+		return luaL_error(L, "function not found: %s", name);
+	sjis = utf2sjis(global, 0);
+	gi = sjis ? ain_get_global(g_ain, sjis) : -1;
+	free(sjis);
+	if (gi < 0)
+		return luaL_error(L, "global not found: %s", global);
+	if (window < 1)
+		return luaL_error(L, "window must be 1 or more");
+	lua_pushinteger(L, patch_ints_after(g_ain, body_fno(g_ain, fno), gi, from, to, nth, window));
 	return 1;
 }
 
@@ -1049,6 +1141,7 @@ static void open_rq(lua_State *L)
 	lua_newtable(L);
 	set_cfn(L, "patch_float", l_patch_float);
 	set_cfn(L, "patch_int", l_patch_int);
+	set_cfn(L, "patch_int_after", l_patch_int_after);
 	set_cfn(L, "skip_msgbox", l_skip_msgbox);
 	set_cfn(L, "skip_sdl_msgbox", l_skip_sdl_msgbox);
 	set_cfn(L, "find", l_find_funcs);
