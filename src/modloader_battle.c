@@ -733,6 +733,9 @@ static int g_fl_m_stack = -1, g_fl_m_mon_stack = -1, g_fl_m_asmark = -1;
 #define LOOK_RANGE 4096
 #define LAYER_RANGE 100
 #define MARK_NOS 37
+#define MARK_OVER_MAX 64
+/* g_pin anim when the pin must load again; -1 is a real value (the game's own file). */
+#define PIN_RELOAD INT32_MIN
 
 /* How a mark is shown. x and y go from the card's corner, layer from the card's z. */
 struct mark_look {
@@ -764,11 +767,22 @@ struct buff_list {
 	int n;
 };
 /* What a mod asked for a mark of the game. It lasts until changed, over fights. */
-static struct {
+struct mark_cfg {
 	int on, hide, cg, anim;
 	struct mark_look look;
 	char file[256];
-} g_mark_cfg[MARK_NOS];
+};
+static struct mark_cfg g_mark_cfg[MARK_NOS];
+/* The same for one character (iic) or one card (no), in place of the one for every card. */
+static struct {
+	int iic, no, mark;
+	struct mark_cfg cfg;
+} g_mark_over[MARK_OVER_MAX];
+static int g_nmark_over;
+/* What the loader last loaded on a card's stack mark: its part, and the file it pointed at. */
+static struct {
+	int part, anim;
+} g_stack[CARDS][3];
 static const struct {
 	int no;
 	const char *name;
@@ -995,13 +1009,52 @@ static void card_add(struct card *c, int mark, int status, int cg, const char *k
 	snprintf(e->text, sizeof e->text, "%s", text);
 }
 
-static void card_add_mark(struct card *c, int mark, int status, const char *text)
+/* A character's config wins over its card's, which wins over the one for every card.
+ * *own says it is not the one for every card. */
+static const struct mark_cfg *mark_cfg_for(int no, int mark, int *own)
 {
-	if (g_mark_cfg[mark].on && g_mark_cfg[mark].hide)
+	int iic = card_iic(no), i;
+
+	*own = 1;
+	for (i = 0; iic > 0 && i < g_nmark_over; i++) {
+		if (g_mark_over[i].mark == mark && g_mark_over[i].iic == iic)
+			return &g_mark_over[i].cfg;
+	}
+	for (i = 0; i < g_nmark_over; i++) {
+		if (g_mark_over[i].mark == mark && g_mark_over[i].no == no)
+			return &g_mark_over[i].cfg;
+	}
+	*own = 0;
+	return &g_mark_cfg[mark];
+}
+
+/* The file a card's mark loads: a handle, -1 for the game's own file when the config for
+ * every card replaced it, or 0 to load as usual. */
+static int mark_file_for(int no, int mark)
+{
+	int own;
+	const struct mark_cfg *cfg = mark_cfg_for(no, mark, &own);
+
+	if (!own)
+		return 0;
+	if (cfg->anim)
+		return cfg->anim;
+	if (cfg->cg)
+		return rq_anim_of_cg(cfg->cg);
+	return g_mark_cfg[mark].on && (g_mark_cfg[mark].cg || g_mark_cfg[mark].anim) ? -1 : 0;
+}
+
+static void card_add_mark(struct card *c, int no, int mark, int status, const char *text)
+{
+	int own;
+	const struct mark_cfg *cfg = mark_cfg_for(no, mark, &own);
+
+	if (cfg->on && cfg->hide)
 		return;
 	card_add(c, mark, status, 0, "", text);
-	if (g_mark_cfg[mark].on)
-		c->e[c->n - 1].look = g_mark_cfg[mark].look;
+	if (cfg->on)
+		c->e[c->n - 1].look = cfg->look;
+	c->e[c->n - 1].anim = mark_file_for(no, mark);
 }
 
 /* The second state of a stat has no room in the game's stack, so it stands beside it. */
@@ -1017,7 +1070,7 @@ static void card_add_seconds(struct card *c, int no)
 
 		if (!marks[i])
 			continue;
-		card_add_mark(c, marks[i], 1, "");
+		card_add_mark(c, no, marks[i], 1, "");
 		if (c->n == before)
 			continue;
 		look = &c->e[c->n - 1].look;
@@ -1097,20 +1150,20 @@ static void card_fill(int no)
 		old = c->e[c->cur];
 	c->n = 0;
 	if (is_ally_no(no) ? flame_on(card_iic(no)) : mark_data(g_fl_charging, no))
-		card_add_mark(c, 31, 1, "");
+		card_add_mark(c, no, 31, 1, "");
 	if ((v = mark_data(g_fl_data[0], no)) > 0) {
 		snprintf(text, sizeof text, "%d%%", v);
-		card_add_mark(c, 32, v, text);
+		card_add_mark(c, no, 32, v, text);
 	}
 	if ((v = mark_data(g_fl_data[1], no)) > 0)
-		card_add_mark(c, 33, v, "");
+		card_add_mark(c, no, 33, v, "");
 	if ((v = mark_data(g_fl_data[2], no)) > 0)
-		card_add_mark(c, 34, v, "");
+		card_add_mark(c, no, 34, v, "");
 	if ((v = mark_data(g_fl_data[3], no)) > 0)
-		card_add_mark(c, 35, v, "");
+		card_add_mark(c, no, 35, v, "");
 	if ((v = mark_data(g_fl_data[4], no)) > 0) {
 		snprintf(text, sizeof text, "%dx", v);
-		card_add_mark(c, 36, v, text);
+		card_add_mark(c, no, 36, v, text);
 	}
 	card_add_buffs(c, chara_buffs(card_iic(no), 0), 0);
 	card_add_buffs(c, &g_rank_buff[card_index(no)], 1);
@@ -1217,8 +1270,16 @@ static void pins_apply(int no)
 			g_pin[idx][i].slot = slot;
 			g_pin[idx][i].mark = 0;
 		}
-		mark = c->pin[i].mark > 0 ? c->pin[i].mark : ANIM_MARK_NO;
-		anim = c->pin[i].mark > 0 ? 0 : c->pin[i].anim ? c->pin[i].anim : rq_anim_of_cg(c->pin[i].cg);
+		if (c->pin[i].mark > 0 && c->pin[i].anim > 0) {
+			mark = ANIM_MARK_NO;
+			anim = c->pin[i].anim;
+		} else if (c->pin[i].mark > 0) {
+			mark = c->pin[i].mark;
+			anim = c->pin[i].anim;
+		} else {
+			mark = ANIM_MARK_NO;
+			anim = c->pin[i].anim ? c->pin[i].anim : rq_anim_of_cg(c->pin[i].cg);
+		}
 		num_place(no, slot, &c->pin[i].look);
 		if (g_pin[idx][i].mark != mark || g_pin[idx][i].anim != anim) {
 			mark_call_set(slot, 0, 0, "");
@@ -1260,30 +1321,53 @@ static void pins_tick(int no)
 
 /* A mark of the stack has its own Flash and the game keeps its place there, so a mod's
  * wishes go straight to the part. The game makes a new part when the stack moves up. */
+static int stack_part(struct page *mark)
+{
+	struct page *flash = mark_child(mark, g_fl_m_flash);
+
+	return flash && g_fl_m_partno >= 0 ? flash->values[g_fl_m_partno].i : 0;
+}
+
 static void stack_tick(int no)
 {
 	struct page *ch = card_page(no);
-	int i, x, y, z;
+	int idx = card_index(no), i, x, y, z;
 
 	if (!ch || !card_corner(no, &x, &y, &z))
 		return;
 	for (i = 0; i < 3; i++) {
-		struct page *mark = stack_mark(ch, no, i), *flash;
-		int m, part;
+		struct page *mark = stack_mark(ch, no, i);
+		const struct mark_cfg *cfg;
+		int m, part, want, own;
 
-		if (!mark || (m = mark->values[g_fl_m_markno].i) <= 0 || m >= MARK_NOS || !g_mark_cfg[m].on)
+		if (!mark || (m = mark->values[g_fl_m_markno].i) <= 0 || m >= MARK_NOS)
 			continue;
-		flash = mark_child(mark, g_fl_m_flash);
-		if (!flash || g_fl_m_partno < 0 || (part = flash->values[g_fl_m_partno].i) <= 0)
+		part = stack_part(mark);
+		want = mark_file_for(no, m);
+		if (g_fl_mark_set >= 0 && part > 0 && (want != g_stack[idx][i].anim
+				|| (want && part != g_stack[idx][i].part))) {
+			int page = stack_mark_slot(ch, no, i);
+			num_call1(g_fl_mark_set, page, 0);
+			rq_anim_redirect(want);
+			num_call1(g_fl_mark_set, page, m);
+			rq_anim_redirect(0);
+			if (!(mark = stack_mark(ch, no, i)))
+				continue;
+			part = stack_part(mark);
+			g_stack[idx][i].anim = want;
+			g_stack[idx][i].part = part;
+		}
+		cfg = mark_cfg_for(no, m, &own);
+		if (!cfg->on || part <= 0)
 			continue;
-		if (g_mark_cfg[m].hide)
+		if (cfg->hide)
 			PE_SetAlpha(part, 0);
-		if (g_mark_cfg[m].look.x != NOT_SET || g_mark_cfg[m].look.y != NOT_SET)
+		if (cfg->look.x != NOT_SET || cfg->look.y != NOT_SET)
 			PE_SetPos(part,
-				g_mark_cfg[m].look.x != NOT_SET ? x + g_mark_cfg[m].look.x : mark->values[g_fl_m_x].i,
-				g_mark_cfg[m].look.y != NOT_SET ? y + g_mark_cfg[m].look.y : mark->values[g_fl_m_y].i);
-		if (g_mark_cfg[m].look.layer != NOT_SET)
-			PE_SetZ(part, z + g_mark_cfg[m].look.layer);
+				cfg->look.x != NOT_SET ? x + cfg->look.x : mark->values[g_fl_m_x].i,
+				cfg->look.y != NOT_SET ? y + cfg->look.y : mark->values[g_fl_m_y].i);
+		if (cfg->look.layer != NOT_SET)
+			PE_SetZ(part, z + cfg->look.layer);
 	}
 }
 
@@ -1291,7 +1375,7 @@ static void card_apply(int no)
 {
 	struct card *c = &g_card[card_index(no)];
 	struct card_mark *e = c->n > 0 ? &c->e[c->cur] : NULL;
-	int slot = flame_mark_slot(no), anim = 0;
+	int slot = flame_mark_slot(no), anim = 0, want;
 
 	pins_apply(no);
 	if (slot < 0)
@@ -1299,6 +1383,8 @@ static void card_apply(int no)
 	num_place(no, slot, e ? &e->look : NULL);
 	if (e && e->mark <= 0)
 		anim = e->anim ? e->anim : rq_anim_of_cg(e->cg);
+	else if (e && e->anim > 0)
+		anim = e->anim;
 	if (anim) {
 		/* T_BattleMark only takes its fixed numbers, so a mod's buff borrows one and
 		 * the load is pointed at its file. Marks restart when set, so a mark that
@@ -1322,14 +1408,19 @@ static void card_apply(int no)
 		return;
 	}
 	/* The game skips a set of the number it already has, and the flame has the one
-	 * a mod's buff borrows. */
-	if (c->shown_anim)
+	 * a mod's buff borrows. -1 is a mark of the game shown with the game's own file on
+	 * this card while every other card has a mod's. */
+	want = e && e->mark > 0 && e->anim < 0 ? -1 : 0;
+	if (c->shown_anim != want)
 		mark_call_set(slot, 0, 0, "");
-	c->shown_anim = 0;
-	if (e && e->mark > 0)
+	c->shown_anim = want;
+	if (e && e->mark > 0) {
+		rq_anim_redirect(want);
 		mark_call_set(slot, e->mark, e->status, e->text);
-	else
+		rq_anim_redirect(0);
+	} else {
 		mark_call_set(slot, 0, 0, "");
+	}
 }
 
 static void marks_refresh(void)
@@ -1402,8 +1493,9 @@ void rq_battle_marks_reload(void)
 	for (i = 0; i < CARDS; i++) {
 		g_card[i].shown_anim = 0;
 		for (k = 0; k < CARD_MARKS; k++)
-			g_pin[i][k].anim = -1;
+			g_pin[i][k].anim = PIN_RELOAD;
 	}
+	memset(g_stack, 0, sizeof g_stack);
 	g_marks_dirty = g_marks_live;
 }
 
@@ -1435,6 +1527,7 @@ void rq_battle_flames_clear(void)
 	}
 	memset(g_flame_iic, 0, sizeof g_flame_iic);
 	memset(g_card, 0, sizeof g_card);
+	memset(g_stack, 0, sizeof g_stack);
 	g_nchara_buff = 0;
 	memset(g_rank_buff, 0, sizeof g_rank_buff);
 }
@@ -1447,6 +1540,7 @@ void rq_battle_forget(void)
 	g_marks_live = 0;
 	memset(g_pin, 0, sizeof g_pin);
 	memset(g_card, 0, sizeof g_card);
+	memset(g_stack, 0, sizeof g_stack);
 }
 
 static void wrap_tail_ints(struct ain *a, int fno, int sys)
@@ -1744,50 +1838,93 @@ int rq_lua_battle_set_rank_buff(lua_State *L)
 	return 1;
 }
 
-/* set_mark(mark, {hide, icon, anim, order, x, y, layer, pinned}) changes how a mark of the game
- * shows on every card; set_mark(mark) gives it back to the game. */
+static void mark_cfg_read(lua_State *L, int idx, const char *name, struct mark_cfg *out)
+{
+	struct mark_look look = look_read(L, idx, "set_mark");
+	int cg = 0, anim = 0;
+
+	lua_getfield(L, idx, "anim");
+	if (!lua_isnil(L, -1)) {
+		anim = rq_anim_handle(luaL_checkstring(L, -1));
+		if (!anim)
+			luaL_error(L, "set_mark anim '%s' was not added with rq.image.add_gif", lua_tostring(L, -1));
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, idx, "icon");
+	if (!lua_isnil(L, -1)) {
+		cg = (int)luaL_checkinteger(L, -1);
+		if (!anim && !rq_anim_of_cg(cg))
+			luaL_error(L, "set_mark icon %d is no CG, is larger than 1024 pixels, or there are too many (max 128 with the GIFs)", cg);
+	}
+	lua_pop(L, 1);
+	memset(out, 0, sizeof *out);
+	lua_getfield(L, idx, "hide");
+	out->hide = lua_toboolean(L, -1);
+	lua_pop(L, 1);
+	out->look = look;
+	out->cg = cg;
+	out->anim = anim;
+	rq_anim_full_name(name, out->file, sizeof out->file);
+	out->on = 1;
+}
+
+/* set_mark(mark, {hide, icon, anim, order, x, y, layer, pinned} [, who]) changes how a mark of
+ * the game shows; set_mark(mark, nil [, who]) gives it back. who is {iic = n} for one character
+ * or {no = n} for one card; without it the change is for every card. */
 int rq_lua_battle_set_mark(lua_State *L)
 {
-	int mark = (int)luaL_checkinteger(L, 1), i, s;
+	int mark = (int)luaL_checkinteger(L, 1), i, s, iic = 0, no = 0;
 	const char *name = mark > 0 && mark < MARK_NOS ? mark_name(mark) : NULL;
+	struct mark_cfg cfg;
 
 	if (!g_flame_on)
 		return luaL_error(L, "call rq.battle.install_flame() first");
 	if (!lua_isnoneornil(L, 2))
 		luaL_checktype(L, 2, LUA_TTABLE);
+	if (!lua_isnoneornil(L, 3)) {
+		luaL_checktype(L, 3, LUA_TTABLE);
+		lua_getfield(L, 3, "iic");
+		iic = (int)luaL_optinteger(L, -1, 0);
+		lua_getfield(L, 3, "no");
+		no = (int)luaL_optinteger(L, -1, 0);
+		lua_pop(L, 2);
+		if ((iic > 0) == (no != 0))
+			return luaL_error(L, "set_mark who is {iic = n} or {no = n}");
+		if (no && !is_ally_no(no) && !is_enemy_no(no))
+			return luaL_error(L, "set_mark card number %d is not 1 to 5 or 11 to 15", no);
+	}
 	if (!name) {
 		lua_pushboolean(L, 0);
 		return 1;
 	}
-	if (lua_isnoneornil(L, 2)) {
-		g_mark_cfg[mark].on = 0;
-		g_mark_cfg[mark].cg = g_mark_cfg[mark].anim = 0;
+	if (!lua_isnoneornil(L, 2))
+		mark_cfg_read(L, 2, name, &cfg);
+	if (!iic && !no) {
+		if (lua_isnoneornil(L, 2)) {
+			g_mark_cfg[mark].on = 0;
+			g_mark_cfg[mark].cg = g_mark_cfg[mark].anim = 0;
+		} else {
+			g_mark_cfg[mark] = cfg;
+		}
 	} else {
-		struct mark_look look = look_read(L, 2, "set_mark");
-		int cg = 0, anim = 0;
-
-		lua_getfield(L, 2, "anim");
-		if (!lua_isnil(L, -1)) {
-			anim = rq_anim_handle(luaL_checkstring(L, -1));
-			if (!anim)
-				return luaL_error(L, "set_mark anim '%s' was not added with rq.image.add_gif", lua_tostring(L, -1));
+		for (i = 0; i < g_nmark_over; i++) {
+			if (g_mark_over[i].mark == mark && g_mark_over[i].iic == iic && g_mark_over[i].no == no)
+				break;
 		}
-		lua_pop(L, 1);
-		lua_getfield(L, 2, "icon");
-		if (!lua_isnil(L, -1)) {
-			cg = (int)luaL_checkinteger(L, -1);
-			if (!anim && !rq_anim_of_cg(cg))
-				return luaL_error(L, "set_mark icon %d is no CG, is larger than 1024 pixels, or there are too many (max 128 with the GIFs)", cg);
+		if (lua_isnoneornil(L, 2)) {
+			if (i < g_nmark_over)
+				g_mark_over[i] = g_mark_over[--g_nmark_over];
+		} else {
+			if (i == g_nmark_over) {
+				if (g_nmark_over >= MARK_OVER_MAX)
+					return luaL_error(L, "set_mark: too many marks for one character or card (max %d)", MARK_OVER_MAX);
+				g_nmark_over++;
+			}
+			g_mark_over[i].iic = iic;
+			g_mark_over[i].no = no;
+			g_mark_over[i].mark = mark;
+			g_mark_over[i].cfg = cfg;
 		}
-		lua_pop(L, 1);
-		lua_getfield(L, 2, "hide");
-		g_mark_cfg[mark].hide = lua_toboolean(L, -1);
-		lua_pop(L, 1);
-		g_mark_cfg[mark].look = look;
-		g_mark_cfg[mark].cg = cg;
-		g_mark_cfg[mark].anim = anim;
-		rq_anim_full_name(name, g_mark_cfg[mark].file, sizeof g_mark_cfg[mark].file);
-		g_mark_cfg[mark].on = 1;
 	}
 	if (!g_marks_live) {
 		lua_pushboolean(L, 1);
@@ -1811,10 +1948,12 @@ int rq_lua_battle_set_mark(lua_State *L)
 				int page = stack_mark_slot(ch, no, s);
 				num_call1(g_fl_mark_set, page, 0);
 				num_call1(g_fl_mark_set, page, mark);
+				g_stack[i][s].anim = 0;
+				g_stack[i][s].part = 0;
 			}
 		}
 		for (k = 0; k < CARD_MARKS; k++)
-			g_pin[i][k].anim = -1;
+			g_pin[i][k].anim = PIN_RELOAD;
 	}
 	g_marks_dirty = 1;
 	lua_pushboolean(L, 1);

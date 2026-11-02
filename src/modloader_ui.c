@@ -6312,8 +6312,14 @@ int rq_lua_dungeon_grid(lua_State *L)
 	char err[64] = "";
 	char *json = NULL;
 	cJSON *root;
+	int whole = 0;
 
-	if (!rq_path_grid(&json, err, (int)sizeof err)) {
+	if (lua_istable(L, 1)) {
+		lua_getfield(L, 1, "whole");
+		whole = lua_toboolean(L, -1);
+		lua_pop(L, 1);
+	}
+	if (!rq_path_grid(&json, whole, err, (int)sizeof err)) {
 		lua_pushnil(L);
 		lua_pushstring(L, err);
 		return 2;

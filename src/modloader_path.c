@@ -907,12 +907,29 @@ static int aim_self(struct grid *g)
 	return g->aim_ok;
 }
 
-static char *grid_json(struct grid *g)
+/* whole: the box holds every cell of the map that is not void, not only what the player
+ * reaches, and floor the player cannot reach shows as ':'. */
+static char *grid_json(struct grid *g, int whole)
 {
 	cJSON *root = cJSON_CreateObject();
 	cJSON *player, *cam, *aim, *room, *rows, *events;
 	char *printed;
 	int x, z, n = 0;
+	int bx0 = g->minx, bz0 = g->minz, bx1 = g->maxx, bz1 = g->maxz;
+	if (whole) {
+		bx0 = bz0 = MAP;
+		bx1 = bz1 = -1;
+		for (z = 0; z < MAP; z++) {
+			for (x = 0; x < MAP; x++) {
+				if (g->c[z][x].kind == K_VOID && !(x == g->px && z == g->pz))
+					continue;
+				if (x < bx0) bx0 = x;
+				if (x > bx1) bx1 = x;
+				if (z < bz0) bz0 = z;
+				if (z > bz1) bz1 = z;
+			}
+		}
+	}
 	player = cJSON_AddObjectToObject(root, "player");
 	cJSON_AddNumberToObject(root, "mapNo", g->map_no);
 	cJSON_AddNumberToObject(root, "dataMap", g->data_map);
@@ -982,21 +999,26 @@ static char *grid_json(struct grid *g)
 	cJSON_AddNumberToObject(aim, "hitZ", g->aim_hz);
 	cJSON_AddBoolToObject(aim, "ok", g->aim_ok);
 	room = cJSON_AddObjectToObject(root, "room");
-	cJSON_AddNumberToObject(room, "minX", g->minx);
-	cJSON_AddNumberToObject(room, "minZ", g->minz);
-	cJSON_AddNumberToObject(room, "maxX", g->maxx);
-	cJSON_AddNumberToObject(room, "maxZ", g->maxz);
-	cJSON_AddStringToObject(root, "legend",
-		"@ player  . floor  # wall  o pit  C chest  R red  t trap  F fight  P portal  E event");
+	cJSON_AddNumberToObject(room, "minX", bx0);
+	cJSON_AddNumberToObject(room, "minZ", bz0);
+	cJSON_AddNumberToObject(room, "maxX", bx1);
+	cJSON_AddNumberToObject(room, "maxZ", bz1);
+	cJSON_AddNumberToObject(room, "no", g->bmap);
+	cJSON_AddBoolToObject(room, "whole", whole);
+	cJSON_AddStringToObject(root, "legend", whole
+		? "@ player  . floor  : floor not reached  # wall  o pit  C chest  R red  t trap  F fight  P portal  E event"
+		: "@ player  . floor  # wall  o pit  C chest  R red  t trap  F fight  P portal  E event");
 	cJSON_AddStringToObject(root, "axes",
 		"x east (right arrow), z north (up arrow). tx=x+1 ty=50-z. cell is 4 world units. rows run north to south.");
 	rows = cJSON_AddArrayToObject(root, "rows");
-	for (z = g->maxz; z >= g->minz; z--) {
+	for (z = bz1; z >= bz0; z--) {
 		char line[MAP + 1];
 		int nch = 0;
-		for (x = g->minx; x <= g->maxx && nch < MAP; x++) {
+		for (x = bx0; x <= bx1 && nch < MAP; x++) {
 			if (x == g->px && z == g->pz)
 				line[nch++] = '@';
+			else if (whole && g->c[z][x].kind == K_FLOOR && !g->reach[z][x])
+				line[nch++] = ':';
 			else
 				line[nch++] = kind_char(g->c[z][x].kind);
 		}
@@ -1004,20 +1026,21 @@ static char *grid_json(struct grid *g)
 		cJSON_AddItemToArray(rows, cJSON_CreateString(line));
 	}
 	events = cJSON_AddArrayToObject(root, "events");
-	for (z = g->minz; z <= g->maxz; z++) {
-		for (x = g->minx; x <= g->maxx; x++) {
+	for (z = bz0; z <= bz1; z++) {
+		for (x = bx0; x <= bx1; x++) {
 			struct cell *c = &g->c[z][x];
 			cJSON *e;
 			char ent[8];
 			int ep = 0;
 			if (!hazard(c->kind) && c->kind != K_PIT)
 				continue;
-			if (n++ > 300)
+			if (n++ > (whole ? MAP * MAP : 300))
 				continue;
 			e = cJSON_CreateObject();
 			cJSON_AddNumberToObject(e, "x", x);
 			cJSON_AddNumberToObject(e, "z", z);
 			cJSON_AddStringToObject(e, "kind", kind_name(c->kind));
+			cJSON_AddBoolToObject(e, "reach", g->reach[z][x]);
 			cJSON_AddNumberToObject(e, "tt", c->tt);
 			cJSON_AddNumberToObject(e, "tz", c->tz);
 			cJSON_AddNumberToObject(e, "tv", c->tv);
@@ -1067,11 +1090,11 @@ static int snapshot(struct grid *g, char *err, int errsz)
 	return 1;
 }
 
-int rq_path_grid(char **json_out, char *err, int errsz)
+int rq_path_grid(char **json_out, int whole, char *err, int errsz)
 {
 	if (!snapshot(&G, err, errsz))
 		return 0;
-	*json_out = grid_json(&G);
+	*json_out = grid_json(&G, whole);
 	if (!*json_out) {
 		if (err)
 			snprintf(err, errsz, "json");

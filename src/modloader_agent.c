@@ -217,7 +217,7 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 	}
 	if (!_stricmp(cmd, "grid")) {
 		char *json = NULL;
-		if (!rq_path_grid(&json, err, errsz))
+		if (!rq_path_grid(&json, 0, err, errsz))
 			return 0;
 		if (extra)
 			*extra = json;

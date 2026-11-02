@@ -574,8 +574,12 @@ static struct anim *anim_by_key(const char *key)
 int rq_anim_find(const char *name, uint8_t **data, size_t *size)
 {
 	int handle = g_redirect ? g_redirect : rq_battle_mark_file(name);
-	struct anim *m = handle ? &g_anim[handle - 1] : anim_by_name(name);
+	struct anim *m;
 
+	/* -1: the game's own file, past any mod's replacement. */
+	if (handle < 0)
+		return 0;
+	m = handle ? &g_anim[handle - 1] : anim_by_name(name);
 	if (!m || !m->swf)
 		return 0;
 	if (data) {
