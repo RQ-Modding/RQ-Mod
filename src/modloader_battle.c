@@ -704,7 +704,7 @@ static int g_fl_m_stack = -1, g_fl_m_mon_stack = -1, g_fl_m_asmark = -1;
 
 #define CARDS 10
 #define BUFF_MAX 8
-#define CARD_MARKS (6 + BUFF_MAX * 2) /* the game's marks, a character's buffs, a rank's buffs */
+#define CARD_MARKS (9 + BUFF_MAX * 2) /* the game's marks, second states, a character's buffs, a rank's buffs */
 #define MARK_HOLD_MS 1500u
 #define MARK_FADE_MS 250u
 #define ANIM_MARK_NO 31
@@ -714,6 +714,11 @@ static int g_fl_m_stack = -1, g_fl_m_mon_stack = -1, g_fl_m_asmark = -1;
 #define ENEMY_MARK_X 37
 #define ENEMY_MARK_Y 22
 #define MARK_LAYER 10
+#define ALLY_SECOND_X 143
+#define ALLY_SECOND_Y 76
+#define ENEMY_SECOND_X 72
+#define ENEMY_SECOND_Y 22
+#define SECOND_STEP 26
 #define LOOK_RANGE 4096
 #define LAYER_RANGE 100
 #define MARK_NOS 37
@@ -988,6 +993,32 @@ static void card_add_mark(struct card *c, int mark, int status, const char *text
 		c->e[c->n - 1].look = g_mark_cfg[mark].look;
 }
 
+/* The second state of a stat has no room in the game's stack, so it stands beside it. */
+static void card_add_seconds(struct card *c, int no)
+{
+	int marks[3], i;
+
+	if (!rq_states_second_marks(card_iic(no), marks))
+		return;
+	for (i = 0; i < 3; i++) {
+		struct mark_look *look;
+		int before = c->n;
+
+		if (!marks[i])
+			continue;
+		card_add_mark(c, marks[i], 1, "");
+		if (c->n == before)
+			continue;
+		look = &c->e[c->n - 1].look;
+		look->pinned = 1;
+		look->order = 0;
+		if (look->x == NOT_SET)
+			look->x = is_ally_no(no) ? ALLY_SECOND_X : ENEMY_SECOND_X;
+		if (look->y == NOT_SET)
+			look->y = (is_ally_no(no) ? ALLY_SECOND_Y : ENEMY_SECOND_Y) + i * SECOND_STEP;
+	}
+}
+
 static struct buff_list *chara_buffs(int iic, int create)
 {
 	struct chara_buffs *b;
@@ -1072,6 +1103,7 @@ static void card_fill(int no)
 	}
 	card_add_buffs(c, chara_buffs(card_iic(no), 0), 0);
 	card_add_buffs(c, &g_rank_buff[card_index(no)], 1);
+	card_add_seconds(c, no);
 	card_sort(c);
 	for (i = 0; i < c->n; i++) {
 		if (c->e[i].mark == old.mark && !strcmp(c->e[i].key, old.key)) {
@@ -1364,6 +1396,11 @@ void rq_battle_marks_reload(void)
 	g_marks_dirty = g_marks_live;
 }
 
+void rq_battle_marks_changed(void)
+{
+	g_marks_dirty = g_marks_live;
+}
+
 void rq_battle_marks_live(int on)
 {
 	g_marks_live = on;
@@ -1376,6 +1413,7 @@ void rq_battle_flames_clear(void)
 {
 	int i, k;
 
+	rq_states_forget();
 	for (i = 0; i < CARDS; i++) {
 		for (k = 0; k < CARD_MARKS; k++) {
 			if (g_pin[i][k].slot > 0 && g_pin[i][k].mark) {
@@ -1394,6 +1432,7 @@ void rq_battle_flames_clear(void)
 void rq_battle_forget(void)
 {
 	rq_state_forget();
+	rq_states_forget();
 	g_marks_live = 0;
 	memset(g_pin, 0, sizeof g_pin);
 	memset(g_card, 0, sizeof g_card);
@@ -1545,6 +1584,22 @@ static int card_of_iic(int iic)
 			return card_no(i);
 	}
 	return 0;
+}
+
+/* Lets the card show a state a mod has just changed. */
+void rq_battle_recheck_card(int iic)
+{
+	int no = g_marks_live ? card_of_iic(iic) : 0;
+	int fno = no ? find_fn(ain, "戦闘表示_状態確認") : -1;
+
+	if (fno < 0)
+		return;
+	stack_push(no);
+	stack_push(0);
+	stack_push(0);
+	vm_call(fno, -1);
+	if (ain->functions[fno].return_type.data != AIN_VOID)
+		stack_pop();
 }
 
 static int look_int(lua_State *L, int idx, const char *field, int fallback, int range, const char *fn)
