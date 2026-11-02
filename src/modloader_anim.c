@@ -558,6 +558,11 @@ static void anim_full_name(const char *key, char *out, size_t n)
 	free(sj);
 }
 
+void rq_anim_full_name(const char *key, char *out, size_t n)
+{
+	anim_full_name(key, out, n);
+}
+
 static struct anim *anim_by_key(const char *key)
 {
 	char name[256];
@@ -568,7 +573,8 @@ static struct anim *anim_by_key(const char *key)
 
 int rq_anim_find(const char *name, uint8_t **data, size_t *size)
 {
-	struct anim *m = g_redirect ? &g_anim[g_redirect - 1] : anim_by_name(name);
+	int handle = g_redirect ? g_redirect : rq_battle_mark_file(name);
+	struct anim *m = handle ? &g_anim[handle - 1] : anim_by_name(name);
 
 	if (!m || !m->swf)
 		return 0;

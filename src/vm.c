@@ -2535,6 +2535,7 @@ static jmp_buf reset_buf;
 
 _Noreturn void vm_reset(void)
 {
+	rq_battle_forget();
 	vm_free();
 	longjmp(reset_buf, 1);
 }

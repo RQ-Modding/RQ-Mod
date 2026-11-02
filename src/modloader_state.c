@@ -68,6 +68,12 @@ static struct page *party_array(void)
 	return heap_get_page(slot);
 }
 
+/* The game restarted inside rq.battle.start, which will never return. */
+void rq_state_forget(void)
+{
+	g_in_start = 0;
+}
+
 static int in_battle(void)
 {
 	struct rq_qbattle b;

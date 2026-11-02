@@ -69,6 +69,10 @@ int rq_lua_image_gif_info(struct lua_State *L);
 
 /* GIFs served as Flash files (modloader_anim.c). */
 int rq_anim_find(const char *name, uint8_t **data, size_t *size);
+void rq_anim_full_name(const char *key, char *out, size_t n);
+int rq_battle_mark_file(const char *file);
+void rq_battle_forget(void);
+void rq_state_forget(void);
 int rq_anim_handle(const char *key);
 void rq_anim_redirect(int handle);
 int rq_anim_of_cg(int no);
@@ -96,6 +100,7 @@ void rq_battle_marks_tick(void);
 int rq_battle_marks_install(struct ain *a);
 int rq_lua_battle_set_buff(struct lua_State *L);
 int rq_lua_battle_set_rank_buff(struct lua_State *L);
+int rq_lua_battle_set_mark(struct lua_State *L);
 int rq_lua_battle_buffs(struct lua_State *L);
 void rq_battle_marks_reload(void);
 int rq_lua_quests_on_clear(struct lua_State *L);
@@ -345,7 +350,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "0.29.0"
+#define RQ_VERSION "0.30.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -452,6 +457,7 @@ static inline bool rq_image_metrics(int id, struct cg_metrics *out) { (void)id; 
 static inline int rq_events_syscall(int code) { (void)code; return 0; }
 static inline int rq_scene_syscall(int code) { (void)code; return 0; }
 static inline void rq_battle_flames_clear(void) {}
+static inline void rq_battle_forget(void) {}
 static inline void rq_battle_marks_live(int on) { (void)on; }
 static inline int rq_item_syscall(int code) { (void)code; return 0; }
 static inline void rq_item_mark_stale(void) {}

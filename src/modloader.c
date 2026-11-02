@@ -1262,6 +1262,7 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "set_flame", rq_lua_battle_set_flame);
 	set_cfn(L, "set_buff", rq_lua_battle_set_buff);
 	set_cfn(L, "set_rank_buff", rq_lua_battle_set_rank_buff);
+	set_cfn(L, "set_mark", rq_lua_battle_set_mark);
 	set_cfn(L, "buffs", rq_lua_battle_buffs);
 	set_cfn(L, "get_drop", rq_lua_battle_get_drop);
 	set_cfn(L, "set_drop", rq_lua_battle_set_drop);
