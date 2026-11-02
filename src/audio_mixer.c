@@ -30,6 +30,9 @@
 #include "audio.h"
 #include "mixer.h"
 #include "xsystem4.h"
+#ifdef RQ_MODLOADER
+#include "modloader.h"
+#endif
 
 #define clamp(min_value, max_value, value) min(max_value, max(min_value, value))
 #define muldiv(x, y, denom) ((int64_t)(x) * (int64_t)(y) / (int64_t)(denom))
@@ -97,6 +100,8 @@ struct mixer {
 static struct mixer *master = NULL;
 static struct mixer *mixers = NULL;
 static int nr_mixers = 0;
+// rqmod: sounds with no .wai entry (Flash, 3D) play here, not straight on Master.
+static int se_mixer = 0;
 
 static SDL_AudioDeviceID audio_device = 0;
 static bool mixer_persist_ready = false;
@@ -634,6 +639,8 @@ struct channel *channel_open_archive_data(struct archive_data *dfile,
 			}
 		}
 		ch->no = metadata_no;
+	} else if (type == ASSET_SOUND) {
+		ch->mixer_no = se_mixer;
 	}
 	return ch;
 }
@@ -669,6 +676,12 @@ void channel_close(struct channel *ch)
 
 #define SJIS_MASTER "\x83\x7d\x83\x58\x83\x5e\x81\x5b"
 #define SJIS_VOICE  "\x89\xb9\x90\xba"
+#define SJIS_SE     "\x8c\xf8\x89\xca\x89\xb9"
+
+static bool is_se_mixer_name(const char *name)
+{
+	return !strcmp(name, "Sound Effects") || !strcmp(name, "Sound") || !strcmp(name, SJIS_SE);
+}
 
 void mixer_init(void)
 {
@@ -714,7 +727,12 @@ void mixer_init(void)
 		if (!strcmp(mixers[i].name, "Voice") || !strcmp(mixers[i].name, SJIS_VOICE)) {
 			parent = &mixers[i];
 		}
+		if (!se_mixer && is_se_mixer_name(mixers[i].name))
+			se_mixer = i;
 	}
+#ifdef RQ_MODLOADER
+	rq_log("audio: sounds with no list entry (Flash, 3D) play on mixer %d", se_mixer);
+#endif
 
 	// initialize mixers
 	for (int i = 0; i < nr_mixers; i++) {

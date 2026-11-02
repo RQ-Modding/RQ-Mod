@@ -229,11 +229,15 @@ static int skill_usable_chara(int chara, int skill_no)
  * Real skill-row button id (200001+index). status == 0 is still a listed
  * action skill; vanilla getSkillNoFromIndex only rejects status < 0.
  * Requiring status > 0 left button=-1 and forced the crashing pending path.
+ * *status gets the row's status: 0 is a greyed button (no uses left, locked,
+ * or a front-row skill from the back), which the game does not let a click use.
  */
-static int button_for_skill(int skill_no)
+static int button_for_skill(int skill_no, int *status_out)
 {
 	int skill_slot, idx, status, btn;
 
+	if (status_out)
+		*status_out = -1;
 	rq_crash_crumb("button_for_skill", skill_no, g_select_this);
 	skill_slot = skill_page_slot();
 	if (skill_slot < 0)
@@ -246,6 +250,8 @@ static int button_for_skill(int skill_no)
 	status = call_method_i(g_fno_getSkillStatus, skill_slot, idx);
 	if (status < 0)
 		return -1;
+	if (status_out)
+		*status_out = status;
 	btn = call_method_i(g_fno_getButtonID, skill_slot, idx);
 	return btn > 0 ? btn : -1;
 }
@@ -329,7 +335,7 @@ static void battle_select_exit(void)
 
 static void battle_select_key(void)
 {
-	int skill, btn;
+	int skill, btn, status;
 	int this_slot;
 	int down, edge;
 
@@ -368,7 +374,12 @@ static void battle_select_key(void)
 	key_swallow(VK_SPACE);
 	g_space_down_prev = 1;
 
-	btn = button_for_skill(skill);
+	btn = button_for_skill(skill, &status);
+	if (btn > 0 && status <= 0) {
+		rq_log("battle: Space skill %d is greyed out — Cancel", skill);
+		stack_push(0);
+		return;
+	}
 	if (btn > 0) {
 		/* Vanilla execSkill path — no pending apply. */
 		g_pending_skill = 0;
@@ -639,7 +650,7 @@ int rq_lua_battle_skill_usable(lua_State *L)
 {
 	int chara = 0;
 	int skill_no;
-	int ok;
+	int ok, status;
 
 	if (lua_istable(L, 1)) {
 		lua_getfield(L, 1, "chara");
@@ -659,8 +670,8 @@ int rq_lua_battle_skill_usable(lua_State *L)
 	}
 	skill_no = (int)luaL_checkinteger(L, 2);
 
-	if (g_in_ally_select && button_for_skill(skill_no) > 0)
-		ok = 1;
+	if (g_in_ally_select && button_for_skill(skill_no, &status) > 0)
+		ok = status > 0;
 	else
 		ok = skill_usable_chara(chara, skill_no);
 

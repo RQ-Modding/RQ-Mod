@@ -1049,6 +1049,7 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "patch_float", l_patch_float);
 	set_cfn(L, "patch_int", l_patch_int);
 	set_cfn(L, "skip_msgbox", l_skip_msgbox);
+	set_cfn(L, "skip_sdl_msgbox", l_skip_sdl_msgbox);
 	set_cfn(L, "find", l_find_funcs);
 	lua_setfield(L, -2, "ain");
 
@@ -1284,13 +1285,6 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "seed", rq_lua_random_seed);
 	set_cfn(L, "fix", rq_lua_random_fix);
 	lua_setfield(L, -2, "random");
-
-	/* Aliases so camera-zoom / skip-network-popup stay unchanged. */
-	set_cfn(L, "dungeon_camera", l_dungeon_camera);
-	set_cfn(L, "patch_float", l_patch_float);
-	set_cfn(L, "skip_msgbox", l_skip_msgbox);
-	set_cfn(L, "skip_sdl_msgbox", l_skip_sdl_msgbox);
-	set_cfn(L, "find", l_find_funcs);
 
 	rq_query_bind(L);
 	rq_scene_open(L, lua_gettop(L));
