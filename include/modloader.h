@@ -110,6 +110,13 @@ int rq_lua_battle_install_states(struct lua_State *L);
 void rq_speed_tick(void);
 int rq_lua_speed_set(struct lua_State *L);
 int rq_lua_speed_get(struct lua_State *L);
+void rq_sound_tick(void);
+int rq_lua_sound_play(struct lua_State *L);
+int rq_lua_sound_play_flash(struct lua_State *L);
+int rq_lua_sound_flash_info(struct lua_State *L);
+int rq_lua_sound_stop(struct lua_State *L);
+int rq_lua_sound_playing(struct lua_State *L);
+int rq_lua_sound_set_volume(struct lua_State *L);
 int rq_lua_battle_states(struct lua_State *L);
 int rq_lua_battle_set_state(struct lua_State *L);
 int rq_lua_battle_buffs(struct lua_State *L);
@@ -364,7 +371,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "1.3.1"
+#define RQ_VERSION "1.4.0"
 
 struct rq_qbattle_skill {
 	int id;

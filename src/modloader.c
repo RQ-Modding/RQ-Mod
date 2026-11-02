@@ -1385,6 +1385,15 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "get", rq_lua_speed_get);
 	lua_setfield(L, -2, "speed");
 
+	lua_newtable(L);
+	set_cfn(L, "play", rq_lua_sound_play);
+	set_cfn(L, "play_flash", rq_lua_sound_play_flash);
+	set_cfn(L, "flash_info", rq_lua_sound_flash_info);
+	set_cfn(L, "stop", rq_lua_sound_stop);
+	set_cfn(L, "playing", rq_lua_sound_playing);
+	set_cfn(L, "set_volume", rq_lua_sound_set_volume);
+	lua_setfield(L, -2, "sound");
+
 	rq_query_bind(L);
 	rq_scene_open(L, lua_gettop(L));
 	guard_game_calls(L);

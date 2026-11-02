@@ -1004,6 +1004,7 @@ int rq_hud_tick(void)
 	rq_roster_refresh();
 	rq_battle_marks_tick();
 	rq_speed_tick();
+	rq_sound_tick();
 	if (!L || g_on_frame_n == 0)
 		return g_drew;
 	for (int i = 0; i < g_on_frame_n; i++) {
