@@ -256,29 +256,51 @@ static void read_user_config(void)
 	free(path);
 }
 
+// Returns the variable as UTF-8, or NULL when it is unset or empty.
+// On Windows getenv answers in the ANSI code page, which turns a path
+// like C:\Users\Usuário into bytes the UTF-8 file calls cannot open.
+static char *getenv_utf8(const char *name)
+{
+#ifdef _WIN32
+	wchar_t *wname = utf8_to_wchar(name);
+	const wchar_t *wvalue = _wgetenv(wname);
+	free(wname);
+	if (!wvalue || !*wvalue)
+		return NULL;
+	return wchar_to_utf8(wvalue);
+#else
+	const char *value = getenv(name);
+	if (!value || !*value)
+		return NULL;
+	return xstrdup(value);
+#endif
+}
+
 static char *get_xsystem4_home(void)
 {
 	// $XSYSTEM4_HOME
-	char *env_home = getenv("XSYSTEM4_HOME");
-	if (env_home && *env_home) {
-		return xstrdup(env_home);
+	char *env_home = getenv_utf8("XSYSTEM4_HOME");
+	if (env_home) {
+		return env_home;
 	}
 
 	// $XDG_DATA_HOME/xsystem4
-	env_home = getenv("XDG_DATA_HOME");
-	if (env_home && *env_home) {
+	env_home = getenv_utf8("XDG_DATA_HOME");
+	if (env_home) {
 		char *home = xmalloc(strlen(env_home) + strlen("/xsystem4") + 1);
 		strcpy(home, env_home);
 		strcat(home, "/xsystem4");
+		free(env_home);
 		return home;
 	}
 
 	// $HOME/.xsystem4
-	env_home = getenv("HOME");
-	if (env_home && *env_home) {
+	env_home = getenv_utf8("HOME");
+	if (env_home) {
 		char *home = xmalloc(strlen(env_home) + strlen("/.xsystem4") + 1);
 		strcpy(home, env_home);
 		strcat(home, "/.xsystem4");
+		free(env_home);
 		return home;
 	}
 

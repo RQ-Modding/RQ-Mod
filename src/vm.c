@@ -719,7 +719,7 @@ static void system_call(enum syscall_code code)
 	};
 	case SYS_GET_SAVE_FOLDER_NAME: {// system.GetSaveFolderName(void)
 		if (config.save_dir) {
-			char *sjis = utf2sjis(config.save_dir, strlen(config.save_dir));
+			char *sjis = dir_to_sjis(config.save_dir);
 			stack_push_string(make_string(sjis, strlen(sjis)));
 			free(sjis);
 		} else {

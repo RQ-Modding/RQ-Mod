@@ -166,6 +166,51 @@ char *savedir_path(const char *path)
 	return resolve_path(config.save_dir, path);
 }
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+// The game builds its paths in SJIS, which has no letters such as 'á'.
+// A folder with one would come back with '?' in it, so on Windows such a
+// folder is given by its short name (C:\Users\USURIO~1), which is ASCII.
+// The folder must exist.
+char *dir_to_sjis(const char *utf8)
+{
+	char *sjis = utf2sjis(utf8, 0);
+	char *back = sjis2utf(sjis, 0);
+	bool same = !strcmp(back, utf8);
+	free(back);
+	if (same)
+		return sjis;
+#ifdef _WIN32
+	wchar_t *wlong = utf8_to_wchar(utf8);
+	DWORD n = GetShortPathNameW(wlong, NULL, 0);
+	if (n) {
+		wchar_t *wshort = xmalloc(n * sizeof(wchar_t));
+		if (GetShortPathNameW(wlong, wshort, n)) {
+			char *u = wchar_to_utf8(wshort);
+			char *s = utf2sjis(u, 0);
+			back = sjis2utf(s, 0);
+			same = !strcmp(back, u);
+			free(back);
+			free(u);
+			if (same) {
+				free(sjis);
+				sjis = s;
+			} else {
+				free(s);
+			}
+		}
+		free(wshort);
+	}
+	free(wlong);
+	if (same)
+		return sjis;
+#endif
+	WARNING("The game cannot spell this folder, and may fail to use it: %s", utf8);
+	return sjis;
+}
+
 void get_date(int *year, int *month, int *mday, int *wday)
 {
 	time_t t = time(NULL);
