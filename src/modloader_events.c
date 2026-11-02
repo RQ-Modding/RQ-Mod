@@ -588,7 +588,7 @@ int rq_lua_quests_on_end(lua_State *L)
 {
 	luaL_checktype(L, 1, LUA_TFUNCTION);
 	if (!ain || !quest_syms(ain))
-		return luaL_error(L, "quest symbols missing (see mods/rqmod.log)");
+		return luaL_error(L, "quest symbols missing (see logs/rqmod.log)");
 	if (!g_qend_on) {
 		int f = find_fn(ain, "クエスト終了処理");
 		if (f < 0)
@@ -670,7 +670,7 @@ int rq_lua_dungeon_on_map(lua_State *L)
 {
 	luaL_checktype(L, 1, LUA_TFUNCTION);
 	if (!ain || !quest_syms(ain))
-		return luaL_error(L, "quest symbols missing (see mods/rqmod.log)");
+		return luaL_error(L, "quest symbols missing (see logs/rqmod.log)");
 	if (!g_map_on) {
 		int f_create = find_fn(ain, "T_MapParts@create");
 		int f_clear = find_fn(ain, "クエスト_クリア済み");
@@ -740,7 +740,7 @@ static int add_cb(lua_State *L, int *refs, int *n)
 {
 	luaL_checktype(L, 1, LUA_TFUNCTION);
 	if (!ain || !rq_events_install(ain))
-		return luaL_error(L, "battle events install failed (see mods/rqmod.log)");
+		return luaL_error(L, "battle events install failed (see logs/rqmod.log)");
 	if (*n >= CB_MAX)
 		return luaL_error(L, "too many battle callbacks registered");
 	lua_pushvalue(L, 1);
@@ -762,7 +762,7 @@ int rq_lua_battle_on_support(lua_State *L)
 {
 	luaL_checktype(L, 1, LUA_TFUNCTION);
 	if (!ain || !install_support(ain))
-		return luaL_error(L, "battle on_support install failed (see mods/rqmod.log)");
+		return luaL_error(L, "battle on_support install failed (see logs/rqmod.log)");
 	if (g_nsup >= CB_MAX)
 		return luaL_error(L, "too many battle callbacks registered");
 	lua_pushvalue(L, 1);
@@ -774,7 +774,7 @@ int rq_lua_battle_on_switch(lua_State *L)
 {
 	luaL_checktype(L, 1, LUA_TFUNCTION);
 	if (!ain || !install_switch(ain))
-		return luaL_error(L, "battle on_switch install failed (see mods/rqmod.log)");
+		return luaL_error(L, "battle on_switch install failed (see logs/rqmod.log)");
 	if (g_nswitch >= CB_MAX)
 		return luaL_error(L, "too many battle callbacks registered");
 	lua_pushvalue(L, 1);
@@ -786,7 +786,7 @@ int rq_lua_battle_on_down(lua_State *L)
 {
 	luaL_checktype(L, 1, LUA_TFUNCTION);
 	if (!ain || !install_down(ain))
-		return luaL_error(L, "battle on_down install failed (see mods/rqmod.log)");
+		return luaL_error(L, "battle on_down install failed (see logs/rqmod.log)");
 	if (g_ndown >= CB_MAX)
 		return luaL_error(L, "too many battle callbacks registered");
 	lua_pushvalue(L, 1);
@@ -798,7 +798,7 @@ int rq_lua_quests_on_clear(lua_State *L)
 {
 	luaL_checktype(L, 1, LUA_TFUNCTION);
 	if (!ain || !install_clear(ain))
-		return luaL_error(L, "quest events install failed (see mods/rqmod.log)");
+		return luaL_error(L, "quest events install failed (see logs/rqmod.log)");
 	if (g_nclear >= CB_MAX)
 		return luaL_error(L, "too many quest callbacks registered");
 	lua_pushvalue(L, 1);
@@ -810,7 +810,7 @@ static int quest_arg(lua_State *L)
 {
 	int no = (int)luaL_checkinteger(L, 1);
 	if (!ain || !quest_syms(ain))
-		return luaL_error(L, "quest symbols missing (see mods/rqmod.log)");
+		return luaL_error(L, "quest symbols missing (see logs/rqmod.log)");
 	if (!quest_valid(no))
 		return luaL_error(L, "no quest %d", no);
 	return no;

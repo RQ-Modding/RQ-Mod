@@ -1549,7 +1549,7 @@ int rq_battle_marks_install(struct ain *a)
 int rq_lua_battle_install_flame(lua_State *L)
 {
 	if (!ain || !flame_install(ain))
-		return luaL_error(L, "battle.install_flame failed (see mods/rqmod.log)");
+		return luaL_error(L, "battle.install_flame failed (see logs/rqmod.log)");
 	lua_pushboolean(L, 1);
 	return 1;
 }

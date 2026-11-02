@@ -46,6 +46,7 @@
 
 char g_rq_game_dir[RQ_PATH_MAX];
 char g_rq_mods_dir[RQ_PATH_MAX];
+char g_rq_logs_dir[RQ_PATH_MAX];
 char g_rq_exe_dir[RQ_PATH_MAX];
 FILE *g_rq_log;
 int g_rq_verbose;
@@ -765,7 +766,7 @@ static int l_loot_install(lua_State *L)
 		return luaL_error(L, "AIN not loaded");
 	ok = rq_loot_install(g_ain);
 	if (!ok)
-		return luaL_error(L, "loot.install failed (see mods/rqmod.log)");
+		return luaL_error(L, "loot.install failed (see logs/rqmod.log)");
 	lua_pushboolean(L, 1);
 	return 1;
 }
@@ -777,7 +778,7 @@ static int l_chest_install(lua_State *L)
 		return luaL_error(L, "AIN not loaded");
 	ok = rq_chest_install(g_ain);
 	if (!ok)
-		return luaL_error(L, "chest.install failed (see mods/rqmod.log)");
+		return luaL_error(L, "chest.install failed (see logs/rqmod.log)");
 	lua_pushboolean(L, 1);
 	return 1;
 }
@@ -789,7 +790,7 @@ static int l_orb_install(lua_State *L)
 		return luaL_error(L, "AIN not loaded");
 	ok = rq_orb_install(g_ain);
 	if (!ok)
-		return luaL_error(L, "orb.install failed (see mods/rqmod.log)");
+		return luaL_error(L, "orb.install failed (see logs/rqmod.log)");
 	lua_pushboolean(L, 1);
 	return 1;
 }
@@ -801,7 +802,7 @@ static int l_chara_install(lua_State *L)
 		return luaL_error(L, "AIN not loaded");
 	ok = rq_chara_install(g_ain);
 	if (!ok)
-		return luaL_error(L, "chara.install failed (see mods/rqmod.log)");
+		return luaL_error(L, "chara.install failed (see logs/rqmod.log)");
 	lua_pushboolean(L, 1);
 	return 1;
 }
@@ -813,7 +814,7 @@ static int l_skill_install(lua_State *L)
 		return luaL_error(L, "AIN not loaded");
 	ok = rq_skill_install(g_ain);
 	if (!ok)
-		return luaL_error(L, "skill.install failed (see mods/rqmod.log)");
+		return luaL_error(L, "skill.install failed (see logs/rqmod.log)");
 	lua_pushboolean(L, 1);
 	return 1;
 }
@@ -825,7 +826,7 @@ static int l_skilllist_install(lua_State *L)
 		return luaL_error(L, "AIN not loaded");
 	ok = rq_skilllist_install(g_ain);
 	if (!ok)
-		return luaL_error(L, "skilllist.install failed (see mods/rqmod.log)");
+		return luaL_error(L, "skilllist.install failed (see logs/rqmod.log)");
 	lua_pushboolean(L, 1);
 	return 1;
 }
@@ -837,7 +838,7 @@ static int l_counter_install(lua_State *L)
 		return luaL_error(L, "AIN not loaded");
 	ok = rq_counter_install(g_ain);
 	if (!ok)
-		return luaL_error(L, "counter.install failed (see mods/rqmod.log)");
+		return luaL_error(L, "counter.install failed (see logs/rqmod.log)");
 	lua_pushboolean(L, 1);
 	return 1;
 }
@@ -849,7 +850,7 @@ static int l_battle_install(lua_State *L)
 		return luaL_error(L, "AIN not loaded");
 	ok = rq_battle_install(g_ain);
 	if (!ok)
-		return luaL_error(L, "battle.install failed (see mods/rqmod.log)");
+		return luaL_error(L, "battle.install failed (see logs/rqmod.log)");
 	lua_pushboolean(L, 1);
 	return 1;
 }
@@ -861,7 +862,7 @@ static int l_shop_install(lua_State *L)
 		return luaL_error(L, "AIN not loaded");
 	ok = rq_shop_install(g_ain);
 	if (!ok)
-		return luaL_error(L, "shop.install failed (see mods/rqmod.log)");
+		return luaL_error(L, "shop.install failed (see logs/rqmod.log)");
 	lua_pushboolean(L, 1);
 	return 1;
 }
@@ -1625,6 +1626,34 @@ static void resolve_dirs(void)
 		snprintf(g_rq_game_dir, sizeof g_rq_game_dir, "%s", exe);
 		snprintf(g_rq_mods_dir, sizeof g_rq_mods_dir, "%s", mods1);
 	}
+	snprintf(g_rq_logs_dir, sizeof g_rq_logs_dir, "%s", g_rq_mods_dir);
+	slash = strrchr(g_rq_logs_dir, '\\');
+	if (slash)
+		snprintf(slash + 1, sizeof g_rq_logs_dir - (size_t)(slash + 1 - g_rq_logs_dir), "logs");
+}
+
+/* Logs used to sit in mods\. Make logs\ and bring over what an older loader left there. */
+static void prepare_logs_dir(void)
+{
+	static const char *const k_old[] = { "rqmod*.log", "rqmod-crash-*.dmp", "rqmod-running.flag" };
+	WIN32_FIND_DATAA fd;
+	char pattern[RQ_PATH_MAX], from[RQ_PATH_MAX], to[RQ_PATH_MAX];
+	size_t i;
+	HANDLE h;
+
+	CreateDirectoryA(g_rq_logs_dir, NULL);
+	for (i = 0; i < sizeof k_old / sizeof k_old[0]; i++) {
+		snprintf(pattern, sizeof pattern, "%s\\%s", g_rq_mods_dir, k_old[i]);
+		h = FindFirstFileA(pattern, &fd);
+		if (h == INVALID_HANDLE_VALUE)
+			continue;
+		do {
+			snprintf(from, sizeof from, "%s\\%s", g_rq_mods_dir, fd.cFileName);
+			snprintf(to, sizeof to, "%s\\%s", g_rq_logs_dir, fd.cFileName);
+			MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING);
+		} while (FindNextFileA(h, &fd));
+		FindClose(h);
+	}
 }
 #else
 static int load_mods(lua_State *L) { (void)L; return 0; }
@@ -1635,7 +1664,9 @@ static void resolve_dirs(void)
 	g_rq_exe_dir[1] = 0;
 	snprintf(g_rq_game_dir, sizeof g_rq_game_dir, ".");
 	snprintf(g_rq_mods_dir, sizeof g_rq_mods_dir, "./mods");
+	snprintf(g_rq_logs_dir, sizeof g_rq_logs_dir, "./logs");
 }
+static void prepare_logs_dir(void) { }
 #endif
 
 static int json_bool_obj(cJSON *o, const char *key, int deflt)
@@ -1744,8 +1775,9 @@ void rq_mods_early_init(void)
 	load_config();
 	rq_open_terminal();
 	if (!g_rq_log && dir_exists(g_rq_mods_dir)) {
-		snprintf(logpath, sizeof logpath, "%s\\rqmod.log", g_rq_mods_dir);
-		rq_crash_rotate_logs(g_rq_mods_dir);
+		prepare_logs_dir();
+		snprintf(logpath, sizeof logpath, "%s\\rqmod.log", g_rq_logs_dir);
+		rq_crash_rotate_logs(g_rq_logs_dir);
 		g_rq_log = fopen(logpath, "w");
 		rq_crash_install();
 	}
@@ -1916,8 +1948,9 @@ void rq_mods_init(struct ain *ain)
 	rq_saves_install(ain);
 
 	if (!g_rq_log && dir_exists(g_rq_mods_dir)) {
-		snprintf(logpath, sizeof logpath, "%s\\rqmod.log", g_rq_mods_dir);
-		rq_crash_rotate_logs(g_rq_mods_dir);
+		prepare_logs_dir();
+		snprintf(logpath, sizeof logpath, "%s\\rqmod.log", g_rq_logs_dir);
+		rq_crash_rotate_logs(g_rq_logs_dir);
 		g_rq_log = fopen(logpath, "w");
 		rq_crash_install();
 	} else if (!dir_exists(g_rq_mods_dir)) {
@@ -1926,6 +1959,7 @@ void rq_mods_init(struct ain *ain)
 
 	rq_log("Game folder: %s", g_rq_game_dir);
 	rq_log("Mods folder: %s", g_rq_mods_dir);
+	rq_log("Logs folder: %s", g_rq_logs_dir);
 	rq_log("AIN loaded (%d functions, version %d)",
 	       ain ? ain->nr_functions : 0, ain ? ain->version : 0);
 	if (g_rq_verbose)

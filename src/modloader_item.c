@@ -773,7 +773,7 @@ static int ensure(lua_State *L)
 	if (!ain)
 		return luaL_error(L, "AIN not loaded");
 	if (!rq_item_install(ain))
-		return luaL_error(L, "item install failed (see mods/rqmod.log)");
+		return luaL_error(L, "item install failed (see logs/rqmod.log)");
 	ensure_restock();
 	return 0;
 }

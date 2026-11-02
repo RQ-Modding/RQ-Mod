@@ -428,7 +428,7 @@ int rq_states_second_marks(int iic, int out[KINDS])
 int rq_lua_battle_install_states(lua_State *L)
 {
 	if (!ain || !states_install(ain))
-		return luaL_error(L, "battle.install_states failed (see mods/rqmod.log)");
+		return luaL_error(L, "battle.install_states failed (see logs/rqmod.log)");
 	lua_pushboolean(L, 1);
 	return 1;
 }

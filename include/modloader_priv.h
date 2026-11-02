@@ -7,6 +7,7 @@
 
 extern char g_rq_game_dir[RQ_PATH_MAX];
 extern char g_rq_mods_dir[RQ_PATH_MAX];
+extern char g_rq_logs_dir[RQ_PATH_MAX]; /* "logs" beside mods: rqmod.log, crash reports */
 extern char g_rq_exe_dir[RQ_PATH_MAX];
 extern FILE *g_rq_log;
 extern int g_rq_verbose;

@@ -410,7 +410,7 @@ static int ensure(lua_State *L)
 	if (!ain)
 		return luaL_error(L, "AIN not loaded");
 	if (!rq_roster_install(ain))
-		return luaL_error(L, "roster install failed (see mods/rqmod.log)");
+		return luaL_error(L, "roster install failed (see logs/rqmod.log)");
 	return 0;
 }
 
