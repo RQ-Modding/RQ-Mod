@@ -618,11 +618,20 @@ static int l_quest_current(lua_State *L)
 	return 1;
 }
 
+/* The read flag of one line of mod text: its own number, by mod and text. */
+static int l_msgno(lua_State *L)
+{
+	lua_pushinteger(L, rq_msgskip_number(rq_lua_caller_mod(L), luaL_checkstring(L, 1)));
+	return 1;
+}
+
 /* ---- the Lua layer ---- */
 
 static const char lua_layer[] =
-"local rq = ...\n"
+"local rq, msgno = ...\n"
 "local call, hook = rq.ain.call, rq.ain.hook\n"
+"-- The game's S is message 0 for every line, so one read line made them all read.\n"
+"local function say_line(s) call('message', msgno(s), 0, s) end\n"
 "local scene = {}\n"
 "scene.cmd = setmetatable({}, { __index = function(_, name)\n"
 "  return function(...) return call(name, ...) end\n"
@@ -631,7 +640,7 @@ static const char lua_layer[] =
 "  local first = true\n"
 "  for line in (tostring(text) .. '\\n'):gmatch('(.-)\\n') do\n"
 "    if not first then call('R') end\n"
-"    call('S', line)\n"
+"    say_line(line)\n"
 "    first = false\n"
 "  end\n"
 "  call(wait == false and 'B' or 'A')\n"
@@ -672,7 +681,7 @@ static const char lua_layer[] =
 "  call(o.paper and 'ト書き_paper' or (o.page and 'ト書きＥ' or 'ト書き'))\n"
 "  text_lines(text, o.wait)\n"
 "end\n"
-"function scene.text(s) call('S', s) end\n"
+"function scene.text(s) say_line(tostring(s)) end\n"
 "function scene.br() call('R') end\n"
 "function scene.wait() call('A') end\n"
 "function scene.show() call('B') end\n"
@@ -946,7 +955,8 @@ void rq_scene_open(lua_State *L, int rq_index)
 		return;
 	}
 	lua_pushvalue(L, rq_index);
-	if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+	lua_pushcfunction(L, l_msgno);
+	if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
 		rq_log("scene layer: %s", lua_tostring(L, -1));
 		lua_pop(L, 1);
 	}

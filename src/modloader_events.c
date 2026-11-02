@@ -5,7 +5,8 @@
  *   - tail of Ｔ戦闘前初期化: every start-of-battle effect of the base game has
  *     run (per-character skills, ambush, poison tea), PTA/PTB are filled.
  *   - head of 戦闘後処理(re): the battle result is known, the cleanup has not run.
- *   - head of Ｃ状態変化(iic, state): on_down fires when the game sets state 3.
+ *   - head of Ｃ状態変化(iic, state): on_down fires when the game sets state 3 on a
+ *     unit that was not down.
  *   - head of Ｔ補助行動(user, target, skill): on_support, before its effects.
  *   - around 戦闘_入れ替え後処理: on_switch, with the cards made again and on screen.
  */
@@ -225,7 +226,9 @@ static void run_down(void)
 	int iic = stack_pop().i;
 	int i;
 
-	if (L && state == 3) {
+	/* The game sets 3 again on a unit that is already down (seen on enemies after
+	 * the fight). Only the change counts. */
+	if (L && state == 3 && rq_chara_member(iic, "状態変化", 0) != 3) {
 		rq_crash_crumb("lua:on_down", iic, 0);
 		for (i = 0; i < g_ndown; i++) {
 			lua_rawgeti(L, LUA_REGISTRYINDEX, g_down_cb[i]);

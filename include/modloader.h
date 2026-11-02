@@ -154,6 +154,7 @@ int rq_lua_skill_sort_as(struct lua_State *L);
 int rq_chara_install(struct ain *ain);
 int rq_chara_syscall(int code);
 int rq_chara_exists(int iic);
+int rq_chara_member(int iic, const char *utf, int fallback);
 int rq_item_known(int no);
 int rq_lua_chara_grant(struct lua_State *L);
 int rq_lua_chara_rank(struct lua_State *L);
@@ -363,7 +364,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "1.3.0"
+#define RQ_VERSION "1.3.1"
 
 struct rq_qbattle_skill {
 	int id;
@@ -407,6 +408,9 @@ int rq_query_facts(char **json_out);
 void rq_query_bind(struct lua_State *L);
 void rq_sandbox_install(struct lua_State *L);
 void rq_sandbox_add_mod(const char *dir);
+
+/* hll/MsgSkip.c: a read flag of its own for one line of mod text. */
+int rq_msgskip_number(const char *mod, const char *text);
 
 int rq_dialog_open(void);
 int rq_dialog_has(const char *id);

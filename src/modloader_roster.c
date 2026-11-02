@@ -315,6 +315,15 @@ static int memb_utf(struct page *p, const char *utf)
 	return m;
 }
 
+/* One int member of a character by its Japanese name, or fallback. */
+int rq_chara_member(int iic, const char *utf, int fallback)
+{
+	struct page *p = cpage(iic);
+	int m = memb_utf(p, utf);
+
+	return m < 0 ? fallback : p->values[m].i;
+}
+
 static const char *alias_jp(const char *alias)
 {
 	int i;

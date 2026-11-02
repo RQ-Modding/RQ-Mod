@@ -33,6 +33,10 @@
 
 #include "hll.h"
 
+#ifdef RQ_MODLOADER
+#include "modloader.h"
+#endif
+
 static bool enabled = false;
 static int state = 0;
 
@@ -40,8 +44,113 @@ static char *save_path;
 static uint8_t *flags;
 static int nr_flags;
 
+#ifdef RQ_MODLOADER
+/* Mod text (rq.scene) gets numbers past the game's own, one per mod and line, so
+ * reading one mod line does not mark every other one as read. Their flags live in
+ * a file of their own, so the game's file keeps its size. */
+#define MOD_MSG_FILE "rqmod-msgskip.dat"
+#define MOD_MSG_MAGIC "RQMS"
+struct mod_msg {
+	uint64_t key;
+	bool read;
+};
+static struct mod_msg *mod_msgs;
+static int nr_mod_msgs, cap_mod_msgs;
+static char *mod_msg_path;
+
+static int mod_msg_add(uint64_t key, bool read)
+{
+	for (int i = 0; i < nr_mod_msgs; i++) {
+		if (mod_msgs[i].key == key) {
+			mod_msgs[i].read |= read;
+			return i;
+		}
+	}
+	if (nr_mod_msgs == cap_mod_msgs) {
+		cap_mod_msgs = cap_mod_msgs ? cap_mod_msgs * 2 : 64;
+		mod_msgs = xrealloc(mod_msgs, cap_mod_msgs * sizeof *mod_msgs);
+	}
+	mod_msgs[nr_mod_msgs].key = key;
+	mod_msgs[nr_mod_msgs].read = read;
+	return nr_mod_msgs++;
+}
+
+static void mod_msg_load(void)
+{
+	size_t size;
+	uint8_t *data;
+
+	mod_msg_path = savedir_path(MOD_MSG_FILE);
+	data = file_read(mod_msg_path, &size);
+	if (!data)
+		return;
+	if (size < 8 || memcmp(data, MOD_MSG_MAGIC, 4)
+			|| LittleEndian_getDW(data, 4) < 0
+			|| (size - 8) / 8 < (size_t)LittleEndian_getDW(data, 4)) {
+		WARNING("Corrupted mod MsgSkip file '%s'", display_utf0(mod_msg_path));
+	} else {
+		int n = LittleEndian_getDW(data, 4);
+		for (int i = 0; i < n; i++) {
+			const uint8_t *p = data + 8 + i * 8;
+			uint64_t key = (uint64_t)(uint32_t)LittleEndian_getDW(p, 0)
+				| ((uint64_t)(uint32_t)LittleEndian_getDW(p, 4) << 32);
+			mod_msg_add(key, true);
+		}
+	}
+	free(data);
+}
+
+static void mod_msg_save(void)
+{
+	FILE *f;
+	uint8_t buf[8];
+	int n = 0;
+
+	if (!mod_msg_path)
+		return;
+	for (int i = 0; i < nr_mod_msgs; i++)
+		n += mod_msgs[i].read;
+	if (!n)
+		return;
+	f = file_open_utf8(mod_msg_path, "wb");
+	if (!f) {
+		WARNING("fopen: '%s': %s", display_utf0(mod_msg_path), strerror(errno));
+		return;
+	}
+	memcpy(buf, MOD_MSG_MAGIC, 4);
+	LittleEndian_putDW(buf, 4, n);
+	fwrite(buf, 8, 1, f);
+	for (int i = 0; i < nr_mod_msgs; i++) {
+		if (!mod_msgs[i].read)
+			continue;
+		LittleEndian_putDW(buf, 0, (uint32_t)mod_msgs[i].key);
+		LittleEndian_putDW(buf, 4, (uint32_t)(mod_msgs[i].key >> 32));
+		fwrite(buf, 8, 1, f);
+	}
+	fclose(f);
+}
+
+/* FNV-1a over the mod id and the text. 0 (the game's own S) before MsgSkip is open. */
+int rq_msgskip_number(const char *mod, const char *text)
+{
+	uint64_t h = 0xcbf29ce484222325ULL;
+
+	if (!flags)
+		return 0;
+	for (const char *c = mod ? mod : ""; *c; c++)
+		h = (h ^ (uint8_t)*c) * 0x100000001b3ULL;
+	h = (h ^ 0xff) * 0x100000001b3ULL;
+	for (const char *c = text ? text : ""; *c; c++)
+		h = (h ^ (uint8_t)*c) * 0x100000001b3ULL;
+	return nr_flags + mod_msg_add(h, false);
+}
+#endif
+
 static void msgskip_save(void)
 {
+#ifdef RQ_MODLOADER
+	mod_msg_save();
+#endif
 	FILE *f = file_open_utf8(save_path, "wb");
 	if (!f)
 		ERROR("fopen: '%s': %s", display_utf0(save_path), strerror(errno));
@@ -108,12 +217,21 @@ static int MsgSkip_Init(struct string *name)
 #ifdef __ANDROID__
 	SDL_AddEventWatch(msgskip_event_handler, NULL);
 #endif
+#ifdef RQ_MODLOADER
+	mod_msg_load();
+#endif
 	atexit(msgskip_save);
 	return 1;
 }
 
 static void MsgSkip_SetFlag(int msgnum)
 {
+#ifdef RQ_MODLOADER
+	if (msgnum >= nr_flags && msgnum - nr_flags < nr_mod_msgs) {
+		mod_msgs[msgnum - nr_flags].read = true;
+		return;
+	}
+#endif
 	if (msgnum < 0 || msgnum >= nr_flags)
 		return;
 	flags[msgnum >> 3] |= 0x80 >> (msgnum & 7);
@@ -121,6 +239,10 @@ static void MsgSkip_SetFlag(int msgnum)
 
 static int MsgSkip_GetFlag(int msgnum)
 {
+#ifdef RQ_MODLOADER
+	if (msgnum >= nr_flags && msgnum - nr_flags < nr_mod_msgs)
+		return mod_msgs[msgnum - nr_flags].read;
+#endif
 	if (msgnum < 0 || msgnum >= nr_flags)
 		return 0;
 	return !!(flags[msgnum >> 3] & 0x80 >> (msgnum & 7));
