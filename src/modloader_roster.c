@@ -917,6 +917,41 @@ void rq_roster_apply(int iic)
 	}
 }
 
+/* A load brings back characters as they were saved, and the game may not recalculate
+ * them for a long time (opening the party screen does not), so on the next frame every
+ * edited character is recalculated once, which applies the edits. */
+static int g_stale;
+
+void rq_roster_mark_stale(void)
+{
+	g_stale = 1;
+}
+
+void rq_roster_refresh(void)
+{
+	int iic, i, no, state, count = 0;
+
+	if (!g_stale)
+		return;
+	g_stale = 0;
+	if (!g_on || g_nedit == 0 || f_recalc < 0 || !rq_lua())
+		return;
+	for (iic = 1; iic < 1000; iic++) {
+		struct page *p = cpage(iic);
+		int hit = 0;
+		if (!p || !mread(p, "登録状態", &state) || state == 0 || !mread(p, "番号", &no))
+			continue;
+		for (i = 0; i < g_nedit && !hit; i++)
+			hit = g_edit[i].no == no;
+		if (!hit)
+			continue;
+		ci(f_recalc, 1, iic);
+		count++;
+	}
+	if (count)
+		rq_log("roster: edits applied to %d existing characters", count);
+}
+
 /* ---- install ---- */
 
 int rq_roster_install(struct ain *a)

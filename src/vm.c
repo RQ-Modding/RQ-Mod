@@ -616,6 +616,7 @@ static void system_call(enum syscall_code code)
 		int filename = stack_pop().i;
 		int keyname = stack_pop().i;
 		rq_item_mark_stale();
+		rq_roster_mark_stale();
 		stack_push(load_globals(heap_get_string(keyname)->text, heap_get_string(filename)->text, NULL, NULL));
 		heap_unref(filename);
 		heap_unref(keyname);
@@ -687,6 +688,7 @@ static void system_call(enum syscall_code code)
 		if (vm_call_depth > 1)
 			VM_ERROR("A load cannot run under a call from a mod");
 		rq_item_mark_stale();
+		rq_roster_mark_stale();
 		vm_load_image(heap_get_string(key_slot)->text, heap_get_string(filename_slot)->text);
 		stack_push(0);
 		break;
@@ -830,6 +832,7 @@ static void system_call(enum syscall_code code)
 		int filename = stack_pop().i;
 		int keyname = stack_pop().i;
 		rq_item_mark_stale();
+		rq_roster_mark_stale();
 		stack_push(load_globals(heap_get_string(keyname)->text,
 					heap_get_string(filename)->text,
 					heap_get_string(groupname)->text,

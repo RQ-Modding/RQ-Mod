@@ -1001,6 +1001,7 @@ int rq_hud_tick(void)
 	g_prev_left = g_left;
 	draw_version_banner();
 	rq_item_refresh();
+	rq_roster_refresh();
 	rq_battle_marks_tick();
 	rq_speed_tick();
 	if (!L || g_on_frame_n == 0)

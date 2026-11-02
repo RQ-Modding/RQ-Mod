@@ -174,6 +174,8 @@ int rq_lua_chara_clear_slot(struct lua_State *L);
 int rq_roster_install(struct ain *ain);
 int rq_roster_syscall(int code);
 void rq_roster_apply(int iic);
+void rq_roster_mark_stale(void);
+void rq_roster_refresh(void);
 int rq_lua_chara_define(struct lua_State *L);
 int rq_lua_chara_recruit(struct lua_State *L);
 int rq_lua_chara_find(struct lua_State *L);
@@ -361,7 +363,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "1.2.0"
+#define RQ_VERSION "1.2.1"
 
 struct rq_qbattle_skill {
 	int id;
@@ -473,6 +475,7 @@ static inline void rq_battle_marks_live(int on) { (void)on; }
 static inline int rq_item_syscall(int code) { (void)code; return 0; }
 static inline void rq_item_mark_stale(void) {}
 static inline void rq_roster_apply(int iic) { (void)iic; }
+static inline void rq_roster_mark_stale(void) {}
 static inline int rq_hud_syscall(int code) { (void)code; return 0; }
 static inline int rq_hud_tick(void) { return 0; }
 static inline void rq_hud_draw(void) {}
