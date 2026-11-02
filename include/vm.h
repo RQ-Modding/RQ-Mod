@@ -197,6 +197,10 @@ void vm_call_method(int fno, int struct_page);
 /* Heap slot of the struct page for a call frame. 0 is the current frame. -1 if none. */
 int vm_frame_struct(int frame_no);
 int vm_time(void);
+/* rqmod: the game clock behind vm_time, and its speed factor (1 = real time). */
+uint64_t vm_game_ticks(void);
+void vm_set_time_scale(double scale);
+double vm_time_scale(void);
 void vm_sleep(int ms);
 #ifdef RQ_PROFILE
 void vm_prof_ain_stack(char *buf, size_t n);

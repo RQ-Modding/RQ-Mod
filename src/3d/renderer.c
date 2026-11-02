@@ -26,6 +26,7 @@
 #include "reign.h"
 #include "sact.h"
 #include "profile.h"
+#include "vm.h"
 
 #define BONE_TRANSFORMS_BINDING 0
 
@@ -299,7 +300,7 @@ struct RE_renderer *RE_renderer_new(void)
 	init_billboard_mesh(r);
 	r->billboard_textures_by_no = ht_create(256);
 	r->billboard_textures_by_path = ht_create(256);
-	r->last_frame_timestamp = SDL_GetTicks();
+	r->last_frame_timestamp = (uint32_t)vm_game_ticks();
 	return r;
 }
 
@@ -1348,7 +1349,7 @@ void RE_update_model(struct RE_plugin *plugin)
 	struct RE_renderer *r = plugin->renderer;
 	if (!r || plugin->suspended)
 		return;
-	uint32_t timestamp = SDL_GetTicks();
+	uint32_t timestamp = (uint32_t)vm_game_ticks();
 	RE_build_model(plugin, timestamp - r->last_frame_timestamp);
 	r->last_frame_timestamp = timestamp;
 }

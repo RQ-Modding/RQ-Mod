@@ -2663,9 +2663,50 @@ _Noreturn void _vm_error(const char *fmt, ...)
 	sys_exit(1);
 }
 
+/*
+ * rqmod: the game clock. The script's timers, Flash and part animations and the
+ * 3D renderers read it, so a factor above 1 makes the game run faster. It goes on
+ * from where it was when the factor changes, so it never jumps back. Frame caps,
+ * sleeps and audio stay on real time.
+ */
+static SDL_SpinLock clock_lock;
+static double clock_scale = 1.0;
+static uint64_t clock_real0;
+static double clock_game0;
+
+static double game_ms_locked(uint64_t now)
+{
+	return clock_game0 + (double)(now - clock_real0) * clock_scale;
+}
+
+uint64_t vm_game_ticks(void)
+{
+	uint64_t now = SDL_GetTicks64();
+	double ms;
+	SDL_AtomicLock(&clock_lock);
+	ms = clock_real0 ? game_ms_locked(now) : (double)now;
+	SDL_AtomicUnlock(&clock_lock);
+	return (uint64_t)ms;
+}
+
+void vm_set_time_scale(double scale)
+{
+	uint64_t now = SDL_GetTicks64();
+	SDL_AtomicLock(&clock_lock);
+	clock_game0 = clock_real0 ? game_ms_locked(now) : (double)now;
+	clock_real0 = now;
+	clock_scale = scale;
+	SDL_AtomicUnlock(&clock_lock);
+}
+
+double vm_time_scale(void)
+{
+	return clock_scale;
+}
+
 int vm_time(void)
 {
-	return SDL_GetTicks();
+	return (int)(uint32_t)vm_game_ticks();
 }
 
 #ifdef RQ_PROFILE

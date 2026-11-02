@@ -1167,17 +1167,21 @@ static void arrow_toward(struct grid *g, int dx, int dz)
 static int wait_move(struct grid *g, int x0, int z0, int tx, int tz, int portal_goal,
 		int *ox, int *oz, int *warped, int *msg, unsigned long limit_ms)
 {
-	unsigned long long t0 = GetTickCount64();
+	/* Game clock and a check every 40 ms of game time, so a faster game
+	 * (rq.speed) does not cross three cells between checks and look like a warp. */
+	unsigned long long t0 = vm_game_ticks();
 	unsigned long long still_at = t0;
 	int lastx = x0, lastz = z0;
+	double scale = vm_time_scale();
+	unsigned long step_ms = scale > 1.0 ? (unsigned long)(40.0 / scale) : 40;
 	*warped = 0;
 	*msg = 0;
 	*ox = x0;
 	*oz = z0;
-	while (GetTickCount64() - t0 < limit_ms) {
+	while (vm_game_ticks() - t0 < limit_ms) {
 		int x, z, bmap, mapno;
 		float wx, wy, wz;
-		Sleep(40);
+		Sleep(step_ms ? step_ms : 1);
 		if (message_up()) {
 			*msg = 1;
 			read_player(ox, oz, &wx, &wy, &wz);
@@ -1199,8 +1203,8 @@ static int wait_move(struct grid *g, int x0, int z0, int tx, int tz, int portal_
 		if (x != lastx || z != lastz) {
 			lastx = x;
 			lastz = z;
-			still_at = GetTickCount64();
-		} else if (GetTickCount64() - still_at > 700 && GetTickCount64() - t0 > 400) {
+			still_at = vm_game_ticks();
+		} else if (vm_game_ticks() - still_at > 700 && vm_game_ticks() - t0 > 400) {
 			return x != x0 || z != z0;
 		}
 		(void)portal_goal;

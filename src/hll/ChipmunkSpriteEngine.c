@@ -119,7 +119,8 @@ HLL_QUIET_UNIMPLEMENTED(false, bool, ChipmunkSpriteEngine, KeepPreviousView);
 static void ChipmunkSpriteEngine_Sleep(void)
 {
 	static int prev_time = 0;
-	int this_time = vm_time();
+	/* The frame cap stays on real time, whatever the game clock's speed. */
+	int this_time = SDL_GetTicks();
 	int delta = this_time - prev_time;
 	prev_time = this_time;
 

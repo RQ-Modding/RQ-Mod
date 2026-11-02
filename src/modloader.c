@@ -1287,6 +1287,11 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "fix", rq_lua_random_fix);
 	lua_setfield(L, -2, "random");
 
+	lua_newtable(L);
+	set_cfn(L, "set", rq_lua_speed_set);
+	set_cfn(L, "get", rq_lua_speed_get);
+	lua_setfield(L, -2, "speed");
+
 	rq_query_bind(L);
 	rq_scene_open(L, lua_gettop(L));
 	guard_game_calls(L);
