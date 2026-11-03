@@ -35,13 +35,17 @@
 #include "xsystem4.h"
 
 #define HUD_MAX_CMD 480
-#define HUD_MAX_CG 48
+#define HUD_MAX_CG 160
 
 enum hud_kind {
 	HUD_RECT = 1,
 	HUD_CG,
-	HUD_TEXT
+	HUD_TEXT,
+	HUD_CLIP
 };
+
+/* Text alignment inside the box bw, bh (HUD_TEXT). */
+enum { ALIGN_START, ALIGN_CENTER, ALIGN_END };
 
 struct hud_cmd {
 	int kind;
@@ -50,6 +54,22 @@ struct hud_cmd {
 	int cg;
 	float size;
 	char *text;
+	/* HUD_CG: source part of the CG; sw == 0 means the whole CG. */
+	int sx, sy, sw, sh;
+	/* HUD_TEXT: the box the text is aligned in. */
+	int bw, bh, align, valign;
+};
+
+/* sprite.f.glsl: the texture times multiply_color, alpha times blend_rate. */
+static struct hud_shader {
+	Shader s;
+	GLint blend_rate;
+	GLint multiply_color;
+	int loaded;
+} g_shader;
+
+struct hud_tint {
+	float r, g, b, a;
 };
 
 struct hud_cg {
@@ -78,7 +98,7 @@ static char g_text[256];
 #define HUD_MAX_FRAME_CB 32
 static int g_on_frame_ref[HUD_MAX_FRAME_CB];
 static int g_on_frame_n;
-static int g_mx, g_my, g_left, g_right, g_left_edge, g_prev_left;
+static int g_mx, g_my, g_left, g_right, g_left_edge, g_left_up, g_prev_left;
 static int g_ncmd;
 static int g_drew;
 static struct hud_cmd g_cmd[HUD_MAX_CMD];
@@ -352,7 +372,7 @@ static Texture *cg_tex(int no)
 			return &g_cg[i].t;
 	}
 	if (g_ncg >= HUD_MAX_CG)
-		return g_ncg ? &g_cg[0].t : NULL;
+		return NULL;
 	cg = asset_cg_load(no);
 	if (!cg)
 		return NULL;
@@ -712,7 +732,9 @@ int rq_lua_input_mouse(lua_State *L)
 	lua_pushinteger(L, g_my);
 	lua_pushboolean(L, g_left);
 	lua_pushboolean(L, g_right);
-	return 4;
+	lua_pushboolean(L, g_left_edge);
+	lua_pushboolean(L, g_left_up);
+	return 6;
 }
 
 int rq_lua_input_key(lua_State *L)
@@ -889,6 +911,36 @@ int rq_lua_hud_rect(lua_State *L)
 	return 0;
 }
 
+static int align_at(lua_State *L, int idx, const char *start, const char *end)
+{
+	const char *s;
+	if (lua_isnoneornil(L, idx))
+		return ALIGN_START;
+	s = luaL_checkstring(L, idx);
+	if (!strcmp(s, start))
+		return ALIGN_START;
+	if (!strcmp(s, "center"))
+		return ALIGN_CENTER;
+	if (!strcmp(s, end))
+		return ALIGN_END;
+	return luaL_error(L, "align must be %s, center or %s, not %s", start, end, s);
+}
+
+/* t[key], or t[idx] when key is missing and idx > 0. */
+static int int_field(lua_State *L, int t, const char *key, int idx, int def)
+{
+	int v = def;
+	lua_getfield(L, t, key);
+	if (lua_isnil(L, -1) && idx > 0) {
+		lua_pop(L, 1);
+		lua_rawgeti(L, t, idx);
+	}
+	if (!lua_isnil(L, -1))
+		v = (int)luaL_checkinteger(L, -1);
+	lua_pop(L, 1);
+	return v;
+}
+
 int rq_lua_hud_text(lua_State *L)
 {
 	struct hud_cmd *c = push_cmd(HUD_TEXT);
@@ -917,21 +969,82 @@ int rq_lua_hud_text(lua_State *L)
 		lua_getfield(L, 4, "b");
 		if (lua_isinteger(L, -1))
 			c->b = (int)lua_tointeger(L, -1);
+		lua_getfield(L, 4, "a");
+		if (lua_isinteger(L, -1))
+			c->a = (int)lua_tointeger(L, -1);
+		lua_getfield(L, 4, "w");
+		if (lua_isinteger(L, -1))
+			c->bw = (int)lua_tointeger(L, -1);
+		lua_getfield(L, 4, "h");
+		if (lua_isinteger(L, -1))
+			c->bh = (int)lua_tointeger(L, -1);
+		lua_getfield(L, 4, "align");
+		c->align = align_at(L, -1, "left", "right");
+		lua_getfield(L, 4, "valign");
+		c->valign = align_at(L, -1, "top", "bottom");
 		lua_settop(L, 4);
+		if (c->a < 0)
+			c->a = 0;
+		if (c->a > 255)
+			c->a = 255;
 	}
 	return 0;
 }
 
 int rq_lua_hud_cg(lua_State *L)
 {
-	struct hud_cmd *c = push_cmd(HUD_CG);
+	struct hud_cmd *c;
 	Texture *t;
+	int x = (int)luaL_checkinteger(L, 1);
+	int y = (int)luaL_checkinteger(L, 2);
+	int cg = (int)luaL_checkinteger(L, 3);
+	int sx = 0, sy = 0, sw = 0, sh = 0, w = 0, h = 0;
+	int r = 255, g = 255, b = 255, a = 255;
+	if (!lua_isnoneornil(L, 4)) {
+		luaL_checktype(L, 4, LUA_TTABLE);
+		lua_getfield(L, 4, "src");
+		if (!lua_isnil(L, -1)) {
+			int s = lua_gettop(L);
+			luaL_checktype(L, s, LUA_TTABLE);
+			sx = int_field(L, s, "x", 1, 0);
+			sy = int_field(L, s, "y", 2, 0);
+			sw = int_field(L, s, "w", 3, 0);
+			sh = int_field(L, s, "h", 4, 0);
+			if (sw <= 0 || sh <= 0 || sx < 0 || sy < 0)
+				return luaL_error(L, "hud.cg: src needs x, y >= 0 and w, h > 0");
+		}
+		lua_pop(L, 1);
+		w = int_field(L, 4, "w", 0, 0);
+		h = int_field(L, 4, "h", 0, 0);
+		a = int_field(L, 4, "alpha", 0, 255);
+		lua_getfield(L, 4, "tint");
+		if (!lua_isnil(L, -1)) {
+			int s = lua_gettop(L);
+			luaL_checktype(L, s, LUA_TTABLE);
+			r = int_field(L, s, "r", 1, 255);
+			g = int_field(L, s, "g", 2, 255);
+			b = int_field(L, s, "b", 3, 255);
+		}
+		lua_pop(L, 1);
+	}
+	t = cg_tex(cg);
+	c = push_cmd(HUD_CG);
 	if (!c)
-		return 0;
-	c->x = (int)luaL_checkinteger(L, 1);
-	c->y = (int)luaL_checkinteger(L, 2);
-	c->cg = (int)luaL_checkinteger(L, 3);
-	t = cg_tex(c->cg);
+		goto size;
+	c->x = x;
+	c->y = y;
+	c->cg = cg;
+	c->sx = sx;
+	c->sy = sy;
+	c->sw = sw;
+	c->sh = sh;
+	c->w = w;
+	c->h = h;
+	c->r = r < 0 ? 0 : r > 255 ? 255 : r;
+	c->g = g < 0 ? 0 : g > 255 ? 255 : g;
+	c->b = b < 0 ? 0 : b > 255 ? 255 : b;
+	c->a = a < 0 ? 0 : a > 255 ? 255 : a;
+size:
 	if (t) {
 		lua_pushinteger(L, t->w);
 		lua_pushinteger(L, t->h);
@@ -940,6 +1053,40 @@ int rq_lua_hud_cg(lua_State *L)
 	lua_pushinteger(L, 0);
 	lua_pushinteger(L, 0);
 	return 2;
+}
+
+int rq_lua_hud_cg_size(lua_State *L)
+{
+	Texture *t = cg_tex((int)luaL_checkinteger(L, 1));
+	if (!t) {
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_pushinteger(L, t->w);
+	lua_pushinteger(L, t->h);
+	return 2;
+}
+
+int rq_lua_hud_clip(lua_State *L)
+{
+	int x = 0, y = 0, w = 0, h = 0, on = !lua_isnoneornil(L, 1);
+	struct hud_cmd *c;
+	if (on) {
+		x = (int)luaL_checkinteger(L, 1);
+		y = (int)luaL_checkinteger(L, 2);
+		w = (int)luaL_checkinteger(L, 3);
+		h = (int)luaL_checkinteger(L, 4);
+	}
+	c = push_cmd(HUD_CLIP);
+	if (!c)
+		return 0;
+	c->x = x;
+	c->y = y;
+	c->w = w < 0 ? 0 : w;
+	c->h = h < 0 ? 0 : h;
+	/* A clip of nothing still clips: cg tells it from "off". */
+	c->cg = on;
+	return 0;
 }
 
 int rq_lua_hud_hit(lua_State *L)
@@ -998,6 +1145,7 @@ int rq_hud_tick(void)
 	g_left = key_is_down_raw(VK_LBUTTON);
 	g_right = key_is_down_raw(VK_RBUTTON);
 	g_left_edge = g_left && !g_prev_left;
+	g_left_up = !g_left && g_prev_left;
 	g_prev_left = g_left;
 	draw_version_banner();
 	rq_item_refresh();
@@ -1027,30 +1175,91 @@ int rq_hud_tick(void)
 	return g_drew;
 }
 
+static void prepare_hud_shader(struct gfx_render_job *job, void *data)
+{
+	struct hud_shader *s = (struct hud_shader *)job->shader;
+	struct hud_tint *t = data;
+	glUniform1f(s->blend_rate, t->a);
+	glUniform3f(s->multiply_color, t->r, t->g, t->b);
+}
+
+/* Draws the part sx, sy, sw, sh of t into x, y, w, h, tinted and faded by c. */
+static void draw_part(Texture *t, int sx, int sy, int sw, int sh,
+		      int x, int y, int w, int h, const struct hud_cmd *c)
+{
+	struct hud_tint tint = {
+		c->r / 255.0f, c->g / 255.0f, c->b / 255.0f, c->a / 255.0f
+	};
+	/* Top left, top right, bottom left, bottom right: the quad is drawn
+	 * by rect_index_data { 0, 1, 3, 2 }. */
+	struct gfx_vertex v[4] = {
+		{ (float)x,       (float)y,       0, 1, (float)sx,        (float)sy },
+		{ (float)(x + w), (float)y,       0, 1, (float)(sx + sw), (float)sy },
+		{ (float)x,       (float)(y + h), 0, 1, (float)sx,        (float)(sy + sh) },
+		{ (float)(x + w), (float)(y + h), 0, 1, (float)(sx + sw), (float)(sy + sh) },
+	};
+	if (!g_shader.loaded) {
+		gfx_load_shader(&g_shader.s, "shaders/render.v.glsl", "shaders/sprite.f.glsl");
+		g_shader.blend_rate = glGetUniformLocation(g_shader.s.program, "blend_rate");
+		g_shader.multiply_color = glGetUniformLocation(g_shader.s.program, "multiply_color");
+		g_shader.s.prepare = prepare_hud_shader;
+		g_shader.loaded = 1;
+	}
+	gfx_render_quadrilateral_with(&g_shader.s, t, v, &tint);
+}
+
+/* One white pixel, tinted by draw_part, draws every rect. */
+static Texture *white_tex(void)
+{
+	static Texture t;
+	static int made;
+	if (!made) {
+		gfx_init_texture_rgba(&t, 1, 1, (SDL_Color){ 255, 255, 255, 255 });
+		made = 1;
+	}
+	return &t;
+}
+
 void rq_hud_draw(void)
 {
 	int i;
+	int clipped = 0;
 	struct text_style ts;
+
+	white_tex();
 
 	for (i = 0; i < g_ncmd; i++) {
 		struct hud_cmd *c = &g_cmd[i];
 		if (c->kind == HUD_RECT && c->w > 0 && c->h > 0) {
-			Texture t;
-			Rectangle r;
-			SDL_Color col = {
-				(uint8_t)c->r, (uint8_t)c->g, (uint8_t)c->b, (uint8_t)c->a
-			};
-			gfx_init_texture_rgba(&t, c->w, c->h, col);
-			r = RECT(c->x, c->y, c->w, c->h);
-			gfx_render_texture(&t, &r);
-			gfx_delete_texture(&t);
+			draw_part(white_tex(), 0, 0, 1, 1, c->x, c->y, c->w, c->h, c);
+		} else if (c->kind == HUD_CLIP) {
+			if (c->cg) {
+				glEnable(GL_SCISSOR_TEST);
+				glScissor(c->x, c->y, c->w, c->h);
+				clipped = 1;
+			} else if (clipped) {
+				glDisable(GL_SCISSOR_TEST);
+				clipped = 0;
+			}
 		} else if (c->kind == HUD_CG) {
 			Texture *src = cg_tex(c->cg);
-			Rectangle r;
-			if (!src)
+			int sx = c->sx, sy = c->sy, sw = c->sw, sh = c->sh;
+			if (!src || c->a <= 0)
 				continue;
-			r = RECT(c->x, c->y, src->w, src->h);
-			gfx_render_texture(src, &r);
+			if (sw <= 0) {
+				sx = sy = 0;
+				sw = src->w;
+				sh = src->h;
+			}
+			/* A part past the CG's edge is cut to the CG. */
+			if (sx >= src->w || sy >= src->h)
+				continue;
+			if (sx + sw > src->w)
+				sw = src->w - sx;
+			if (sy + sh > src->h)
+				sh = src->h - sy;
+			draw_part(src, sx, sy, sw, sh, c->x, c->y,
+				  c->w > 0 ? c->w : sw, c->h > 0 ? c->h : sh, c);
 		} else if (c->kind == HUD_TEXT && c->text) {
 			Texture t;
 			Rectangle r;
@@ -1060,20 +1269,44 @@ void rq_hud_draw(void)
 			sjis = utf2sjis(c->text, 0);
 			if (!sjis)
 				continue;
-			tw = hud_measure_sjis(sjis, ts.size) + 8;
+			int x = c->x, y = c->y;
+			int text_w = hud_measure_sjis(sjis, ts.size);
+			if (c->align == ALIGN_CENTER)
+				x += (c->bw - text_w) / 2;
+			else if (c->align == ALIGN_END)
+				x += c->bw - text_w;
+			/* The glyphs fill about the font size from the top. */
+			if (c->valign == ALIGN_CENTER)
+				y += (c->bh - (int)ts.size) / 2;
+			else if (c->valign == ALIGN_END)
+				y += c->bh - (int)ts.size;
+			tw = text_w + 8;
 			if (tw < 32)
 				tw = 32;
 			th = (int)ts.size + 20;
 			/* COPY, not blended: blended glyphs keep dest alpha 0 so
 			 * labels were invisible (blank quads / empty Close). */
+			/* The clip is for the screen, not for the texture the text is made in. */
+			if (clipped)
+				glDisable(GL_SCISSOR_TEST);
 			gfx_init_texture_rgba(&t, tw, th, (SDL_Color){ 0, 0, 0, 0 });
 			gfx_render_text(&t, 0.0f, 0, sjis, &ts, false);
+			if (clipped)
+				glEnable(GL_SCISSOR_TEST);
 			free(sjis);
-			r = RECT(c->x, c->y, t.w, t.h);
-			gfx_render_texture(&t, &r);
+			if (c->a >= 255) {
+				r = RECT(x, y, t.w, t.h);
+				gfx_render_texture(&t, &r);
+			} else if (c->a > 0) {
+				struct hud_cmd white = *c;
+				white.r = white.g = white.b = 255;
+				draw_part(&t, 0, 0, t.w, t.h, x, y, t.w, t.h, &white);
+			}
 			gfx_delete_texture(&t);
 		}
 	}
+	if (clipped)
+		glDisable(GL_SCISSOR_TEST);
 }
 
 void rq_hud_bind_lua(lua_State *L)

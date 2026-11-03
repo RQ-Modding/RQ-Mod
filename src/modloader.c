@@ -1180,6 +1180,8 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "rect", rq_lua_hud_rect);
 	set_cfn(L, "text", rq_lua_hud_text);
 	set_cfn(L, "cg", rq_lua_hud_cg);
+	set_cfn(L, "cg_size", rq_lua_hud_cg_size);
+	set_cfn(L, "clip", rq_lua_hud_clip);
 	set_cfn(L, "hit", rq_lua_hud_hit);
 	set_cfn(L, "clicked", rq_lua_hud_clicked);
 	set_cfn(L, "block_game_input", rq_lua_hud_block);

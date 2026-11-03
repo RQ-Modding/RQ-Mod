@@ -13,7 +13,9 @@
 
 #include "system4.h"
 #include "system4/ain.h"
+#include "system4/archive.h"
 #include "system4/cg.h"
+#include "system4/file.h"
 #include "system4/string.h"
 #include "system4/utfsjis.h"
 
@@ -31,6 +33,7 @@
 #include "vm/heap.h"
 #include "vm/page.h"
 #include "xsystem4.h"
+#include "asset_manager.h"
 #include "modloader.h"
 #include "parts/parts_internal.h"
 
@@ -5694,9 +5697,67 @@ static atomic_int g_paused;
 static atomic_int g_shot_state;
 static char g_shot_path[512];
 
+/* cgdump: the game's own CGs (past mod replacements) saved as PNG, on the
+ * main thread because archive reads are not shared with the pipe thread. */
+static atomic_int g_cgdump_state;
+static int g_cgdump_from, g_cgdump_to;
+static char g_cgdump_dir[400];
+static char *g_cgdump_json;
+
+static void service_cgdump(void)
+{
+	cJSON *root, *list;
+	int no, n = 0;
+	if (atomic_load(&g_cgdump_state) != SHOT_WANTED)
+		return;
+	root = cJSON_CreateObject();
+	list = cJSON_AddArrayToObject(root, "cgs");
+	for (no = g_cgdump_from; no <= g_cgdump_to; no++) {
+		struct archive_data *d;
+		struct cg *cg;
+		char path[512];
+		FILE *fp;
+		cJSON *e;
+		if (!asset_exists(ASSET_CG, no))
+			continue;
+		d = asset_get(ASSET_CG, no);
+		if (!d)
+			continue;
+		cg = cg_load_data(d);
+		if (!cg) {
+			archive_free_data(d);
+			continue;
+		}
+		snprintf(path, sizeof path, "%s/%d.png", g_cgdump_dir, no);
+		fp = file_open_utf8(path, "wb");
+		if (fp) {
+			cg_write(cg, ALCG_PNG, fp);
+			fclose(fp);
+			e = cJSON_CreateObject();
+			cJSON_AddNumberToObject(e, "no", no);
+			cJSON_AddNumberToObject(e, "w", cg->metrics.w);
+			cJSON_AddNumberToObject(e, "h", cg->metrics.h);
+			if (d->name) {
+				char *u = sjis2utf(d->name, 0);
+				cJSON_AddStringToObject(e, "name", u ? u : d->name);
+				free(u);
+			}
+			cJSON_AddItemToArray(list, e);
+			n++;
+		}
+		cg_free(cg);
+		archive_free_data(d);
+	}
+	cJSON_AddNumberToObject(root, "count", n);
+	g_cgdump_json = cJSON_PrintUnformatted(root);
+	cJSON_Delete(root);
+	atomic_store(&g_cgdump_state, SHOT_OK);
+}
+
 static void service_shot(void)
 {
 	int ok;
+	service_cgdump();
 	if (g_lua_shot_wanted) {
 		ok = gfx_save_texture(gfx_main_surface(), g_lua_shot_path, ALCG_PNG);
 		g_lua_shot_result = ok ? 1 : -1;
@@ -5774,6 +5835,49 @@ int rq_ui_cmd_shot(const char *path, char *err, int errsz)
 			snprintf(err, errsz, "write-failed");
 		return 0;
 	}
+	return 1;
+}
+
+int rq_ui_cmd_cgdump(const char *args, char **json_out, char *err, int errsz)
+{
+	int from = 0, to = 0, used = 0;
+	unsigned long long t0;
+	const char *dir;
+	*json_out = NULL;
+	if (sscanf(args ? args : "", "%d %d %n", &from, &to, &used) < 2 || used <= 0
+	    || from < 1 || to < from || to - from > 20000) {
+		if (err)
+			snprintf(err, errsz, "usage: cgdump FROM TO DIR");
+		return 0;
+	}
+	dir = args + used;
+	if (!*dir || strlen(dir) >= sizeof g_cgdump_dir) {
+		if (err)
+			snprintf(err, errsz, "usage: cgdump FROM TO DIR");
+		return 0;
+	}
+	if (!g_ready) {
+		if (err)
+			snprintf(err, errsz, "not-ready");
+		return 0;
+	}
+	g_cgdump_from = from;
+	g_cgdump_to = to;
+	snprintf(g_cgdump_dir, sizeof g_cgdump_dir, "%s", dir);
+	g_cgdump_json = NULL;
+	atomic_store(&g_cgdump_state, SHOT_WANTED);
+	t0 = GetTickCount64();
+	while (atomic_load(&g_cgdump_state) == SHOT_WANTED) {
+		if (GetTickCount64() - t0 > 60000) {
+			if (err)
+				snprintf(err, errsz, "timeout");
+			return 0;
+		}
+		Sleep(5);
+	}
+	atomic_store(&g_cgdump_state, SHOT_IDLE);
+	*json_out = g_cgdump_json;
+	g_cgdump_json = NULL;
 	return 1;
 }
 

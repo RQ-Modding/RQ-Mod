@@ -687,6 +687,11 @@ void gfx_render_texture(struct texture *t, Rectangle *r)
 
 void gfx_render_quadrilateral(struct texture *t, struct gfx_vertex vertices[4])
 {
+	gfx_render_quadrilateral_with(&default_shader, t, vertices, t);
+}
+
+void gfx_render_quadrilateral_with(struct shader *s, struct texture *t, struct gfx_vertex vertices[4], void *data)
+{
 	if (!t->handle) {
 		WARNING("Attempted to render uninitialized texture");
 		return;
@@ -705,12 +710,12 @@ void gfx_render_quadrilateral(struct texture *t, struct gfx_vertex vertices[4])
 
 	mat4 world_transform = GLM_MAT4_IDENTITY_INIT;
 	struct gfx_render_job job = {
-		.shader = &default_shader,
+		.shader = s,
 		.shape = GFX_QUADRILATERAL,
 		.texture = t->handle,
 		.world_transform = world_transform[0],
 		.view_transform = world_view_transform[0],
-		.data = t
+		.data = data
 	};
 	gfx_render(&job);
 }

@@ -116,6 +116,7 @@ void gfx_render(struct gfx_render_job *job);
 void _gfx_render_texture(struct shader *s, struct texture *t, Rectangle *r, void *data);
 void gfx_render_texture(struct texture *t, Rectangle *r);
 void gfx_render_quadrilateral(struct texture *t, struct gfx_vertex vertices[4]);
+void gfx_render_quadrilateral_with(struct shader *s, struct texture *t, struct gfx_vertex vertices[4], void *data);
 
 // texture management
 void gfx_init_texture_blank(struct texture *t, int w, int h);
