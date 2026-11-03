@@ -1376,6 +1376,9 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "actor", rq_lua_battle_actor);
 	set_cfn(L, "skill_usable", rq_lua_battle_skill_usable);
 	set_cfn(L, "start", rq_lua_battle_start);
+	set_cfn(L, "set_face", rq_lua_battle_set_face);
+	set_cfn(L, "get_face", rq_lua_battle_get_face);
+	set_cfn(L, "on_hp", rq_lua_battle_on_hp);
 	lua_setfield(L, -2, "battle");
 
 	lua_newtable(L);

@@ -1694,6 +1694,20 @@ static int card_of_iic(int iic)
 /* rq.sprite: the Chipmunk sprite a card is drawn with, 0 out of a fight. An ally's is
  * T_BattleChara.m_sCard.m_spBase, an enemy's T_BattleMonster.m_spBase.m_spBase. */
 static int g_sp_m_card = -2, g_sp_m_cbase, g_sp_m_mbase, g_sp_m_tbase, g_sp_m_spno;
+static int g_sp_m_face, g_sp_m_fsp;
+
+static void card_members(void)
+{
+	if (g_sp_m_card != -2)
+		return;
+	g_sp_m_card = find_member(ain, find_struct(ain, "T_BattleChara"), "m_sCard");
+	g_sp_m_cbase = find_member(ain, find_struct(ain, "T_CharaCard"), "m_spBase");
+	g_sp_m_mbase = find_member(ain, find_struct(ain, "T_BattleMonster"), "m_spBase");
+	g_sp_m_tbase = find_member(ain, find_struct(ain, "T_TextSprite"), "m_spBase");
+	g_sp_m_spno = find_member(ain, find_struct(ain, "T_Sprite"), "m_nSpNo");
+	g_sp_m_face = find_member(ain, find_struct(ain, "T_CharaCard"), "m_sFace");
+	g_sp_m_fsp = find_member(ain, find_struct(ain, "T_CharaFace"), "m_spFace");
+}
 
 int rq_battle_card_sprite(int no)
 {
@@ -1701,13 +1715,7 @@ int rq_battle_card_sprite(int no)
 
 	if (!ch)
 		return 0;
-	if (g_sp_m_card == -2) {
-		g_sp_m_card = find_member(ain, find_struct(ain, "T_BattleChara"), "m_sCard");
-		g_sp_m_cbase = find_member(ain, find_struct(ain, "T_CharaCard"), "m_spBase");
-		g_sp_m_mbase = find_member(ain, find_struct(ain, "T_BattleMonster"), "m_spBase");
-		g_sp_m_tbase = find_member(ain, find_struct(ain, "T_TextSprite"), "m_spBase");
-		g_sp_m_spno = find_member(ain, find_struct(ain, "T_Sprite"), "m_nSpNo");
-	}
+	card_members();
 	if (is_ally_no(no))
 		base = mark_child(mark_child(ch, g_sp_m_card), g_sp_m_cbase);
 	else
@@ -1715,6 +1723,26 @@ int rq_battle_card_sprite(int no)
 	if (!base || g_sp_m_spno < 0 || g_sp_m_spno >= base->nr_vars)
 		return 0;
 	return base->values[g_sp_m_spno].i;
+}
+
+/* The sprite of an ally card's face (T_CharaCard.m_sFace.m_spFace), 0 out of a fight. */
+int rq_battle_face_sprite(int no)
+{
+	struct page *ch = g_marks_live && is_ally_no(no) ? card_page(no) : NULL, *base;
+
+	if (!ch)
+		return 0;
+	card_members();
+	base = mark_child(mark_child(mark_child(mark_child(ch, g_sp_m_card), g_sp_m_face), g_sp_m_fsp), g_sp_m_tbase);
+	if (!base || g_sp_m_spno < 0 || g_sp_m_spno >= base->nr_vars)
+		return 0;
+	return base->values[g_sp_m_spno].i;
+}
+
+/* Who is on a card, 0 if nobody or out of a fight. */
+int rq_battle_card_iic(int no)
+{
+	return g_marks_live ? card_iic(no) : 0;
 }
 
 /* The card a character is on now, 0 if none or out of a fight. */

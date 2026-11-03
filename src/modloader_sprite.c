@@ -1692,6 +1692,38 @@ static int l_halt(lua_State *L)
 	return 1;
 }
 
+/* The frame a playing GIF is on now. Returns whether it changed; an on_end that is due
+ * goes into fn and id when they are given. */
+static int gif_step(struct msprite *s, int *fn, int *id, int *np)
+{
+	double e, len;
+	int f;
+
+	if (s->kind != SPR_GIF || !s->playing)
+		return 0;
+	e = now_of(s) - s->t0;
+	len = segment_ms(s);
+	if (e < 0)
+		e = 0;
+	if (s->loop) {
+		f = frame_at(s, fmod(e, len));
+	} else if (e >= len) {
+		f = s->to;
+		s->playing = 0;
+		if (s->gif_end != LUA_NOREF && fn) {
+			fn[*np] = s->gif_end;
+			id[(*np)++] = s->id;
+			s->gif_end = LUA_NOREF;
+		}
+	} else {
+		f = frame_at(s, e);
+	}
+	if (f == s->cur)
+		return 0;
+	s->cur = f;
+	return 1;
+}
+
 /* GIF frames and motions, once a frame. Returns whether anything changed; the on_end
  * callbacks that are due go into fn and id. */
 static int advance(int *fn, int *id, int *np)
@@ -1702,29 +1734,8 @@ static int advance(int *fn, int *id, int *np)
 		struct msprite *s = g_spr[i];
 		if (!s)
 			continue;
-		if (s->kind == SPR_GIF && s->playing) {
-			double e = now_of(s) - s->t0, len = segment_ms(s);
-			int f;
-			if (e < 0)
-				e = 0;
-			if (s->loop) {
-				f = frame_at(s, fmod(e, len));
-			} else if (e >= len) {
-				f = s->to;
-				s->playing = 0;
-				if (s->gif_end != LUA_NOREF) {
-					fn[*np] = s->gif_end;
-					id[(*np)++] = s->id;
-					s->gif_end = LUA_NOREF;
-				}
-			} else {
-				f = frame_at(s, e);
-			}
-			if (f != s->cur) {
-				s->cur = f;
-				dirty = 1;
-			}
-		}
+		if (gif_step(s, fn, id, np))
+			dirty = 1;
 		if (s->mv.on) {
 			double e = now_of(s) - s->mv.t0, p;
 			if (e < 0)
@@ -1792,6 +1803,336 @@ static void fire_ends(const int *fn, const int *id, int n)
 		}
 		luaL_unref(g_L, LUA_REGISTRYINDEX, fn[i]);
 	}
+}
+
+
+/* ---- battle faces (rq.battle.set_face) ---- */
+
+/* A mod's picture for a character's face on a fight card. The game's face sprite stays as
+ * it is: sprite_render asks rq_face_render first, which draws the picture in the sprite's
+ * place, with its blend rate, multiply and add colour, so the fight's moves, shakes,
+ * flashes and fades still show. The pictures are msprites of their own, not in g_spr or
+ * the scene, so a load, rq.sprite.clear and the limits do not see them. */
+#define FACE_MAX 64
+#define FACE_CARDS 5
+#define HP_CARDS 10
+#define HP_CB_MAX 64
+
+struct face {
+	int iic;
+	struct msprite *base; /* lasting; NULL for the game's */
+	struct msprite *temp; /* for a while; NULL for the game's */
+	int temp_on;
+	int temp_real;
+	double temp_end;
+	uint64_t drawn;       /* real ms of the last draw */
+};
+
+static struct face g_face[FACE_MAX];
+static struct { int spno, iic; } g_hook[FACE_CARDS];
+static int g_hooks;
+static struct { int iic, hp; } g_hp_seen[HP_CARDS];
+static int g_hp_cb[HP_CB_MAX], g_nhp;
+
+static struct face *face_of(int iic, int create)
+{
+	int i, free_i = -1;
+	for (i = 0; i < FACE_MAX; i++) {
+		if (g_face[i].iic == iic && iic > 0)
+			return &g_face[i];
+		if (!g_face[i].iic && free_i < 0)
+			free_i = i;
+	}
+	if (!create || free_i < 0)
+		return NULL;
+	memset(&g_face[free_i], 0, sizeof g_face[free_i]);
+	g_face[free_i].iic = iic;
+	return &g_face[free_i];
+}
+
+static void face_free(struct msprite *s)
+{
+	if (!s)
+		return;
+	drop_content(s);
+	unref_fn(&s->mv.end);
+	free(s);
+}
+
+static void face_tidy(struct face *f)
+{
+	if (!f->base && !f->temp_on)
+		memset(f, 0, sizeof *f);
+}
+
+static double face_now(int real)
+{
+	return real ? (double)SDL_GetTicks64() : (double)vm_game_ticks();
+}
+
+/* The picture for face (a CG number or a GIF), with fps and clock from opts. */
+static struct msprite *face_make(lua_State *L, int face, int opts)
+{
+	struct msprite *s = xcalloc(1, sizeof *s);
+	s->ref = LUA_NOREF;
+	s->gif_end = LUA_NOREF;
+	s->mv.end = LUA_NOREF;
+	s->scale_x = s->scale_y = 1;
+	s->alpha = 255;
+	s->mr = s->mg = s->mb = 255;
+	s->show = 1;
+	s->sp.render = spr_render;
+	lua_newtable(L);
+	if (lua_isinteger(L, face)) {
+		lua_pushvalue(L, face);
+		lua_setfield(L, -2, "cg");
+	} else if (lua_type(L, face) == LUA_TSTRING) {
+		lua_pushvalue(L, face);
+		lua_setfield(L, -2, "gif");
+	} else {
+		free(s);
+		luaL_error(L, "rq.battle.set_face: face is a CG number, a GIF, or nil for the game's");
+	}
+	if (opts) {
+		lua_getfield(L, opts, "fps");
+		lua_setfield(L, -2, "fps");
+		lua_getfield(L, opts, "clock");
+		lua_setfield(L, -2, "clock");
+	}
+	if (protected_apply(L, s, lua_gettop(L)) != LUA_OK) {
+		face_free(s);
+		lua_error(L);
+	}
+	lua_pop(L, 1);
+	return s;
+}
+
+/* set_face(iic, face [, {ms, fps, clock}]) */
+int rq_lua_battle_set_face(lua_State *L)
+{
+	int iic = (int)luaL_checkinteger(L, 1), opts = 0, real = 0;
+	float ms = 0;
+	struct msprite *s = NULL;
+	struct face *f;
+
+	if (iic <= 0 || !rq_chara_exists(iic))
+		return luaL_error(L, "rq.battle.set_face: no character %d", iic);
+	if (!lua_isnoneornil(L, 3)) {
+		const char *c;
+		luaL_checktype(L, 3, LUA_TTABLE);
+		opts = 3;
+		if (opt_num(L, 3, "ms", &ms) && ms <= 0)
+			return luaL_error(L, "rq.battle.set_face: ms must be more than 0");
+		lua_getfield(L, 3, "clock");
+		c = lua_tostring(L, -1);
+		real = c && !strcmp(c, "real");
+		lua_pop(L, 1);
+	}
+	if (!lua_isnoneornil(L, 2))
+		s = face_make(L, 2, opts);
+	f = face_of(iic, s != NULL || ms > 0);
+	if (!f) {
+		if (s) {
+			face_free(s);
+			return luaL_error(L, "rq.battle.set_face: %d characters with a face is the most", FACE_MAX);
+		}
+		lua_pushboolean(L, 1);
+		return 1;
+	}
+	if (ms > 0) {
+		face_free(f->temp);
+		f->temp = s;
+		f->temp_on = 1;
+		f->temp_real = real;
+		f->temp_end = face_now(real) + ms;
+	} else {
+		face_free(f->base);
+		f->base = s;
+	}
+	face_tidy(f);
+	scene_dirty();
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
+static void push_face(lua_State *L, const struct msprite *s, const char *key)
+{
+	if (!s)
+		return;
+	if (s->kind == SPR_GIF)
+		lua_pushstring(L, s->gif_name);
+	else
+		lua_pushinteger(L, s->cg);
+	lua_setfield(L, -2, key);
+}
+
+/* get_face(iic): nil, or {face, temp, temp_ms, card, drawn}. */
+int rq_lua_battle_get_face(lua_State *L)
+{
+	int iic = (int)luaL_checkinteger(L, 1), i;
+	struct face *f = face_of(iic, 0);
+
+	if (!f)
+		return 0;
+	lua_newtable(L);
+	push_face(L, f->base, "face");
+	if (f->temp_on) {
+		double left = f->temp_end - face_now(f->temp_real);
+		push_face(L, f->temp, "temp");
+		lua_pushinteger(L, left > 0 ? (lua_Integer)left : 0);
+		lua_setfield(L, -2, "temp_ms");
+	}
+	for (i = 0; i < FACE_CARDS; i++) {
+		if (g_hook[i].iic == iic && g_hook[i].spno) {
+			lua_pushinteger(L, i + 1);
+			lua_setfield(L, -2, "card");
+		}
+	}
+	lua_pushboolean(L, f->drawn && SDL_GetTicks64() - f->drawn < 250);
+	lua_setfield(L, -2, "drawn");
+	return 1;
+}
+
+int rq_lua_battle_on_hp(lua_State *L)
+{
+	luaL_checktype(L, 1, LUA_TFUNCTION);
+	if (g_nhp >= HP_CB_MAX)
+		return luaL_error(L, "rq.battle.on_hp: too many callbacks");
+	lua_pushvalue(L, 1);
+	g_hp_cb[g_nhp++] = luaL_ref(L, LUA_REGISTRYINDEX);
+	return 0;
+}
+
+/* Called by sprite_render for every Chipmunk sprite. */
+int rq_face_render(struct sact_sprite *ss)
+{
+	struct face *f;
+	struct msprite *s;
+	int i;
+
+	if (!g_hooks)
+		return 0;
+	for (i = 0; i < FACE_CARDS; i++)
+		if (g_hook[i].spno && g_hook[i].spno == ss->no)
+			break;
+	if (i == FACE_CARDS || !(f = face_of(g_hook[i].iic, 0)))
+		return 0;
+	s = f->temp_on ? f->temp : f->base;
+	if (!s || ss->rect.w <= 0 || ss->rect.h <= 0)
+		return 0;
+	s->x = (float)ss->rect.x;
+	s->y = (float)ss->rect.y;
+	s->w = (float)ss->rect.w;
+	s->h = (float)ss->rect.h;
+	s->alpha = ss->blend_rate;
+	s->mr = ss->multiply_color.r;
+	s->mg = ss->multiply_color.g;
+	s->mb = ss->multiply_color.b;
+	s->ar = ss->add_color.r;
+	s->ag = ss->add_color.g;
+	s->ab = ss->add_color.b;
+	spr_render(&s->sp);
+	f->drawn = SDL_GetTicks64();
+	return 1;
+}
+
+struct hp_event {
+	int iic, unit, hp, max, before, first;
+};
+
+/* Each frame: which face sprites to draw over, faces for a while that ended, GIF frames,
+ * and HP changes. */
+static int faces_tick(void)
+{
+	static struct hp_event ev[HP_CARDS];
+	int i, n = 0, dirty = 0, hooks = 0;
+
+	if (!rq_battle_live()) {
+		for (i = 0; i < FACE_MAX; i++) {
+			if (g_face[i].iic && g_face[i].temp_on) {
+				face_free(g_face[i].temp);
+				g_face[i].temp = NULL;
+				g_face[i].temp_on = 0;
+				face_tidy(&g_face[i]);
+			}
+		}
+		if (g_hooks)
+			dirty = 1;
+		memset(g_hook, 0, sizeof g_hook);
+		memset(g_hp_seen, 0, sizeof g_hp_seen);
+		g_hooks = 0;
+		return dirty;
+	}
+	for (i = 0; i < FACE_MAX; i++) {
+		struct face *f = &g_face[i];
+		if (!f->iic)
+			continue;
+		if (f->temp_on && face_now(f->temp_real) >= f->temp_end) {
+			face_free(f->temp);
+			f->temp = NULL;
+			f->temp_on = 0;
+			dirty = 1;
+			face_tidy(f);
+			if (!f->iic)
+				continue;
+		}
+		if (f->base && gif_step(f->base, NULL, NULL, NULL))
+			dirty = 1;
+		if (f->temp && gif_step(f->temp, NULL, NULL, NULL))
+			dirty = 1;
+	}
+	for (i = 0; i < FACE_CARDS; i++) {
+		int iic = rq_battle_card_iic(i + 1);
+		int spno = iic > 0 && face_of(iic, 0) ? rq_battle_face_sprite(i + 1) : 0;
+		if (g_hook[i].spno != spno || g_hook[i].iic != iic)
+			dirty = 1;
+		g_hook[i].spno = spno;
+		g_hook[i].iic = iic;
+		hooks |= spno != 0;
+	}
+	g_hooks = hooks;
+
+	for (i = 0; i < HP_CARDS; i++) {
+		int no = i < 5 ? i + 1 : i + 6, iic = rq_battle_card_iic(no), hp, max;
+		if (iic <= 0 || !rq_chara_hp(iic, &hp, &max)) {
+			g_hp_seen[i].iic = 0;
+			continue;
+		}
+		if (g_hp_seen[i].iic != iic) {
+			ev[n++] = (struct hp_event){ iic, no, hp, max, hp, 1 };
+		} else if (g_hp_seen[i].hp != hp) {
+			ev[n++] = (struct hp_event){ iic, no, hp, max, g_hp_seen[i].hp, 0 };
+		}
+		g_hp_seen[i].iic = iic;
+		g_hp_seen[i].hp = hp;
+	}
+	for (i = 0; i < n && g_L; i++) {
+		int k;
+		for (k = 0; k < g_nhp; k++) {
+			lua_State *L = g_L;
+			lua_rawgeti(L, LUA_REGISTRYINDEX, g_hp_cb[k]);
+			lua_createtable(L, 0, 7);
+			lua_pushinteger(L, ev[i].iic);
+			lua_setfield(L, -2, "iic");
+			lua_pushinteger(L, ev[i].unit);
+			lua_setfield(L, -2, "unit");
+			lua_pushstring(L, ev[i].unit <= 5 ? "ally" : "enemy");
+			lua_setfield(L, -2, "side");
+			lua_pushinteger(L, ev[i].hp);
+			lua_setfield(L, -2, "hp");
+			lua_pushinteger(L, ev[i].max);
+			lua_setfield(L, -2, "max");
+			lua_pushinteger(L, ev[i].before);
+			lua_setfield(L, -2, "before");
+			lua_pushboolean(L, ev[i].first);
+			lua_setfield(L, -2, "first");
+			if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+				rq_log("rq.battle.on_hp: %s", lua_tostring(L, -1));
+				lua_pop(L, 1);
+			}
+		}
+	}
+	return dirty || hooks;
 }
 
 /* ---- the scene list ---- */
@@ -1950,6 +2291,8 @@ int rq_sprite_tick(void)
 	if (advance(fn, id, &np))
 		dirty = 1;
 	if (attached())
+		dirty = 1;
+	if (faces_tick())
 		dirty = 1;
 	fire_ends(fn, id, np);
 	return dirty;

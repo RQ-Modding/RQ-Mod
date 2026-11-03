@@ -179,6 +179,11 @@ static void sprite_render(struct sprite *_sp)
 		return;
 	}
 
+#ifdef RQ_MODLOADER
+	/* rq.battle.set_face: a mod's picture in place of a fight card's face. */
+	if (rq_face_render(sp))
+		return;
+#endif
 	rq_prof_begin(RQ_PROF_SPRITE);
 	sprite_init_texture(sp);
 

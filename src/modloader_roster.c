@@ -324,6 +324,26 @@ int rq_chara_member(int iic, const char *utf, int fallback)
 	return m < 0 ? fallback : p->values[m].i;
 }
 
+/* HP and its most, read every frame in a fight, so the members are looked up once. */
+int rq_chara_hp(int iic, int *hp, int *max)
+{
+	static int st = -1, m_hp = -1, m_max = -1;
+	struct page *p = cpage(iic);
+
+	if (!p)
+		return 0;
+	if (p->index != st) {
+		st = p->index;
+		m_hp = memb_utf(p, "体力");
+		m_max = memb_utf(p, "体力最大");
+	}
+	if (m_hp < 0 || m_max < 0)
+		return 0;
+	*hp = p->values[m_hp].i;
+	*max = p->values[m_max].i;
+	return 1;
+}
+
 static const char *alias_jp(const char *alias)
 {
 	int i;

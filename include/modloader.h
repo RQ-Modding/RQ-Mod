@@ -114,6 +114,13 @@ void rq_battle_marks_live(int on);
 int rq_battle_card_sprite(int no);
 int rq_battle_chara_card(int iic);
 int rq_battle_live(void);
+int rq_battle_face_sprite(int no);
+int rq_battle_card_iic(int no);
+struct sact_sprite;
+int rq_face_render(struct sact_sprite *ss);
+int rq_lua_battle_set_face(struct lua_State *L);
+int rq_lua_battle_get_face(struct lua_State *L);
+int rq_lua_battle_on_hp(struct lua_State *L);
 void rq_battle_marks_tick(void);
 int rq_battle_marks_install(struct ain *a);
 int rq_lua_battle_set_buff(struct lua_State *L);
@@ -175,6 +182,7 @@ int rq_chara_install(struct ain *ain);
 int rq_chara_syscall(int code);
 int rq_chara_exists(int iic);
 int rq_chara_member(int iic, const char *utf, int fallback);
+int rq_chara_hp(int iic, int *hp, int *max);
 int rq_item_known(int no);
 int rq_lua_chara_grant(struct lua_State *L);
 int rq_lua_chara_rank(struct lua_State *L);
@@ -403,7 +411,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "1.11.0"
+#define RQ_VERSION "1.12.0"
 
 struct rq_qbattle_skill {
 	int id;
