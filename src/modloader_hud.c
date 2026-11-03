@@ -622,6 +622,18 @@ int rq_lua_hud_block_keys(lua_State *L)
 	return 0;
 }
 
+/* The title ends the map, a fight and every window the game had open. */
+void rq_hud_after_reset(void)
+{
+	g_dungeon = 0;
+	g_shown = 0;
+	g_suspended = 0;
+	g_battle = 0;
+	g_profile = 0;
+	modal_clear();
+	g_block_mouse = 0;
+}
+
 int rq_hud_syscall(int code)
 {
 	int i;

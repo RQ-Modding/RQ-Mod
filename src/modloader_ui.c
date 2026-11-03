@@ -5280,6 +5280,13 @@ static int fill_battle(struct page *sel)
 				emit_named_btn(btn, i, "switch", "Switch", "battle", "", 0);
 		}
 	}
+	/* Loader 1.13.0: the bar at the bottom, whose System menu has Title Screen in a fight.
+	 * In a fight the bar has no base sprite, only its System button. */
+	{
+		struct page *bar = global_struct(&gi_bar, "g_sSystemBar", sn_sysbar);
+		if (bar)
+			emit_group(fpage(bar, "m_sButton"), "system-bar", bar_name);
+	}
 	snprintf(g_screen, sizeof g_screen, "battle");
 	hover_from_rects();
 	return 1;

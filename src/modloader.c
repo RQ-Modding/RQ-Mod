@@ -2100,6 +2100,7 @@ void rq_mods_init(struct ain *ain)
 	}
 	luaL_openlibs(g_L);
 	rq_sandbox_install(g_L);
+	rq_unwind_install(g_L);
 	open_rq(g_L);
 	n = load_mods(g_L);
 	rq_log("Loaded %d Lua mod(s). Ready.", n);

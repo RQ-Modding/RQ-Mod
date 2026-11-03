@@ -612,6 +612,11 @@ int rq_lua_quests_on_end(lua_State *L)
 static int g_map_on, g_in_map, g_map_unlock;
 static int g_map_cb[CB_MAX], g_nmap;
 
+void rq_events_after_reset(void)
+{
+	g_in_map = 0;
+}
+
 static void map_enter(void)
 {
 	lua_State *L = rq_lua();

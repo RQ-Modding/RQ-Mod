@@ -510,6 +510,14 @@ static int vm_call_depth;
 void vm_call(int fno, int struct_page)
 {
 	size_t saved_ip = instr_ptr;
+#ifdef RQ_MODLOADER
+	/* A call from Lua: the title jumps back here first, to close Lua (modloader_unwind.c). */
+	int cross = rq_cross_vm_enter();
+	if (cross >= 0) {
+		if (setjmp(*rq_cross_jb(cross)))
+			rq_cross_raise();
+	}
+#endif
 	rq_mods_on_vm_call(fno, struct_page);
 	if (struct_page < 0) {
 		function_call(fno, VM_RETURN);
@@ -521,13 +529,24 @@ void vm_call(int fno, int struct_page)
 	vm_execute();
 	vm_call_depth--;
 	instr_ptr = saved_ip;
+#ifdef RQ_MODLOADER
+	rq_cross_vm_leave(cross);
+#endif
 }
 
 void vm_call_method(int fno, int struct_page)
 {
-	size_t saved_ip = instr_ptr;
 	int nargs;
 	int i;
+	size_t saved_ip = instr_ptr;
+#ifdef RQ_MODLOADER
+	/* A call from Lua: the title jumps back here first, to close Lua (modloader_unwind.c). */
+	int cross = rq_cross_vm_enter();
+	if (cross >= 0) {
+		if (setjmp(*rq_cross_jb(cross)))
+			rq_cross_raise();
+	}
+#endif
 
 	if (!ain || fno < 0 || fno >= ain->nr_functions)
 		VM_ERROR("vm_call_method: bad function %d", fno);
@@ -546,6 +565,9 @@ void vm_call_method(int fno, int struct_page)
 	vm_execute();
 	vm_call_depth--;
 	instr_ptr = saved_ip;
+#ifdef RQ_MODLOADER
+	rq_cross_vm_leave(cross);
+#endif
 }
 
 int vm_frame_struct(int frame_no)
@@ -2539,6 +2561,10 @@ static jmp_buf reset_buf;
 
 _Noreturn void vm_reset(void)
 {
+#ifdef RQ_MODLOADER
+	/* Returns only once no Lua is left under this call. */
+	rq_cross_reset();
+#endif
 	rq_battle_forget();
 	vm_free();
 	longjmp(reset_buf, 1);

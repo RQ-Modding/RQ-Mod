@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <setjmp.h>
 
 struct ain;
 struct lua_State;
@@ -19,6 +20,24 @@ struct cg_metrics;
 void rq_mods_early_init(void);
 void rq_mods_init(struct ain *ain);
 void rq_mods_on_vm_call(int fno, int struct_page);
+/* The crossings between Lua and the game, so the title can close Lua first (modloader_unwind.c). */
+int rq_lua_pcall(struct lua_State *L, int nargs, int nresults, int msgh);
+bool rq_resetting(void);
+extern const char *const rq_title_error;
+int rq_cross_vm_enter(void);
+jmp_buf *rq_cross_jb(int at);
+void rq_cross_vm_leave(int at);
+_Noreturn void rq_cross_raise(void);
+void rq_cross_reset(void);
+void rq_unwind_install(struct lua_State *L);
+/* After the title's reset: state the reset left half way, as a call it never ended. */
+void rq_scene_after_reset(void);
+void rq_hud_after_reset(void);
+void rq_events_after_reset(void);
+#ifdef lua_pcall
+#undef lua_pcall
+#define lua_pcall(L, n, r, f) rq_lua_pcall((L), (n), (r), (f))
+#endif
 void rq_crash_note_log(const char *line);
 void rq_crash_note_call(int fno, int struct_page);
 void rq_crash_crumb(const char *what, int a, int b);
@@ -411,7 +430,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "1.12.0"
+#define RQ_VERSION "1.13.0"
 
 struct rq_qbattle_skill {
 	int id;

@@ -538,6 +538,14 @@ static void hook_before(void)
 	stack_push(skip ? 1 : 0);
 }
 
+/* A hook whose callbacks the title cut off would stay "running", and never run again. */
+void rq_scene_after_reset(void)
+{
+	int i;
+	for (i = 0; i < g_nhooks; i++)
+		g_hooks[i].running = 0;
+}
+
 /* Called by RETURN with the return value on top of the stack. */
 void rq_scene_on_return(int fno)
 {
@@ -650,6 +658,10 @@ static const char lua_layer[] =
 "function scene.play(fn, ...)\n"
 "  scene.begin()\n"
 "  local r = table.pack(pcall(fn, scene, ...))\n"
+"  if not r[1] and tostring(r[2]):find('rq: the game went to the title', 1, true) then\n"
+"    rq.log('scene ended by the title')\n"
+"    error(r[2], 0)\n"
+"  end\n"
 "  scene.finish()\n"
 "  if not r[1] then rq.log('scene error: ' .. tostring(r[2])) return nil end\n"
 "  return table.unpack(r, 2, r.n)\n"

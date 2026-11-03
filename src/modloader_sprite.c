@@ -1483,14 +1483,27 @@ static int l_clear(lua_State *L)
 	return 1;
 }
 
+static int l_off_reset(lua_State *L)
+{
+	int i = (int)lua_tointeger(L, lua_upvalueindex(1));
+	if (g_reset_cb[i] != LUA_NOREF) {
+		luaL_unref(L, LUA_REGISTRYINDEX, g_reset_cb[i]);
+		g_reset_cb[i] = LUA_NOREF;
+	}
+	return 0;
+}
+
+/* Answers the remove function the docs promise (loader 1.13.0; before, nothing). */
 static int l_on_reset(lua_State *L)
 {
 	luaL_checktype(L, 1, LUA_TFUNCTION);
 	if (g_nreset >= SPR_RESET_CB)
-		return luaL_error(L, "rq.sprite.on_reset: too many callbacks");
+		return luaL_error(L, "on_reset: too many callbacks");
 	lua_pushvalue(L, 1);
-	g_reset_cb[g_nreset++] = luaL_ref(L, LUA_REGISTRYINDEX);
-	return 0;
+	g_reset_cb[g_nreset] = luaL_ref(L, LUA_REGISTRYINDEX);
+	lua_pushinteger(L, g_nreset++);
+	lua_pushcclosure(L, l_off_reset, 1);
+	return 1;
 }
 
 /* A load or the title: every mod sprite goes, then each on_reset gets the reason. */
@@ -1505,6 +1518,8 @@ static int l_reset(lua_State *L)
 	if (n)
 		rq_log("rq.sprite: %s removed %d sprite%s", why, n, n == 1 ? "" : "s");
 	for (i = 0; i < g_nreset; i++) {
+		if (g_reset_cb[i] == LUA_NOREF)
+			continue;
 		lua_rawgeti(L, LUA_REGISTRYINDEX, g_reset_cb[i]);
 		lua_pushstring(L, why);
 		if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
@@ -2339,6 +2354,9 @@ void rq_sprite_open(lua_State *L, int rq_index)
 	lua_pushcfunction(L, l_on_reset);
 	lua_setfield(L, -2, "on_reset");
 	lua_setfield(L, rq_index, "sprite");
+	/* Loader 1.13.0: the same callbacks as rq.on_reset, for mods that keep no sprites. */
+	lua_pushcfunction(L, l_on_reset);
+	lua_setfield(L, rq_index, "on_reset");
 }
 
 /* After rq.ain.hook exists: a load and the title remove every mod sprite. */
