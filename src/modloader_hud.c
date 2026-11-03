@@ -56,8 +56,8 @@ struct hud_cmd {
 	char *text;
 	/* HUD_CG: source part of the CG; sw == 0 means the whole CG. */
 	int sx, sy, sw, sh;
-	/* HUD_TEXT: the box the text is aligned in. */
-	int bw, bh, align, valign;
+	/* HUD_TEXT: the box the text is aligned in, and no dark edge. */
+	int bw, bh, align, valign, no_edge;
 };
 
 /* sprite.f.glsl: the texture times multiply_color, alpha times blend_rate. */
@@ -99,6 +99,9 @@ static char g_text[256];
 static int g_on_frame_ref[HUD_MAX_FRAME_CB];
 static int g_on_frame_n;
 static int g_mx, g_my, g_left, g_right, g_left_edge, g_left_up, g_prev_left;
+static int g_scroll, g_wheel_seen;
+extern int rq_wheel_steps;
+void mouse_clear_wheel(void);
 static int g_ncmd;
 static int g_drew;
 static struct hud_cmd g_cmd[HUD_MAX_CMD];
@@ -311,6 +314,14 @@ static void wrap_lifetime(struct ain *ain, const char *cls, int mask)
 		rq_log("HUD: watching %s create/delete so Item Previews hide on the result screen", cls);
 	else if (g_rq_verbose)
 		rq_log("HUD: %s is not in this AIN (result overlay skipped)", cls);
+}
+
+static void hud_make_ts(struct text_style *ts, float size, int r, int g, int b);
+
+/* Without the dark edge, as the game's own tab labels. */
+static void hud_no_edge(struct text_style *ts)
+{
+	ts->edge_left = ts->edge_up = ts->edge_right = ts->edge_down = 0.0f;
 }
 
 static void hud_make_ts(struct text_style *ts, float size, int r, int g, int b)
@@ -785,6 +796,14 @@ int rq_lua_input_wheel(lua_State *L)
 	return 0;
 }
 
+int rq_lua_input_scroll(lua_State *L)
+{
+	if (g_scroll && lua_toboolean(L, 1))
+		mouse_clear_wheel();
+	lua_pushinteger(L, g_scroll);
+	return 1;
+}
+
 int rq_lua_input_release(lua_State *L)
 {
 	(void)L;
@@ -982,6 +1001,8 @@ int rq_lua_hud_text(lua_State *L)
 		c->align = align_at(L, -1, "left", "right");
 		lua_getfield(L, 4, "valign");
 		c->valign = align_at(L, -1, "top", "bottom");
+		lua_getfield(L, 4, "edge");
+		c->no_edge = lua_isboolean(L, -1) && !lua_toboolean(L, -1);
 		lua_settop(L, 4);
 		if (c->a < 0)
 			c->a = 0;
@@ -1147,6 +1168,8 @@ int rq_hud_tick(void)
 	g_left_edge = g_left && !g_prev_left;
 	g_left_up = !g_left && g_prev_left;
 	g_prev_left = g_left;
+	g_scroll = rq_wheel_steps - g_wheel_seen;
+	g_wheel_seen = rq_wheel_steps;
 	draw_version_banner();
 	rq_item_refresh();
 	rq_roster_refresh();
@@ -1266,6 +1289,8 @@ void rq_hud_draw(void)
 			char *sjis;
 			int tw, th;
 			hud_make_ts(&ts, c->size, c->r, c->g, c->b);
+			if (c->no_edge)
+				hud_no_edge(&ts);
 			sjis = utf2sjis(c->text, 0);
 			if (!sjis)
 				continue;

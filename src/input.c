@@ -342,6 +342,15 @@ void mouse_agent_pos(int *x, int *y, int *active)
 }
 
 static int wheel_dir = 0;
+/* Every wheel step since boot, up positive: rq.input.scroll counts from it,
+ * since the game clears wheel_dir only when it reads it. */
+int rq_wheel_steps;
+
+static void wheel_step(int dir)
+{
+	wheel_dir = dir;
+	rq_wheel_steps += dir > 0 ? 1 : dir < 0 ? -1 : 0;
+}
 
 void mouse_get_wheel(int *forward, int *back)
 {
@@ -351,7 +360,7 @@ void mouse_get_wheel(int *forward, int *back)
 
 void mouse_set_wheel(int dir)
 {
-	wheel_dir = dir;
+	wheel_step(dir);
 }
 
 void mouse_clear_wheel(void)
@@ -804,7 +813,7 @@ void handle_events(void)
 			}
 			break;
 		case SDL_MOUSEWHEEL:
-			wheel_dir = e.wheel.y;
+			wheel_step(e.wheel.y);
 			break;
 		case SDL_FINGERDOWN:
 			if (SDL_GetNumTouchFingers(e.tfinger.touchId) >= 2) {
@@ -843,7 +852,7 @@ void handle_events(void)
 					scroll_gesture_y = e.mgesture.y;
 				float dy = scroll_gesture_y - e.mgesture.y;
 				if (dy * dy > SCROLL_GESTURE_SENSITIVITY * SCROLL_GESTURE_SENSITIVITY) {
-					wheel_dir = dy < 0 ? 1 : -1;  // Swipe up to scroll down.
+					wheel_step(dy < 0 ? 1 : -1);  // Swipe up to scroll down.
 					scroll_gesture_y = e.mgesture.y;
 				}
 			}

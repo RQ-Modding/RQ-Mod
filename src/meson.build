@@ -252,6 +252,11 @@ if get_option('modloader')
         output: 'rq_build_stamp.c',
         command: [py, meson.current_source_dir() / 'gen_build_stamp.py', '@OUTPUT@'],
         build_always_stale: true)
+    rq_uikit = custom_target(
+        'rq_uikit_lua_c',
+        input: 'lua/uikit.lua',
+        output: 'rq_uikit_lua.c',
+        command: [py, meson.current_source_dir() / 'gen_lua_embed.py', '@INPUT@', '@OUTPUT@', 'rq_uikit_lua'])
     xsystem4 += ['modloader.c', 'modloader_order.c', 'modloader_sandbox.c', 'modloader_query.c',
                  'modloader_agent.c', 'modloader_ui.c', 'modloader_path.c',
                  'modloader_dialog.c',
@@ -262,7 +267,7 @@ if get_option('modloader')
                  'modloader_skilllist.c',
                  'modloader_debug.c', 'modloader_discord.c',
                  'modloader_saves.c', 'modloader_roster.c', 'modloader_crash.c', 'modloader_events.c', 'modloader_scene.c', 'modloader_anim.c', 'modloader_image.c', 'modloader_item.c',
-                 rq_stamp]
+                 'modloader_uikit.c', rq_stamp, rq_uikit]
     if host_machine.system() == 'windows'
         static_link_args += ['-lpsapi', '-lshell32', '-lole32']
     endif

@@ -1162,6 +1162,7 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "set_key", rq_lua_input_set_key);
 	set_cfn(L, "set_mouse", rq_lua_input_set_mouse);
 	set_cfn(L, "wheel", rq_lua_input_wheel);
+	set_cfn(L, "scroll", rq_lua_input_scroll);
 	set_cfn(L, "release", rq_lua_input_release);
 	lua_setfield(L, -2, "input");
 
@@ -1398,6 +1399,7 @@ static void open_rq(lua_State *L)
 
 	rq_query_bind(L);
 	rq_scene_open(L, lua_gettop(L));
+	rq_uikit_open(L, lua_gettop(L));
 	guard_game_calls(L);
 	lua_setglobal(L, "rq");
 }

@@ -92,6 +92,7 @@ extern int g_rq_scene_ret_on;
 int rq_scene_syscall(int code);
 void rq_scene_on_return(int fno);
 void rq_scene_open(struct lua_State *L, int rq_index);
+void rq_uikit_open(struct lua_State *L, int rq_index);
 int rq_lua_battle_on_start(struct lua_State *L);
 int rq_lua_battle_on_end(struct lua_State *L);
 int rq_lua_battle_on_down(struct lua_State *L);
@@ -295,6 +296,7 @@ int rq_lua_hud_rect(struct lua_State *L);
 int rq_lua_hud_text(struct lua_State *L);
 int rq_lua_hud_cg(struct lua_State *L);
 int rq_lua_hud_cg_size(struct lua_State *L);
+int rq_lua_input_scroll(struct lua_State *L);
 int rq_lua_hud_clip(struct lua_State *L);
 int rq_lua_hud_hit(struct lua_State *L);
 int rq_lua_hud_clicked(struct lua_State *L);
@@ -374,7 +376,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "1.6.0"
+#define RQ_VERSION "1.7.0"
 
 struct rq_qbattle_skill {
 	int id;
