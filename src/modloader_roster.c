@@ -1331,22 +1331,36 @@ int rq_lua_chara_on_forget(lua_State *L)
 	return add_cb(L, g_forget_cb, &g_nforget);
 }
 
-/* ---- rq.store: per-mod key/value, next to the active save ---- */
+/* ---- rq.store: per-mod key/value, next to the active save ----
+ * rq.store.global: the same calls, one file for every profile. */
 
-static cJSON *g_store;
-static char g_store_path[RQ_PATH_MAX];
+struct store {
+	cJSON *doc;
+	int global;
+	char path[RQ_PATH_MAX];
+};
 
-static void store_open(void)
+static struct store g_store_save, g_store_global = { .global = 1 };
+
+static void store_open(struct store *st)
 {
 	FILE *f;
 	long n;
 	char *buf;
+	const char *dir;
 
-	if (g_store)
+	if (st->doc)
 		return;
-	snprintf(g_store_path, sizeof g_store_path, "%s\\rqmod-store.json",
-		 config.save_dir && config.save_dir[0] ? config.save_dir : g_rq_game_dir);
-	f = fopen(g_store_path, "rb");
+	if (st->global) {
+		dir = rq_saves_base_dir();
+		if (!dir)
+			dir = config.save_dir && config.save_dir[0] ? config.save_dir : g_rq_game_dir;
+		snprintf(st->path, sizeof st->path, "%s\\rqmod-global.json", dir);
+	} else {
+		snprintf(st->path, sizeof st->path, "%s\\rqmod-store.json",
+			 config.save_dir && config.save_dir[0] ? config.save_dir : g_rq_game_dir);
+	}
+	f = fopen(st->path, "rb");
 	if (f) {
 		fseek(f, 0, SEEK_END);
 		n = ftell(f);
@@ -1354,47 +1368,54 @@ static void store_open(void)
 		if (n > 0 && n < (16 << 20) && (buf = malloc((size_t)n + 1)) != NULL) {
 			if (fread(buf, 1, (size_t)n, f) == (size_t)n) {
 				buf[n] = 0;
-				g_store = cJSON_Parse(buf);
+				st->doc = cJSON_Parse(buf);
 			}
 			free(buf);
 		}
 		fclose(f);
 	}
-	if (!g_store || !cJSON_IsObject(g_store)) {
-		cJSON_Delete(g_store);
-		g_store = cJSON_CreateObject();
+	if (!st->doc || !cJSON_IsObject(st->doc)) {
+		cJSON_Delete(st->doc);
+		st->doc = cJSON_CreateObject();
 	}
 }
 
-static void store_flush(void)
+static void store_flush(struct store *st)
 {
 	FILE *f;
 	char *s;
 
-	if (!g_store)
+	if (!st->doc)
 		return;
-	s = cJSON_Print(g_store);
+	s = cJSON_Print(st->doc);
 	if (!s)
 		return;
-	f = fopen(g_store_path, "wb");
+	f = fopen(st->path, "wb");
 	if (f) {
 		fwrite(s, 1, strlen(s), f);
 		fclose(f);
 	} else {
-		rq_log("store: cannot write %s", g_store_path);
+		rq_log("store: cannot write %s", st->path);
 	}
 	free(s);
 }
 
-static cJSON *store_mod(lua_State *L, int create)
+/* The global table's functions carry their store as an upvalue. */
+static struct store *store_of(lua_State *L)
+{
+	struct store *st = lua_touserdata(L, lua_upvalueindex(1));
+	return st ? st : &g_store_save;
+}
+
+static cJSON *store_mod(lua_State *L, struct store *st, int create)
 {
 	const char *mod = mod_of(L);
 	cJSON *m;
 
-	store_open();
-	m = cJSON_GetObjectItemCaseSensitive(g_store, mod);
+	store_open(st);
+	m = cJSON_GetObjectItemCaseSensitive(st->doc, mod);
 	if (!m && create) {
-		m = cJSON_AddObjectToObject(g_store, mod);
+		m = cJSON_AddObjectToObject(st->doc, mod);
 	}
 	return m;
 }
@@ -1402,7 +1423,7 @@ static cJSON *store_mod(lua_State *L, int create)
 int rq_lua_store_get(lua_State *L)
 {
 	const char *key = luaL_checkstring(L, 1);
-	cJSON *m = store_mod(L, 0);
+	cJSON *m = store_mod(L, store_of(L), 0);
 	cJSON *v = m ? cJSON_GetObjectItemCaseSensitive(m, key) : NULL;
 
 	if (!v) {
@@ -1423,17 +1444,18 @@ int rq_lua_store_get(lua_State *L)
 int rq_lua_store_set(lua_State *L)
 {
 	const char *key = luaL_checkstring(L, 1);
+	struct store *st = store_of(L);
 	cJSON *m;
 
 	if (lua_isnoneornil(L, 2)) {
-		m = store_mod(L, 0);
+		m = store_mod(L, st, 0);
 		if (m && cJSON_GetObjectItemCaseSensitive(m, key)) {
 			cJSON_DeleteItemFromObjectCaseSensitive(m, key);
-			store_flush();
+			store_flush(st);
 		}
 		return 0;
 	}
-	m = store_mod(L, 1);
+	m = store_mod(L, st, 1);
 	if (!m)
 		return luaL_error(L, "store: cannot open");
 	cJSON_DeleteItemFromObjectCaseSensitive(m, key);
@@ -1445,7 +1467,7 @@ int rq_lua_store_set(lua_State *L)
 		cJSON_AddStringToObject(m, key, lua_tostring(L, 2));
 	else
 		return luaL_error(L, "store.set: only numbers, strings and booleans can be stored");
-	store_flush();
+	store_flush(st);
 	return 0;
 }
 
@@ -1458,7 +1480,7 @@ int rq_lua_store_delete(lua_State *L)
 
 int rq_lua_store_keys(lua_State *L)
 {
-	cJSON *m = store_mod(L, 0);
+	cJSON *m = store_mod(L, store_of(L), 0);
 	cJSON *it;
 	int n = 0;
 
@@ -1470,6 +1492,22 @@ int rq_lua_store_keys(lua_State *L)
 		lua_rawseti(L, -2, ++n);
 	}
 	return 1;
+}
+
+void rq_store_push_global(lua_State *L)
+{
+	static const struct { const char *name; lua_CFunction fn; } fns[] = {
+		{ "get", rq_lua_store_get }, { "set", rq_lua_store_set },
+		{ "delete", rq_lua_store_delete }, { "keys", rq_lua_store_keys },
+	};
+	int i;
+
+	lua_newtable(L);
+	for (i = 0; i < 4; i++) {
+		lua_pushlightuserdata(L, &g_store_global);
+		lua_pushcclosure(L, fns[i].fn, 1);
+		lua_setfield(L, -2, fns[i].name);
+	}
 }
 
 #endif /* RQ_MODLOADER */

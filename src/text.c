@@ -44,13 +44,21 @@
 
 #define DEFAULT_FONT_GOTHIC "fonts/VL-Gothic-Regular.ttf"
 #define DEFAULT_FONT_MINCHO "fonts/HanaMinA.ttf"
+#define DEFAULT_FONT_HUD "fonts/VL-PGothic-Regular.ttf"
 
 #define MAX_FNL_FONTS 32
 struct font *font_ttf[2] = {0};
 struct font *font_fnl[MAX_FNL_FONTS] = {0};
+static struct font *font_hud;
 
 // Controls whether edge widths are taken into account during text layout.
 bool gfx_text_advance_edges = false;
+
+/* RQ: the HUD font keeps its own spacing; the edge only draws. */
+static bool advance_edges(struct text_style *ts)
+{
+	return gfx_text_advance_edges && !(font_hud && ts->face == FONT_HUD);
+}
 
 static struct font *load_font(enum font_face type)
 {
@@ -88,6 +96,12 @@ void gfx_font_init(void)
 	ft_font_init();
 	font_ttf[FONT_GOTHIC] = load_font(FONT_GOTHIC);
 	font_ttf[FONT_MINCHO] = load_font(FONT_MINCHO);
+	// RQ: VL PGothic for rq.hud text; without it, HUD text falls back to the gothic font
+	font_hud = ft_font_load_proportional(XSYS4_DATA_DIR "/" DEFAULT_FONT_HUD);
+	if (!font_hud)
+		font_hud = ft_font_load_proportional(DEFAULT_FONT_HUD);
+	if (!font_hud)
+		WARNING("Failed to load the HUD font '%s'; using the gothic font", DEFAULT_FONT_HUD);
 
 	if (config.fnl_path) {
 		struct fnl *fnl = fnl_open(config.fnl_path);
@@ -112,6 +126,8 @@ static struct font *get_font(unsigned face)
 		}
 		return font_fnl[face];
 	}
+	if (face == FONT_HUD && font_hud)
+		return font_hud;
 	if (face > 1)
 		return font_ttf[0];
 	return font_ttf[face];
@@ -175,7 +191,7 @@ float gfx_size_char_unstyled(struct text_style *ts, const char *ch)
 float gfx_size_char(struct text_style *ts, const char *ch)
 {
 	float w = gfx_size_char_unstyled(ts, ch);
-	if (gfx_text_advance_edges)
+	if (advance_edges(ts))
 		w += ts->edge_left + ts->edge_right + ceilf(ts->bold_width)*2;
 	return w * ts->scale_x;
 }
@@ -183,7 +199,7 @@ float gfx_size_char(struct text_style *ts, const char *ch)
 float gfx_size_text(struct text_style *ts, const char *text)
 {
 	struct font_size *size = text_style_font_size(ts);
-	float edge_advance = gfx_text_advance_edges
+	float edge_advance = advance_edges(ts)
 		? ts->edge_left + ts->edge_right + ceilf(ts->bold_width)*2
 		: 0.0f;
 	float x = 0.0f;
@@ -490,7 +506,7 @@ float gfx_render_textf(Texture *dst, float x, int y, char *msg, struct text_styl
 	struct font_size *font_size = text_style_font_size(ts);
 	float edge_width = text_style_edge_width(ts);
 
-	float edge_advance = gfx_text_advance_edges
+	float edge_advance = advance_edges(ts)
 		? edge_width + ceilf(ts->bold_width)
 		: 0.f;
 

@@ -674,6 +674,11 @@ void rq_saves_wait_parent(void)
 #endif
 }
 
+const char *rq_saves_base_dir(void)
+{
+	return g_base_dir[0] ? g_base_dir : NULL;
+}
+
 /* Call once, after config.save_dir is final and before mkdir_p() on it. */
 void rq_saves_init(char **save_dir)
 {

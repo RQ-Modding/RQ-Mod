@@ -1259,6 +1259,7 @@ static void open_rq(lua_State *L)
 
 	lua_newtable(L);
 	set_cfn(L, "control", l_agent_control);
+	set_cfn(L, "widgets", rq_lua_agent_widgets);
 	lua_setfield(L, -2, "agent");
 
 	lua_newtable(L);
@@ -1316,6 +1317,7 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "replace", rq_lua_image_replace);
 	set_cfn(L, "restore", rq_lua_image_restore);
 	set_cfn(L, "info", rq_lua_image_info);
+	set_cfn(L, "compose", rq_lua_image_compose);
 	set_cfn(L, "add_gif", rq_lua_image_add_gif);
 	set_cfn(L, "remove_gif", rq_lua_image_remove_gif);
 	set_cfn(L, "gif_info", rq_lua_image_gif_info);
@@ -1326,6 +1328,8 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "set", rq_lua_store_set);
 	set_cfn(L, "delete", rq_lua_store_delete);
 	set_cfn(L, "keys", rq_lua_store_keys);
+	rq_store_push_global(L);
+	lua_setfield(L, -2, "global");
 	lua_setfield(L, -2, "store");
 
 	lua_newtable(L);
@@ -1400,6 +1404,7 @@ static void open_rq(lua_State *L)
 	rq_query_bind(L);
 	rq_scene_open(L, lua_gettop(L));
 	rq_uikit_open(L, lua_gettop(L));
+	rq_config_open(L, lua_gettop(L));
 	guard_game_calls(L);
 	lua_setglobal(L, "rq");
 }
@@ -2080,6 +2085,7 @@ void rq_mods_init(struct ain *ain)
 	       g_rq_prof.update_split, g_rq_prof.vm_ops, g_rq_prof.ain_fn);
 
 	rq_discord_init(ain);
+	rq_config_init(ain);
 	g_L = luaL_newstate();
 	if (!g_L) {
 		rq_log("luaL_newstate failed");

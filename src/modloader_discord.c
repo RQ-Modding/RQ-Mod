@@ -593,7 +593,7 @@ static void add_checkbox(void)
 	int slot, rc;
 	static int warned;
 	const char *text = "Disable Discord Rich Presence";
-	if (g_f_check < 0)
+	if (g_f_check < 0 || rq_config_mods_page())
 		return;
 	slot = vm_frame_struct(0);
 	cfg = safe_page(slot);
@@ -874,7 +874,7 @@ static int install_checkbox(struct ain *ain)
 void rq_discord_init(struct ain *ain)
 {
 	memset(&g_label_ts, 0, sizeof g_label_ts);
-	g_label_ts.face = FONT_GOTHIC;
+	g_label_ts.face = FONT_HUD; // VL PGothic, as the HUD and the Mods tab
 	g_label_ts.size = 16.0f;
 	g_label_ts.weight = FW_BOLD;
 	g_label_ts.bold_width = 0.45f;

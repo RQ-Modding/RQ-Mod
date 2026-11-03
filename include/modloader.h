@@ -63,6 +63,10 @@ int rq_lua_image_add(struct lua_State *L);
 int rq_lua_image_replace(struct lua_State *L);
 int rq_lua_image_restore(struct lua_State *L);
 int rq_lua_image_info(struct lua_State *L);
+int rq_lua_image_compose(struct lua_State *L);
+/* Text in the HUD font as straight-alpha RGBA (modloader_hud.c). Main thread. */
+unsigned char *rq_hud_text_rgba(const char *utf8, float size, int r, int g, int b, int edge,
+				int bold, int *w, int *h, int *text_w);
 int rq_lua_image_add_gif(struct lua_State *L);
 int rq_lua_image_remove_gif(struct lua_State *L);
 int rq_lua_image_gif_info(struct lua_State *L);
@@ -205,6 +209,8 @@ int rq_lua_store_get(struct lua_State *L);
 int rq_lua_store_set(struct lua_State *L);
 int rq_lua_store_delete(struct lua_State *L);
 int rq_lua_store_keys(struct lua_State *L);
+int rq_lua_agent_widgets(struct lua_State *L);
+void rq_store_push_global(struct lua_State *L);
 int rq_lua_combat_on_physical(struct lua_State *L);
 int rq_lua_combat_on_accuracy(struct lua_State *L);
 int rq_lua_combat_on_crit(struct lua_State *L);
@@ -250,6 +256,13 @@ int rq_hud_block_keys(void);
 /* Save profiles (rq.saves.*). rq_saves_init may replace *save_dir. */
 void rq_saves_wait_parent(void);
 void rq_saves_init(char **save_dir);
+/* The Mods tab in Config (modloader_config.c). */
+void rq_config_init(struct ain *ain);
+int rq_config_syscall(int code);
+int rq_config_mods_page(void);
+void rq_config_open(struct lua_State *L, int rq_index);
+/* The base profile's save folder, the same for every profile (NULL before init). */
+const char *rq_saves_base_dir(void);
 int rq_saves_install(struct ain *ain);
 int rq_saves_title_active(void);
 int rq_saves_syscall(int code);
@@ -376,7 +389,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "1.7.0"
+#define RQ_VERSION "1.8.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -499,6 +512,7 @@ static inline int rq_hud_block_mouse(void) { return 0; }
 static inline int rq_hud_block_keys(void) { return 0; }
 static inline void rq_saves_wait_parent(void) {}
 static inline void rq_saves_init(char **save_dir) { (void)save_dir; }
+static inline const char *rq_saves_base_dir(void) { return NULL; }
 static inline void rq_saves_on_game_save(const char *filename) { (void)filename; }
 static inline int rq_saves_syscall(int code) { (void)code; return 0; }
 static inline void rq_ui_init(void) {}

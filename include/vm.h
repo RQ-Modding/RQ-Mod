@@ -109,6 +109,7 @@ enum vm_extra_syscall {
 	VM_XSYS_STATE_SET = 0x8000004E,
 	VM_XSYS_STATE_ASK = 0x8000004F,
 	VM_XSYS_STATE_CLEAR = 0x80000050,
+	VM_XSYS_CONFIG_TAB = 0x80000051,
 };
 
 // Non-heap values. Stored in pages and on the stack.

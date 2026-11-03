@@ -881,7 +881,7 @@ static void system_call(enum syscall_code code)
 			    || rq_shop_syscall(code) || rq_skilllist_syscall(code)
 			    || rq_discord_syscall(code) || rq_saves_syscall(code)
 			    || rq_roster_syscall(code) || rq_events_syscall(code)
-			    || rq_states_syscall(code)
+			    || rq_states_syscall(code) || rq_config_syscall(code)
 			    || rq_item_syscall(code) || rq_scene_syscall(code))
 				break;
 #endif

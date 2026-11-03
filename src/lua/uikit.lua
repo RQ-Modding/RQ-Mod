@@ -1,4 +1,4 @@
--- rq.uikit (loader 1.7.0): widgets that look like the game's Config screen, drawn with rq.hud
+-- rq.uikit (loader 1.7.0; 1.8.0 adds ui.layers, bold, and the widgets in rqmod-ctl ui): widgets that look like the game's Config screen, drawn with rq.hud
 -- from the game's own pictures. Immediate mode: call the widgets from rq.on_frame on every
 -- update they should show, and use what they return. A widget goes where opts.x and opts.y
 -- say, or else where the row or column it is called in puts it.
@@ -76,10 +76,8 @@ end
 
 local NO_EDGE = { 0, 0, 0, 0 }
 
----Draws a piece (a name in the theme, or a piece table) at x, y, w by h.
----opts: alpha, tint as in rq.hud.cg.
-function ui.draw(p, x, y, w, h, opts)
-  p = piece(p)
+-- The parts of a piece drawn at x, y, w by h: { src = {x, y, w, h}, x, y, w, h } each.
+local function parts(p, x, y, w, h)
   local s = p.src
   local sx, sy, sw, sh
   if s then
@@ -87,7 +85,7 @@ function ui.draw(p, x, y, w, h, opts)
   else
     sx, sy = 0, 0
     sw, sh = hud.cg_size(p.cg)
-    if not sw then return end
+    if not sw then return {} end
   end
   w, h = w or sw, h or sh
   local e = p.edge or NO_EDGE
@@ -98,7 +96,6 @@ function ui.draw(p, x, y, w, h, opts)
   if p.vmid then my, mh = sy + p.vmid[1], p.vmid[2] end
   local dmh = h - t - b
   if p.vfit == "crop" and dmh < mh then mh = dmh end
-  local alpha, tint = opts and opts.alpha, opts and opts.tint
   local cols = {
     { sx, l, x, l },
     { mx, mw, x + l, w - l - r },
@@ -109,18 +106,35 @@ function ui.draw(p, x, y, w, h, opts)
     { my, mh, y + t, dmh },
     { sy + sh - b, b, y + h - b, b },
   }
+  local out = {}
   for _, row in ipairs(rows) do
     if row[2] > 0 and row[4] > 0 then
       for _, c in ipairs(cols) do
         if c[2] > 0 and c[4] > 0 then
-          hud.cg(c[3], row[3], p.cg, {
-            src = { c[1], row[1], c[2], row[2] }, w = c[4], h = row[4],
-            alpha = alpha, tint = tint,
-          })
+          out[#out + 1] = { src = { c[1], row[1], c[2], row[2] }, x = c[3], y = row[3], w = c[4], h = row[4] }
         end
       end
     end
   end
+  return out
+end
+
+---Draws a piece (a name in the theme, or a piece table) at x, y, w by h.
+---opts: alpha, tint as in rq.hud.cg.
+function ui.draw(p, x, y, w, h, opts)
+  p = piece(p)
+  local alpha, tint = opts and opts.alpha, opts and opts.tint
+  for _, q in ipairs(parts(p, x, y, w, h)) do
+    hud.cg(q.x, q.y, p.cg, { src = q.src, w = q.w, h = q.h, alpha = alpha, tint = tint })
+  end
+end
+
+---The same piece as layers for rq.image.compose, to make a CG of it (loader 1.8.0).
+function ui.layers(p, x, y, w, h)
+  p = piece(p)
+  local out = parts(p, x or 0, y or 0, w, h)
+  for _, q in ipairs(out) do q.cg = p.cg end
+  return out
 end
 
 -- ---- Input and state ----
@@ -131,7 +145,32 @@ local active -- the widget the left button went down on, until it comes up
 local state = {} -- kept across updates, by widget id
 local stack = {} -- the open rows and columns
 
+-- What was drawn on this update, for rqmod-ctl ui (section "kit"): sent on the next update,
+-- when the list is whole.
+local shown, shown_ids, published = {}, {}, 0
+
+local function slug(str)
+  str = tostring(str or ""):lower():gsub("[^%w]+", "-"):gsub("^%-+", ""):gsub("%-+$", "")
+  return str:sub(1, 28)
+end
+
+-- kind-key, key being opts.id or the text; the same id twice gets -2, -3.
+local function show(kind, key, label, x, y, w, h, extra)
+  local id = kind .. "-" .. (slug(key) ~= "" and slug(key) or tostring(#shown + 1))
+  local n = shown_ids[id]
+  shown_ids[id] = (n or 1) + 1
+  if n then id = id .. "-" .. n end
+  local row = { id = id, type = kind, label = label and tostring(label) or id, x = x, y = y, w = w, h = h }
+  if extra then for k, v in pairs(extra) do row[k] = v end end
+  shown[#shown + 1] = row
+end
+
 rq.on_frame(function()
+  if #shown > 0 or published > 0 then
+    if rq.agent and rq.agent.widgets then pcall(rq.agent.widgets, shown) end
+    published = #shown
+  end
+  shown, shown_ids = {}, {}
   frame.was_hot, frame.hot, frame.auto, frame.over = frame.hot, nil, 0, false
   local right
   mouse.x, mouse.y, mouse.down, right, mouse.pressed, mouse.released = input.mouse()
@@ -336,6 +375,7 @@ function ui.label(text, o)
   style.align = o.align
   style.valign = o.valign or "center"
   hud.text(x, y, text, style)
+  show("text", o.id or text, text, x, y, w, h)
   return x, y, w, h
 end
 
@@ -359,6 +399,7 @@ function ui.button(text, o)
     hud.rect(x, y, w, h, c.r, c.g, c.b, math.floor(c.a * (128 + 128 * pulse()) / 255))
   end
   if clicked then play("click") end
+  show("button", o.id or text, text, x, y, w, h, { disabled = o.disabled })
   return clicked
 end
 
@@ -379,6 +420,8 @@ function ui.checkbox(value, text, o)
     hud.text(x + 42, y, text, with(style, { h = h, valign = "center" }))
   end
   if over and not o.disabled then ui.draw("hover_bar", x, y, w, h) end
+  show("check", o.id or text, text, x, y, w, h, { selected = value and true or false,
+    value = value and "on" or "off", disabled = o.disabled })
   if clicked then
     play("click")
     return not value, true
@@ -440,6 +483,9 @@ function ui.slider(value, o)
   if o.high then hud.text(tx + tw + 8, y, o.high, with(dim, { h = h, valign = "center" })) end
   local f = mx > mn and (value - mn) / (mx - mn) or 0
   ui.draw((held or over) and "knob_hot" or "knob", tx + math.floor(f * tw) - 12, ty - 19, 24, 35, opts)
+  -- The box is the track from min to max, so x = box.x + (v - min) / (max - min) * box.w.
+  show("slider", o.id or o.label or "slider", o.label, tx, ty - 19, tw, 35,
+    { value = string.format("%g of %g..%g", value, mn, mx), disabled = o.disabled })
   return value, value ~= old
 end
 
@@ -460,6 +506,7 @@ function ui.tabs(list, index, o)
       local look = current and "current" or (over and "hover" or "normal")
       ui.draw(th.tab[look], x, y, w, h)
       hud.text(x, y, text, with(th.tab_text[look], { w = w, h = h, align = "center", valign = "center" }))
+      show("tab", key and (key .. "-" .. i) or text, text, x, y, w, h, { selected = current })
       if clicked then
         play("click")
         index, changed = i, true
@@ -536,6 +583,10 @@ function ui.list(items, index, o)
       if i == index then style.r, style.g, style.b = th.list_current.r, th.list_current.g, th.list_current.b end
       if disabled then style.r, style.g, style.b = 128, 128, 128 end
       hud.text(x + inner + 10, ry, item_text(it), style)
+      if ry >= y and ry + rh <= y + h then
+        show("row", (o.id ~= nil and tostring(o.id) or "list") .. "-" .. item_text(it), item_text(it),
+          x + inner, ry, cw, rh, { selected = i == index, disabled = disabled, value = tostring(i) })
+      end
       if clicked and i ~= index then
         play("click")
         index, changed = i, true

@@ -57,7 +57,7 @@ struct hud_cmd {
 	/* HUD_CG: source part of the CG; sw == 0 means the whole CG. */
 	int sx, sy, sw, sh;
 	/* HUD_TEXT: the box the text is aligned in, and no dark edge. */
-	int bw, bh, align, valign, no_edge;
+	int bw, bh, align, valign, no_edge, bold;
 };
 
 /* sprite.f.glsl: the texture times multiply_color, alpha times blend_rate. */
@@ -324,10 +324,17 @@ static void hud_no_edge(struct text_style *ts)
 	ts->edge_left = ts->edge_up = ts->edge_right = ts->edge_down = 0.0f;
 }
 
+/* The weight the game's own baked labels look like (as the Discord row on Other 2). */
+static void hud_bold(struct text_style *ts)
+{
+	ts->weight = FW_BOLD;
+	ts->bold_width = 0.45f;
+}
+
 static void hud_make_ts(struct text_style *ts, float size, int r, int g, int b)
 {
 	memset(ts, 0, sizeof(*ts));
-	ts->face = FONT_GOTHIC;
+	ts->face = FONT_HUD;
 	ts->size = size > 1.0f ? size : 16.0f;
 	ts->weight = FW_NORMAL;
 	ts->edge_left = 1.0f;
@@ -343,13 +350,38 @@ static void hud_make_ts(struct text_style *ts, float size, int r, int g, int b)
 	ts->space_scale_x = 1.0f;
 }
 
-static int hud_measure_sjis(const char *sjis, float size)
+/* For rq.image.compose: the text as rq.hud.text draws it, read back from GL. */
+unsigned char *rq_hud_text_rgba(const char *utf8, float size, int r, int g, int b, int edge,
+				int bold, int *w, int *h, int *text_w)
 {
 	struct text_style ts;
-	if (!sjis || !*sjis)
-		return 0;
-	hud_make_ts(&ts, size, 255, 255, 255);
-	return (int)ceilf(gfx_size_text(&ts, sjis));
+	Texture t;
+	char *sjis;
+	unsigned char *px;
+	GLboolean scissor;
+
+	sjis = utf2sjis(utf8 ? utf8 : "", 0);
+	if (!sjis)
+		return NULL;
+	hud_make_ts(&ts, size, r, g, b);
+	if (!edge)
+		hud_no_edge(&ts);
+	if (bold)
+		hud_bold(&ts);
+	*text_w = (int)ceilf(gfx_size_text(&ts, sjis));
+	*w = *text_w + 8 < 32 ? 32 : *text_w + 8;
+	*h = (int)ts.size + 20;
+	scissor = glIsEnabled(GL_SCISSOR_TEST);
+	if (scissor)
+		glDisable(GL_SCISSOR_TEST);
+	gfx_init_texture_rgba(&t, *w, *h, (SDL_Color){ 0, 0, 0, 0 });
+	gfx_render_text(&t, 0.0f, 0, sjis, &ts, false);
+	px = gfx_get_pixels(&t);
+	gfx_delete_texture(&t);
+	if (scissor)
+		glEnable(GL_SCISSOR_TEST);
+	free(sjis);
+	return px;
 }
 
 static void clear_cmds(void)
@@ -822,21 +854,30 @@ int rq_lua_hud_text_width(lua_State *L)
 {
 	const char *utf = luaL_checkstring(L, 1);
 	float size = 16.0f;
+	int bold = 0;
+	struct text_style ts;
 	char *sjis;
 	if (lua_istable(L, 2)) {
 		lua_getfield(L, 2, "size");
 		if (lua_isnumber(L, -1))
 			size = (float)lua_tonumber(L, -1);
 		lua_pop(L, 1);
+		lua_getfield(L, 2, "bold");
+		bold = lua_toboolean(L, -1);
+		lua_pop(L, 1);
 	} else if (lua_isnumber(L, 2)) {
 		size = (float)lua_tonumber(L, 2);
 	}
 	sjis = utf2sjis(utf ? utf : "", 0);
-	if (!sjis) {
+	if (!sjis || !*sjis) {
+		free(sjis);
 		lua_pushinteger(L, 0);
 		return 1;
 	}
-	lua_pushinteger(L, hud_measure_sjis(sjis, size));
+	hud_make_ts(&ts, size, 255, 255, 255);
+	if (bold)
+		hud_bold(&ts);
+	lua_pushinteger(L, (int)ceilf(gfx_size_text(&ts, sjis)));
 	free(sjis);
 	return 1;
 }
@@ -1003,6 +1044,8 @@ int rq_lua_hud_text(lua_State *L)
 		c->valign = align_at(L, -1, "top", "bottom");
 		lua_getfield(L, 4, "edge");
 		c->no_edge = lua_isboolean(L, -1) && !lua_toboolean(L, -1);
+		lua_getfield(L, 4, "bold");
+		c->bold = lua_toboolean(L, -1);
 		lua_settop(L, 4);
 		if (c->a < 0)
 			c->a = 0;
@@ -1291,11 +1334,13 @@ void rq_hud_draw(void)
 			hud_make_ts(&ts, c->size, c->r, c->g, c->b);
 			if (c->no_edge)
 				hud_no_edge(&ts);
+			if (c->bold)
+				hud_bold(&ts);
 			sjis = utf2sjis(c->text, 0);
 			if (!sjis)
 				continue;
 			int x = c->x, y = c->y;
-			int text_w = hud_measure_sjis(sjis, ts.size);
+			int text_w = *sjis ? (int)ceilf(gfx_size_text(&ts, sjis)) : 0;
 			if (c->align == ALIGN_CENTER)
 				x += (c->bw - text_w) / 2;
 			else if (c->align == ALIGN_END)

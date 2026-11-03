@@ -41,6 +41,7 @@ struct font_ft {
 	unsigned current_size;
 	unsigned nr_sizes;
 	struct font_size sizes[MAX_FONT_SIZES];
+	bool proportional; /* Latin letters take their own width, not half the size */
 };
 
 static FT_Library ft_lib;
@@ -181,12 +182,22 @@ static bool ft_font_get_glyph(struct font_size *size, struct glyph *glyph, uint3
 		return false;
 	}
 
-	glyph->advance = half_width ? size->size / 2 : size->size;
+	if (half_width && font->proportional)
+		glyph->advance = font->font->glyph->advance.x / 64.f;
+	else
+		glyph->advance = half_width ? size->size / 2 : size->size;
 	return true;
 }
 
 static float ft_font_size_char(struct font_size *size, uint32_t code)
 {
+	struct font_ft *font = (struct font_ft*)size->font;
+	if (font->proportional && is_half_width(code)) {
+		FT_Fixed advance;
+		ft_font_set_size(font, size->size);
+		if (!FT_Get_Advance(font->font, FT_Get_Char_Index(font->font, code), FT_LOAD_DEFAULT, &advance))
+			return advance / 65536.f;
+	}
 	return is_half_width(code) ? size->size / 2 : size->size;
 }
 
@@ -272,4 +283,12 @@ err:
 	free(font);
 	free(path);
 	return NULL;
+}
+
+struct font *ft_font_load_proportional(const char *spec)
+{
+	struct font *f = ft_font_load(spec);
+	if (f)
+		((struct font_ft*)f)->proportional = true;
+	return f;
 }

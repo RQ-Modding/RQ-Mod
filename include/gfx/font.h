@@ -134,6 +134,10 @@ extern bool gfx_text_advance_edges;
 
 void gfx_font_init(void);
 void ft_font_init(void);
+struct font *ft_font_load_proportional(const char *spec);
+/* RQ: the face rq.hud text asks for: fonts/VL-PGothic-Regular.ttf, laid out with each
+ * letter's own width. It is font_ttf[0] (VL Gothic) if that file is missing. */
+#define FONT_HUD 200
 struct font *ft_font_load(const char *spec);
 struct font *fnl_font_load(struct fnl *lib, unsigned index);
 

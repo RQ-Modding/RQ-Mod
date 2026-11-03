@@ -1729,6 +1729,22 @@ struct agent_reg {
 
 static struct agent_reg g_agent[AGENT_MAX];
 
+/* rq.agent.widgets: what the kit (or a mod's own HUD) drew on the last update. */
+#define KIT_MAX 96
+
+struct kit_ctrl {
+	char id[40];
+	char label[80];
+	char type[16];
+	char value[160];
+	int x, y, w, h;
+	int enabled;
+	int has_select, selected;
+};
+
+static struct kit_ctrl g_kit[KIT_MAX];
+static int g_nkit;
+
 static int memb(struct page *p, const char *name)
 {
 	struct ain_struct *s;
@@ -2693,28 +2709,29 @@ static void describe_cfg_button(struct ui_ctrl *c, int id, int panel,
 {
 	struct page *sl;
 	const char *sec = cfg_section(panel);
-	if (id >= 100001 && id <= 100008) {
+	if (id >= 100001 && id <= 100009) {
 		static const char *tabs[] = {
-			"message", "sound", "window", "3d", "confirm", "other", "other-2", "debug"
+			"message", "sound", "window", "3d", "confirm", "other", "other-2", "debug", "mods"
 		};
+		/* The Mods page is Other 2 made on a blank page (rq.config). */
+		int cur = rq_config_mods_page() ? 100009 : 100001 + panel;
 		snprintf(c->id, sizeof c->id, "tab-%s", tabs[id - 100001]);
 		snprintf(c->label, sizeof c->label, "%s", tabs[id - 100001]);
 		snprintf(c->type, sizeof c->type, "tab");
 		snprintf(c->section, sizeof c->section, "tabs");
-		snprintf(c->value, sizeof c->value, "%s",
-			id == 100001 + panel ? "true" : "false");
+		snprintf(c->value, sizeof c->value, "%s", id == cur ? "true" : "false");
 		return;
 	}
 	if (id == 100011) {
 		snprintf(c->id, sizeof c->id, "close");
-		snprintf(c->label, sizeof c->label, "X");
+		snprintf(c->label, sizeof c->label, "Return to game");
 		snprintf(c->type, sizeof c->type, "button");
 		snprintf(c->section, sizeof c->section, "window");
 		return;
 	}
 	if (id == 100019) {
 		snprintf(c->id, sizeof c->id, "cancel");
-		snprintf(c->label, sizeof c->label, "Back");
+		snprintf(c->label, sizeof c->label, "X");
 		snprintf(c->type, sizeof c->type, "button");
 		snprintf(c->section, sizeof c->section, "window");
 		return;
@@ -4318,6 +4335,106 @@ static void emit_agent_controls(void)
 	}
 }
 
+static void emit_kit_controls(void)
+{
+	struct kit_ctrl copy[KIT_MAX];
+	int i, n;
+
+	ui_lock();
+	n = g_nkit;
+	memcpy(copy, g_kit, sizeof copy[0] * (size_t)n);
+	ui_unlock();
+	for (i = 0; i < n; i++) {
+		struct ui_ctrl *c = ctrl_alloc();
+		if (!c)
+			break;
+		snprintf(c->id, sizeof c->id, "%s", copy[i].id);
+		snprintf(c->label, sizeof c->label, "%s", copy[i].label);
+		snprintf(c->type, sizeof c->type, "%s", copy[i].type);
+		snprintf(c->section, sizeof c->section, "kit");
+		snprintf(c->value, sizeof c->value, "%s", copy[i].value);
+		c->x = copy[i].x;
+		c->y = copy[i].y;
+		c->w = copy[i].w;
+		c->h = copy[i].h;
+		c->enabled = copy[i].enabled;
+		c->armed = copy[i].enabled;
+		c->has_select = copy[i].has_select;
+		c->selected = copy[i].selected;
+		c->has_visible = 1;
+		c->visible = 1;
+	}
+}
+
+static void lua_str(lua_State *L, int t, const char *k, char *dst, int n)
+{
+	lua_getfield(L, t, k);
+	if (lua_isstring(L, -1) || lua_isnumber(L, -1))
+		snprintf(dst, n, "%s", lua_tostring(L, -1));
+	else if (lua_isboolean(L, -1))
+		snprintf(dst, n, "%s", lua_toboolean(L, -1) ? "true" : "false");
+	else
+		dst[0] = 0;
+	lua_pop(L, 1);
+}
+
+static int lua_int(lua_State *L, int t, const char *k)
+{
+	int v;
+	lua_getfield(L, t, k);
+	v = (int)lua_tointeger(L, -1);
+	lua_pop(L, 1);
+	return v;
+}
+
+/* rq.agent.widgets(list): the list replaces the last one; {} clears it. */
+int rq_lua_agent_widgets(lua_State *L)
+{
+	struct kit_ctrl tmp[KIT_MAX];
+	int i, n, k = 0;
+
+	luaL_checktype(L, 1, LUA_TTABLE);
+	n = (int)lua_rawlen(L, 1);
+	for (i = 1; i <= n && k < KIT_MAX; i++) {
+		struct kit_ctrl *c = &tmp[k];
+		lua_rawgeti(L, 1, i);
+		if (!lua_istable(L, -1)) {
+			lua_pop(L, 1);
+			continue;
+		}
+		memset(c, 0, sizeof *c);
+		lua_str(L, -1, "id", c->id, (int)sizeof c->id);
+		lua_str(L, -1, "label", c->label, (int)sizeof c->label);
+		lua_str(L, -1, "type", c->type, (int)sizeof c->type);
+		lua_str(L, -1, "value", c->value, (int)sizeof c->value);
+		c->x = lua_int(L, -1, "x");
+		c->y = lua_int(L, -1, "y");
+		c->w = lua_int(L, -1, "w");
+		c->h = lua_int(L, -1, "h");
+		lua_getfield(L, -1, "disabled");
+		c->enabled = !lua_toboolean(L, -1);
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "selected");
+		c->has_select = !lua_isnil(L, -1);
+		c->selected = lua_toboolean(L, -1);
+		lua_pop(L, 1);
+		lua_pop(L, 1);
+		if (!agent_id_ok(c->id) || c->w <= 0 || c->h <= 0)
+			continue;
+		if (!c->label[0])
+			snprintf(c->label, sizeof c->label, "%s", c->id);
+		if (!c->type[0])
+			snprintf(c->type, sizeof c->type, "button");
+		k++;
+	}
+	ui_lock();
+	memcpy(g_kit, tmp, sizeof tmp[0] * (size_t)k);
+	g_nkit = k;
+	ui_unlock();
+	lua_pushinteger(L, k);
+	return 1;
+}
+
 static void hover_agent(void)
 {
 	int i, mx, my, active, best = -1, best_area = 0;
@@ -4327,7 +4444,7 @@ static void hover_agent(void)
 	for (i = 0; i < g_nctrls; i++) {
 		struct ui_ctrl *c = &g_ctrls[i];
 		int area;
-		if (strcmp(c->section, "agent") != 0)
+		if (strcmp(c->section, "agent") != 0 && strcmp(c->section, "kit") != 0)
 			continue;
 		if (!c->enabled || !c->armed || c->w <= 0 || c->h <= 0)
 			continue;
@@ -5662,6 +5779,7 @@ static void publish(void)
 	classify();
 	}
 	emit_agent_controls();
+	emit_kit_controls();
 	hover_agent();
 	if (strcmp(g_screen, "boot") && strcmp(g_screen, "disclaimer") && strcmp(g_screen, "other"))
 		g_seen_screen = 1;
