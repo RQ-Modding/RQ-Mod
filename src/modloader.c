@@ -1080,6 +1080,7 @@ static void guard_game_calls(lua_State *L)
 		{ "battle", "set_flame set_buff buffs get_drop set_drop skill_usable start" },
 		{ "party", "get set" },
 		{ "dungeon", "grid" },
+		{ "sprite", "new scene" },
 		{ "random", "seed" },
 		{ "quests", "state set_state unlock _debug_clear new_this_run current" },
 	};
@@ -1401,8 +1402,10 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "set_volume", rq_lua_sound_set_volume);
 	lua_setfield(L, -2, "sound");
 
+	rq_sprite_open(L, lua_gettop(L));
 	rq_query_bind(L);
 	rq_scene_open(L, lua_gettop(L));
+	rq_sprite_hooks(L, lua_gettop(L));
 	rq_uikit_open(L, lua_gettop(L));
 	rq_config_open(L, lua_gettop(L));
 	guard_game_calls(L);

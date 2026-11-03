@@ -1294,6 +1294,25 @@ void PE_GetPartsCGSurfaceArea(int parts_no, int *x, int *y, int *w, int *h, int 
 	*h = cg->common.surface_area.h;
 }
 
+/* RQ: the part behind a scene node, for rq.sprite.scene. Reads only: parts_get_cg
+ * would turn a state of another type into a CG. */
+bool rq_parts_describe(struct sprite *sp, int *no, int *type, int *x, int *y, int *w, int *h, int *cg)
+{
+	struct parts *p = (struct parts *)sp;
+	struct parts_state *st;
+	if (!sp || sp->render != parts_sprite_render)
+		return false;
+	st = &p->states[p->state];
+	*no = p->no;
+	*type = st->type;
+	*x = st->common.hitbox.x + (p->parent ? p->parent->global.pos.x : 0);
+	*y = st->common.hitbox.y + (p->parent ? p->parent->global.pos.y : 0);
+	*w = st->common.w;
+	*h = st->common.h;
+	*cg = st->type == PARTS_CG ? st->cg.no : 0;
+	return true;
+}
+
 int PE_GetPartsCGNumber(int parts_no, int state)
 {
 	if (!parts_state_valid(--state)) {

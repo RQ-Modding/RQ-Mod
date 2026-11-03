@@ -261,6 +261,12 @@ void rq_config_init(struct ain *ain);
 int rq_config_syscall(int code);
 int rq_config_mods_page(void);
 void rq_config_open(struct lua_State *L, int rq_index);
+/* rq.sprite (modloader_sprite.c): mod sprites in the scene list. */
+void rq_sprite_open(struct lua_State *L, int rq_index);
+void rq_sprite_hooks(struct lua_State *L, int rq_index);
+int rq_sprite_tick(void);
+void rq_sprite_cg_changed(int no);
+char *rq_sprite_scene_json(void);
 /* The base profile's save folder, the same for every profile (NULL before init). */
 const char *rq_saves_base_dir(void);
 int rq_saves_install(struct ain *ain);
@@ -389,7 +395,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "1.8.0"
+#define RQ_VERSION "1.9.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -507,6 +513,7 @@ static inline void rq_roster_apply(int iic) { (void)iic; }
 static inline void rq_roster_mark_stale(void) {}
 static inline int rq_hud_syscall(int code) { (void)code; return 0; }
 static inline int rq_hud_tick(void) { return 0; }
+static inline int rq_sprite_tick(void) { return 0; }
 static inline void rq_hud_draw(void) {}
 static inline int rq_hud_block_mouse(void) { return 0; }
 static inline int rq_hud_block_keys(void) { return 0; }

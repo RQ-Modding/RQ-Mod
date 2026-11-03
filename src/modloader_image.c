@@ -84,6 +84,7 @@ static void cg_changed(int id)
 {
 	asset_cg_cache_forget(id);
 	rq_anim_cg_changed(id);
+	rq_sprite_cg_changed(id);
 }
 
 static struct img *find_img(int id)

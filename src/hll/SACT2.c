@@ -241,6 +241,8 @@ int sact_Update(void)
 		int hud = rq_hud_tick();
 		if (hud)
 			scene_is_dirty = true;
+		if (rq_sprite_tick())
+			scene_is_dirty = true;
 		rq_debug_tick();
 		if (rq_debug_wants_frame())
 			scene_is_dirty = true;
