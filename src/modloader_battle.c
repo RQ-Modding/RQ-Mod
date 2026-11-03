@@ -1691,6 +1691,43 @@ static int card_of_iic(int iic)
 	return 0;
 }
 
+/* rq.sprite: the Chipmunk sprite a card is drawn with, 0 out of a fight. An ally's is
+ * T_BattleChara.m_sCard.m_spBase, an enemy's T_BattleMonster.m_spBase.m_spBase. */
+static int g_sp_m_card = -2, g_sp_m_cbase, g_sp_m_mbase, g_sp_m_tbase, g_sp_m_spno;
+
+int rq_battle_card_sprite(int no)
+{
+	struct page *ch = g_marks_live ? card_page(no) : NULL, *base;
+
+	if (!ch)
+		return 0;
+	if (g_sp_m_card == -2) {
+		g_sp_m_card = find_member(ain, find_struct(ain, "T_BattleChara"), "m_sCard");
+		g_sp_m_cbase = find_member(ain, find_struct(ain, "T_CharaCard"), "m_spBase");
+		g_sp_m_mbase = find_member(ain, find_struct(ain, "T_BattleMonster"), "m_spBase");
+		g_sp_m_tbase = find_member(ain, find_struct(ain, "T_TextSprite"), "m_spBase");
+		g_sp_m_spno = find_member(ain, find_struct(ain, "T_Sprite"), "m_nSpNo");
+	}
+	if (is_ally_no(no))
+		base = mark_child(mark_child(ch, g_sp_m_card), g_sp_m_cbase);
+	else
+		base = mark_child(mark_child(ch, g_sp_m_mbase), g_sp_m_tbase);
+	if (!base || g_sp_m_spno < 0 || g_sp_m_spno >= base->nr_vars)
+		return 0;
+	return base->values[g_sp_m_spno].i;
+}
+
+/* The card a character is on now, 0 if none or out of a fight. */
+int rq_battle_chara_card(int iic)
+{
+	return g_marks_live ? card_of_iic(iic) : 0;
+}
+
+int rq_battle_live(void)
+{
+	return g_marks_live;
+}
+
 /* Lets the card show a state a mod has just changed. */
 void rq_battle_recheck_card(int iic)
 {

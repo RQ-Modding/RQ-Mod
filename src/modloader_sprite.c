@@ -12,6 +12,10 @@
  *
  * rq.sprite.scene and the pipe's "scene" command list the whole scene, back to front.
  *
+ * Since 1.11.0 a sprite can follow a battle card, a character's card, another mod sprite
+ * or a game sprite (attach): x, y and z are then added to that one's, it is hidden while
+ * that one is, and it goes when that one goes (a card's at the end of the fight).
+ *
  * Since 1.10.0 a sprite can show a GIF, its frames decoded once into textures
  * (rq_gif_frames), and move with s:to. Both run on the game's clock, so game-speed
  * makes them faster, unless clock = "real".
@@ -34,6 +38,7 @@
 #include "scene.h"
 #include "sprite.h"
 #include "vm.h"
+#include "sact.h"
 #include "modloader.h"
 #include "modloader_priv.h"
 
@@ -42,6 +47,7 @@
 #define SPR_CG_MAX 256
 #define SPR_RESET_CB 64
 #define SPR_GIF_MAX 64
+#define SPR_ATTACH_DEPTH 8
 #define SPR_GIF_PIXELS (64u * 1024u * 1024u)
 #define SPR_META "rq.sprite"
 /* Named layers, from the z map (see plan-sprites.md):
@@ -63,6 +69,7 @@ enum { SPR_NONE, SPR_CG, SPR_FILL, SPR_TEXT, SPR_GIF };
 enum { KEEP_NONE, KEEP_SCREEN };
 enum { MV_X, MV_Y, MV_W, MV_H, MV_SX, MV_SY, MV_ROT, MV_ALPHA, MV_TR, MV_TG, MV_TB, MV_AR, MV_AG, MV_AB, MV_N };
 enum { EASE_LINEAR, EASE_IN, EASE_OUT, EASE_IN_OUT };
+enum { AT_NONE, AT_CARD, AT_CHARA, AT_SPRITE, AT_GAME };
 
 struct spr_gif;
 
@@ -122,6 +129,12 @@ struct msprite {
 	int real;            /* clock = "real" */
 	int gif_end;         /* on_end of s:play, a registry ref */
 	struct motion mv;
+	int at;              /* attach: AT_* */
+	int at_no;           /* card no, iic, mod sprite id or game sprite no */
+	float bx, by;        /* the target's top left; x, y are added to it */
+	int bz;              /* the target's z; z is added to it */
+	int at_hidden;       /* the target is not shown */
+	unsigned at_seen;    /* the tick it last followed */
 };
 
 static struct msprite *g_spr[SPR_MAX];
@@ -132,6 +145,7 @@ static int g_reset_cb[SPR_RESET_CB];
 static int g_nreset;
 static int g_keepers;
 static lua_State *g_L;
+static unsigned g_tick = 1;
 
 static struct spr_shader {
 	Shader s;
@@ -572,8 +586,8 @@ static void spr_render(struct sprite *base)
 	for (i = 0; i < 4; i++) {
 		float lx = (i & 1) ? bw : 0, ly = (i & 2) ? bh : 0;
 		float px = (lx - ox) * s->scale_x, py = (ly - oy) * s->scale_y;
-		v[i].x = s->x + ox + px * c - py * sn;
-		v[i].y = s->y + oy + px * sn + py * c;
+		v[i].x = s->bx + s->x + ox + px * c - py * sn;
+		v[i].y = s->by + s->y + oy + px * sn + py * c;
 		v[i].z = 0;
 		v[i].w = 1;
 		v[i].u = (i & 1) ? u1 : u0;
@@ -597,12 +611,13 @@ static cJSON *spr_to_json(struct sprite *base, bool verbose)
 	return o;
 }
 
-/* In the scene when it is shown and has something to draw. */
+/* In the scene when it is shown, has something to draw, and its target is shown. */
 static void place(struct msprite *s)
 {
-	int want = s->show && spr_texture(s) != NULL;
-	if (s->sp.z != s->z)
-		scene_set_sprite_z(&s->sp, s->z);
+	int want = s->show && !s->at_hidden && spr_texture(s) != NULL;
+	int z = s->at != AT_NONE ? s->bz + s->z : s->z;
+	if (s->sp.z != z)
+		scene_set_sprite_z(&s->sp, z);
 	if (want && !s->sp.in_scene)
 		scene_register_sprite(&s->sp);
 	else if (!want && s->sp.in_scene)
@@ -938,6 +953,166 @@ static void opt_keep(lua_State *L, struct msprite *s, int t)
 	s->keep = want;
 }
 
+
+/* ---- attach ---- */
+
+/* Where the target of an attached sprite is now: its top left, its z, and whether it is
+ * shown. 0 when it is gone for good, so the sprite goes too. */
+static int target_of(struct msprite *s, int depth, float *x, float *y, int *z, int *shown);
+
+static int game_sprite_at(int no, float *x, float *y, int *z, int *shown)
+{
+	struct sact_sprite *ss = no > 0 ? sact_try_get_sprite(no) : NULL;
+	if (!ss)
+		return 0;
+	*x = (float)ss->rect.x;
+	*y = (float)ss->rect.y;
+	*z = ss->sp.z;
+	*shown = !ss->sp.hidden && ss->sp.in_scene;
+	return 1;
+}
+
+/* Brings an attached sprite to its target; 0 if the target is gone. */
+static int follow(struct msprite *s, int depth)
+{
+	float x = 0, y = 0;
+	int z = 0, shown = 0;
+
+	if (s->at == AT_NONE)
+		return 1;
+	if (s->at_seen == g_tick)
+		return 1;
+	if (!target_of(s, depth, &x, &y, &z, &shown))
+		return 0;
+	s->at_seen = g_tick;
+	s->bx = x;
+	s->by = y;
+	s->bz = z;
+	s->at_hidden = !shown;
+	return 1;
+}
+
+static int target_of(struct msprite *s, int depth, float *x, float *y, int *z, int *shown)
+{
+	struct msprite *t;
+	int no;
+
+	switch (s->at) {
+	case AT_CARD:
+	case AT_CHARA:
+		/* Out of a fight it goes; a card with no one on it, or between sprites, hides it. */
+		if (!rq_battle_live())
+			return 0;
+		no = s->at == AT_CARD ? s->at_no : rq_battle_chara_card(s->at_no);
+		if (!no || !game_sprite_at(rq_battle_card_sprite(no), x, y, z, shown)) {
+			*x = s->bx;
+			*y = s->by;
+			*z = s->bz;
+			*shown = 0;
+		}
+		return 1;
+	case AT_GAME:
+		return game_sprite_at(s->at_no, x, y, z, shown);
+	case AT_SPRITE:
+		t = by_id(s->at_no);
+		if (!t || depth >= SPR_ATTACH_DEPTH || !follow(t, depth + 1))
+			return 0;
+		*x = t->bx + t->x;
+		*y = t->by + t->y;
+		*z = t->sp.z;
+		*shown = t->show && !t->at_hidden;
+		return 1;
+	}
+	return 1;
+}
+
+static const char *attach_err = "rq.sprite: attach is {card = n}, {chara = iic}, {sprite = s}, {game = n}, or false";
+
+/* Reads attach. Returns whether it changed. */
+static int opt_attach(lua_State *L, struct msprite *s, int t)
+{
+	int at = AT_NONE, no = 0, keys = 0, a;
+	lua_Integer n;
+
+	lua_getfield(L, t, "attach");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (lua_isboolean(L, -1) && !lua_toboolean(L, -1)) {
+		lua_pop(L, 1);
+		a = s->at != AT_NONE;
+		s->at = AT_NONE;
+		s->bx = s->by = 0;
+		s->bz = 0;
+		s->at_hidden = 0;
+		return a;
+	}
+	if (!lua_istable(L, -1))
+		luaL_error(L, attach_err);
+	a = lua_gettop(L);
+	lua_getfield(L, a, "card");
+	if (!lua_isnil(L, -1)) {
+		keys++;
+		n = lua_isinteger(L, -1) ? lua_tointeger(L, -1) : 0;
+		if (!((n >= 1 && n <= 5) || (n >= 11 && n <= 15)))
+			luaL_error(L, "rq.sprite: attach card is 1 to 5 (allies) or 11 to 15 (enemies)");
+		if (!rq_battle_live())
+			luaL_error(L, "rq.sprite: attach card needs a fight");
+		at = AT_CARD;
+		no = (int)n;
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, a, "chara");
+	if (!lua_isnil(L, -1)) {
+		keys++;
+		n = lua_isinteger(L, -1) ? lua_tointeger(L, -1) : 0;
+		if (n <= 0)
+			luaL_error(L, "rq.sprite: attach chara is a character's iic");
+		if (!rq_battle_live())
+			luaL_error(L, "rq.sprite: attach chara needs a fight");
+		at = AT_CHARA;
+		no = (int)n;
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, a, "game");
+	if (!lua_isnil(L, -1)) {
+		keys++;
+		n = lua_isinteger(L, -1) ? lua_tointeger(L, -1) : 0;
+		if (n <= 0 || !sact_try_get_sprite((int)n))
+			luaL_error(L, "rq.sprite: attach game needs a game sprite number that exists now");
+		at = AT_GAME;
+		no = (int)n;
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, a, "sprite");
+	if (!lua_isnil(L, -1)) {
+		int *id = luaL_testudata(L, -1, SPR_META);
+		struct msprite *t = id ? by_id(*id) : NULL, *c;
+		int depth = 0;
+		keys++;
+		if (!t)
+			luaL_error(L, "rq.sprite: attach sprite needs a sprite that is not removed");
+		for (c = t; c && depth <= SPR_ATTACH_DEPTH; depth++) {
+			if (c == s)
+				luaL_error(L, "rq.sprite: a sprite cannot follow itself");
+			c = c->at == AT_SPRITE ? by_id(c->at_no) : NULL;
+		}
+		if (depth > SPR_ATTACH_DEPTH)
+			luaL_error(L, "rq.sprite: at most %d sprites can follow one another", SPR_ATTACH_DEPTH);
+		at = AT_SPRITE;
+		no = t->id;
+	}
+	lua_pop(L, 1);
+	if (keys != 1)
+		luaL_error(L, attach_err);
+	lua_pop(L, 1);
+	s->at = at;
+	s->at_no = no;
+	s->at_seen = 0;
+	return 1;
+}
+
 /* Options in the table at t. A bad one raises an error. */
 static void apply_opts(lua_State *L, struct msprite *s, int t)
 {
@@ -980,6 +1155,12 @@ static void apply_opts(lua_State *L, struct msprite *s, int t)
 	if (!lua_isnil(L, -1))
 		s->show = lua_toboolean(L, -1);
 	lua_pop(L, 1);
+	if (opt_attach(L, s, t)) {
+		lua_getfield(L, t, "z");
+		if (lua_isnil(L, -1))
+			s->z = s->at != AT_NONE ? 1 : SPR_Z_DEFAULT;
+		lua_pop(L, 1);
+	}
 	lua_getfield(L, t, "z");
 	if (lua_type(L, -1) == LUA_TSTRING) {
 		const char *z = lua_tostring(L, -1);
@@ -1100,6 +1281,7 @@ static int l_new(lua_State *L)
 	luaL_setmetatable(L, SPR_META);
 	lua_pushvalue(L, -1);
 	s->ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	follow(s, 0);
 	place(s);
 	return 1;
 }
@@ -1110,6 +1292,12 @@ static int l_set(lua_State *L)
 	luaL_checktype(L, 2, LUA_TTABLE);
 	unmove(L, s, 2);
 	apply_opts(L, s, 2);
+	s->at_seen = 0;
+	if (!follow(s, 0)) {
+		destroy(s, L);
+		lua_settop(L, 1);
+		return 1;
+	}
 	place(s);
 	lua_settop(L, 1);
 	return 1;
@@ -1202,6 +1390,22 @@ static int l_get(lua_State *L)
 		lua_pushstring(L, s->screen);
 		lua_setfield(L, -2, "screen");
 	}
+	if (s->at != AT_NONE) {
+		static const char *const keys[] = { "", "card", "chara", "sprite", "game" };
+		struct msprite *t = s->at == AT_SPRITE ? by_id(s->at_no) : NULL;
+		lua_createtable(L, 0, 1);
+		if (s->at == AT_SPRITE && t)
+			lua_rawgeti(L, LUA_REGISTRYINDEX, t->ref);
+		else
+			lua_pushinteger(L, s->at_no);
+		lua_setfield(L, -2, keys[s->at]);
+		lua_setfield(L, -2, "attach");
+	}
+	lua_createtable(L, 0, 3);
+	set_num(L, "x", s->bx + s->x);
+	set_num(L, "y", s->by + s->y);
+	set_num(L, "z", s->at != AT_NONE ? s->bz + s->z : s->z);
+	lua_setfield(L, -2, "drawn");
 	lua_pushstring(L, s->real ? "real" : "game");
 	lua_setfield(L, -2, "clock");
 	lua_pushboolean(L, s->mv.on);
@@ -1546,6 +1750,31 @@ static int advance(int *fn, int *id, int *np)
 	return dirty;
 }
 
+/* Each attached sprite goes to its target, and goes when that one has gone. */
+static int attached(void)
+{
+	static int gone[SPR_MAX];
+	int i, n = 0, any = 0;
+
+	g_tick++;
+	for (i = 0; i < SPR_MAX; i++) {
+		struct msprite *s = g_spr[i];
+		if (!s || s->at == AT_NONE)
+			continue;
+		any = 1;
+		if (follow(s, 0))
+			place(s);
+		else
+			gone[n++] = s->id;
+	}
+	for (i = 0; i < n; i++) {
+		struct msprite *s = by_id(gone[i]);
+		if (s)
+			destroy(s, g_L);
+	}
+	return any;
+}
+
 /* on_end(s) for each that is due, after every sprite has moved. */
 static void fire_ends(const int *fn, const int *id, int n)
 {
@@ -1606,7 +1835,7 @@ static void walk_one(struct sprite *sp, void *data)
 		r->kind = "mod";
 		r->no = s->id;
 		r->mod = s->mod;
-		r->x = (int)s->x; r->y = (int)s->y;
+		r->x = (int)(s->bx + s->x); r->y = (int)(s->by + s->y);
 		r->w = (int)(bw * s->scale_x); r->h = (int)(bh * s->scale_y);
 		r->cg = s->kind == SPR_CG ? s->cg : 0;
 	} else if ((ss = sprite_as_sact(sp))) {
@@ -1719,6 +1948,8 @@ int rq_sprite_tick(void)
 		}
 	}
 	if (advance(fn, id, &np))
+		dirty = 1;
+	if (attached())
 		dirty = 1;
 	fire_ends(fn, id, np);
 	return dirty;
