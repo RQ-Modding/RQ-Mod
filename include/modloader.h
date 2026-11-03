@@ -33,6 +33,7 @@ void rq_unwind_install(struct lua_State *L);
 /* After the title's reset: state the reset left half way, as a call it never ended. */
 void rq_scene_after_reset(void);
 void rq_hud_after_reset(void);
+int rq_hud_menu_open(void);
 void rq_events_after_reset(void);
 #ifdef lua_pcall
 #undef lua_pcall
@@ -430,7 +431,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "1.13.0"
+#define RQ_VERSION "1.14.0"
 
 struct rq_qbattle_skill {
 	int id;

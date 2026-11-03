@@ -622,6 +622,12 @@ int rq_lua_hud_block_keys(lua_State *L)
 	return 0;
 }
 
+/* The System menu or Config is open, over whatever screen (rq.scene.start waits for them). */
+int rq_hud_menu_open(void)
+{
+	return g_modal_n[0] > 0;
+}
+
 /* The title ends the map, a fight and every window the game had open. */
 void rq_hud_after_reset(void)
 {
@@ -745,6 +751,8 @@ int rq_hud_install(struct ain *ain)
 	 * stays off — those objects live on the map and never deleted, which stuck
 	 * exploring() false on real map-walk. */
 	wrap_blocking(ain, "T_SystemMenu@select", MODAL_CONFIG, 1);
+	/* Config from the title, a message or the System menu (loader 1.14.0, for rq.scene.start). */
+	wrap_blocking(ain, "コンフィグ_実行", MODAL_CONFIG, 0);
 	wrap_blocking(ain, "T_Result@select", MODAL_RESULT, 0);
 	wrap_blocking(ain, "T_ResultItem@select", MODAL_RESULT_ITEM, 0);
 	wrap_blocking(ain, "リザルト鑑定", MODAL_RESULT_ITEM, 0);

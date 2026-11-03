@@ -967,6 +967,15 @@ static const char lua_layer[] =
 "  end\n"
 "end\n";
 
+extern const char rq_scene_lua[];
+extern const unsigned rq_scene_lua_len;
+
+static int l_menu_open(lua_State *L)
+{
+	lua_pushboolean(L, rq_hud_menu_open());
+	return 1;
+}
+
 void rq_scene_open(lua_State *L, int rq_index)
 {
 	lua_getfield(L, rq_index, "ain");
@@ -994,6 +1003,19 @@ void rq_scene_open(lua_State *L, int rq_index)
 	lua_pushcfunction(L, l_msgno);
 	if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
 		rq_log("scene layer: %s", lua_tostring(L, -1));
+		lua_pop(L, 1);
+		return;
+	}
+	/* rq.scene.start and active (lua/scene.lua, loader 1.14.0). */
+	if (luaL_loadbuffer(L, rq_scene_lua, rq_scene_lua_len, "=scene") != LUA_OK) {
+		rq_log("scene: %s", lua_tostring(L, -1));
+		lua_pop(L, 1);
+		return;
+	}
+	lua_pushvalue(L, rq_index);
+	lua_pushcfunction(L, l_menu_open);
+	if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+		rq_log("scene: %s", lua_tostring(L, -1));
 		lua_pop(L, 1);
 	}
 }
