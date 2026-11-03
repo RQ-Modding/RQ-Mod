@@ -44,6 +44,7 @@
 struct anim {
 	char name[256];
 	char key[104];
+	char path[1024]; /* the GIF file it was made from */
 	uint8_t *swf;
 	size_t size;
 	int w, h, frames, ms;
@@ -347,19 +348,17 @@ static void image_paint(uint8_t *canvas, int cw, int ch, const uint8_t *idx, int
 	}
 }
 
-/* Returns an error, or NULL with the finished SWF in m. draw_w and draw_h are the size
- * on screen; 0 keeps the GIF's own. */
-static const char *gif_to_swf(const uint8_t *data, size_t size, int draw_w, int draw_h, struct anim *m)
+/* Walks the frames of a GIF. Returns an error, or NULL with the canvas size and count. */
+static const char *gif_decode(const uint8_t *data, size_t size, gif_frame_fn frame, void *ctx,
+			      int *out_w, int *out_h, int *out_count)
 {
 	struct gif g = { data, size, 0 };
-	struct out o = { 0 };
 	uint8_t *canvas = NULL, *saved = NULL, *idx = NULL;
 	const uint8_t *global_pal = NULL;
 	const char *err = NULL;
 	int cw, ch, global_n = 0, flags;
 	int disposal = 0, transparent = -1, delay = 0;
-	int count = 0, cum_cs = 0, shown = 0;
-	size_t frames_at;
+	int count = 0;
 
 	if (size < 13 || (memcmp(data, "GIF87a", 6) && memcmp(data, "GIF89a", 6)))
 		return "not a GIF file";
@@ -376,15 +375,9 @@ static const char *gif_to_swf(const uint8_t *data, size_t size, int draw_w, int 
 			return "truncated GIF";
 		g.i += (size_t)global_n * 3;
 	}
-	if (!draw_w)
-		draw_w = cw;
-	if (!draw_h)
-		draw_h = ch;
 
 	canvas = xcalloc((size_t)cw * ch, 4);
 	saved = xmalloc((size_t)cw * ch * 4);
-
-	frames_at = swf_begin(&o, draw_w, draw_h);
 
 	while (!err) {
 		int block;
@@ -423,7 +416,7 @@ static const char *gif_to_swf(const uint8_t *data, size_t size, int draw_w, int 
 		{
 			struct out codes = { 0 };
 			const uint8_t *pal = global_pal;
-			int pal_n = global_n, x, y, w, h, fl, min, want, id = count * 2 + 1;
+			int pal_n = global_n, x, y, w, h, fl, min;
 			size_t cells;
 
 			if (g.i + 10 > g.n) {
@@ -472,26 +465,8 @@ static const char *gif_to_swf(const uint8_t *data, size_t size, int draw_w, int 
 				memcpy(saved, canvas, (size_t)cw * ch * 4);
 			image_paint(canvas, cw, ch, idx, x, y, w, h, fl & 0x40, pal, pal_n, transparent);
 
-			if (!out_bitmap(&o, id, canvas, cw, ch)) {
-				err = "could not compress a frame";
+			if ((err = frame(ctx, canvas, cw, ch, delay)))
 				break;
-			}
-			out_shape(&o, id + 1, id, draw_w, draw_h);
-			out_place(&o, id + 1);
-			/* Browsers treat a delay under 20 ms as 100 ms. The running total
-			 * decides how many 30 fps frames each one holds, so rounding adds up. */
-			cum_cs += delay >= 2 ? delay : 10;
-			{
-				int target = (cum_cs * 30 + 50) / 100;
-				int hold = target > shown ? target - shown : 1;
-				shown += hold;
-				if (shown > 65000) {
-					err = "GIF plays for too long";
-					break;
-				}
-				while (hold-- > 0)
-					out_tag(&o, SWF_TAG_SHOW_FRAME, NULL, 0);
-			}
 
 			if (disposal == 2) {
 				int row;
@@ -516,20 +491,98 @@ static const char *gif_to_swf(const uint8_t *data, size_t size, int draw_w, int 
 	free(idx);
 	if (!err && !count)
 		err = "GIF has no frames";
+	*out_w = cw;
+	*out_h = ch;
+	*out_count = count;
+	return err;
+}
+
+/* The SWF that gif_to_swf builds, one frame at a time. */
+struct swf_build {
+	struct out o;
+	int draw_w, draw_h;
+	size_t frames_at;
+	int count, cum_cs, shown;
+};
+
+static const char *swf_frame(void *ctx, const uint8_t *argb, int w, int h, int delay_cs)
+{
+	struct swf_build *b = ctx;
+	int id = b->count * 2 + 1, target, hold;
+
+	if (!b->o.d)
+		b->frames_at = swf_begin(&b->o, b->draw_w ? b->draw_w : w, b->draw_h ? b->draw_h : h);
+	if (!out_bitmap(&b->o, id, argb, w, h))
+		return "could not compress a frame";
+	out_shape(&b->o, id + 1, id, b->draw_w ? b->draw_w : w, b->draw_h ? b->draw_h : h);
+	out_place(&b->o, id + 1);
+	/* Browsers treat a delay under 20 ms as 100 ms. The running total
+	 * decides how many 30 fps frames each one holds, so rounding adds up. */
+	b->cum_cs += delay_cs >= 2 ? delay_cs : 10;
+	target = (b->cum_cs * 30 + 50) / 100;
+	hold = target > b->shown ? target - b->shown : 1;
+	b->shown += hold;
+	if (b->shown > 65000)
+		return "GIF plays for too long";
+	while (hold-- > 0)
+		out_tag(&b->o, SWF_TAG_SHOW_FRAME, NULL, 0);
+	b->count++;
+	return NULL;
+}
+
+/* Returns an error, or NULL with the finished SWF in m. draw_w and draw_h are the size
+ * on screen; 0 keeps the GIF's own. */
+static const char *gif_to_swf(const uint8_t *data, size_t size, int draw_w, int draw_h, struct anim *m)
+{
+	struct swf_build b = { { 0 }, draw_w, draw_h, 0, 0, 0, 0 };
+	const char *err;
+	int cw, ch, count;
+
+	/* The first frame writes the header, once the GIF's size is known. */
+	err = gif_decode(data, size, swf_frame, &b, &cw, &ch, &count);
 	if (err) {
-		free(o.d);
+		free(b.o.d);
 		return err;
 	}
-	swf_end(&o, frames_at, shown);
+	swf_end(&b.o, b.frames_at, b.shown);
 
 	free(m->swf);
-	m->swf = o.d;
-	m->size = o.n;
-	m->w = draw_w;
-	m->h = draw_h;
+	m->swf = b.o.d;
+	m->size = b.o.n;
+	m->w = draw_w ? draw_w : cw;
+	m->h = draw_h ? draw_h : ch;
 	m->frames = count;
-	m->ms = cum_cs * 10;
+	m->ms = b.cum_cs * 10;
 	return NULL;
+}
+
+/* Reads a GIF file and calls frame for each of its frames (see gif_frame_fn). */
+const char *rq_gif_frames(const char *path, gif_frame_fn frame, void *ctx, int *w, int *h, int *count)
+{
+	const char *err;
+	uint8_t *data;
+	long len;
+	FILE *f = fopen(path, "rb");
+
+	if (!f)
+		return "not found";
+	fseek(f, 0, SEEK_END);
+	len = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	if (len <= 0) {
+		fclose(f);
+		return "empty";
+	}
+	data = xmalloc((size_t)len);
+	if (fread(data, 1, (size_t)len, f) != (size_t)len) {
+		free(data);
+		fclose(f);
+		return "could not be read";
+	}
+	fclose(f);
+	err = gif_decode(data, (size_t)len, frame, ctx, w, h, count);
+	free(data);
+	return err;
 }
 
 /* ---- registry ---- */
@@ -592,6 +645,17 @@ int rq_anim_find(const char *name, uint8_t **data, size_t *size)
 void rq_anim_redirect(int handle)
 {
 	g_redirect = handle;
+}
+
+/* The GIF file an rq.image.add_gif key was made from, for rq.sprite. */
+int rq_anim_source(const char *key, char *path, size_t n)
+{
+	struct anim *m = anim_by_key(key);
+
+	if (!m || !m->path[0])
+		return 0;
+	snprintf(path, n, "%s", m->path);
+	return 1;
 }
 
 int rq_anim_handle(const char *key)
@@ -745,6 +809,7 @@ int rq_lua_image_add_gif(lua_State *L)
 		return luaL_error(L, "GIF '%s': %s", rel, err);
 	snprintf(m->name, sizeof m->name, "%s", name);
 	snprintf(m->key, sizeof m->key, "%s", key);
+	snprintf(m->path, sizeof m->path, "%s", full);
 	lua_pushstring(L, key);
 	return 1;
 }

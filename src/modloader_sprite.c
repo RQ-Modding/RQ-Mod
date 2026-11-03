@@ -11,6 +11,10 @@
  * title remove them all (lua/sprite.lua), and rq.sprite.on_reset tells the mods.
  *
  * rq.sprite.scene and the pipe's "scene" command list the whole scene, back to front.
+ *
+ * Since 1.10.0 a sprite can show a GIF, its frames decoded once into textures
+ * (rq_gif_frames), and move with s:to. Both run on the game's clock, so game-speed
+ * makes them faster, unless clock = "real".
  */
 
 #ifdef RQ_MODLOADER
@@ -29,6 +33,7 @@
 #include "gfx/gfx.h"
 #include "scene.h"
 #include "sprite.h"
+#include "vm.h"
 #include "modloader.h"
 #include "modloader_priv.h"
 
@@ -36,6 +41,8 @@
 #define SPR_PER_MOD 256
 #define SPR_CG_MAX 256
 #define SPR_RESET_CB 64
+#define SPR_GIF_MAX 64
+#define SPR_GIF_PIXELS (64u * 1024u * 1024u)
 #define SPR_META "rq.sprite"
 /* Named layers, from the z map (see plan-sprites.md):
  *   1-22 the hub and quest list pages, 101-262 the fight's field and cards and the dungeon view,
@@ -52,8 +59,23 @@ bool rq_parts_describe(struct sprite *sp, int *no, int *type, int *x, int *y, in
 extern const char rq_sprite_lua[];
 extern const unsigned rq_sprite_lua_len;
 
-enum { SPR_NONE, SPR_CG, SPR_FILL, SPR_TEXT };
+enum { SPR_NONE, SPR_CG, SPR_FILL, SPR_TEXT, SPR_GIF };
 enum { KEEP_NONE, KEEP_SCREEN };
+enum { MV_X, MV_Y, MV_W, MV_H, MV_SX, MV_SY, MV_ROT, MV_ALPHA, MV_TR, MV_TG, MV_TB, MV_AR, MV_AG, MV_AB, MV_N };
+enum { EASE_LINEAR, EASE_IN, EASE_OUT, EASE_IN_OUT };
+
+struct spr_gif;
+
+/* s:to: from the values it had to these, over ms after delay. */
+struct motion {
+	int on;
+	unsigned mask; /* 1 << MV_* */
+	float from[MV_N], to[MV_N];
+	double t0;     /* the clock when it starts to move */
+	double ms;
+	int ease;
+	int end;       /* on_end, a registry ref */
+};
 
 /* One texture per CG, shared by every sprite that shows it. */
 struct spr_cg {
@@ -91,6 +113,15 @@ struct msprite {
 	int z;
 	int keep;
 	char screen[24];
+	struct spr_gif *gif; /* SPR_GIF */
+	char gif_name[128];  /* as the mod gave it */
+	int cur;             /* the frame shown, from 0 */
+	int playing, loop, from, to;
+	double fps;          /* 0: the GIF's own delays */
+	double t0;           /* the clock when frame `from` began */
+	int real;            /* clock = "real" */
+	int gif_end;         /* on_end of s:play, a registry ref */
+	struct motion mv;
 };
 
 static struct msprite *g_spr[SPR_MAX];
@@ -177,8 +208,121 @@ static int reload_stale(void)
 	return any;
 }
 
+
+/* A callback the loader holds for a sprite, let go. */
+static void unref_fn(int *ref)
+{
+	if (*ref != LUA_NOREF && *ref != LUA_REFNIL && g_L)
+		luaL_unref(g_L, LUA_REGISTRYINDEX, *ref);
+	*ref = LUA_NOREF;
+}
+
+/* ---- GIFs ---- */
+
+/* The frames of one GIF file as textures, shared by every sprite that shows it. */
+struct spr_gif {
+	char path[RQ_PATH_MAX];
+	int refs;
+	int w, h, n;
+	Texture *t;
+	int *at;   /* where each frame starts, in ms from the first */
+	int total; /* ms for all of them */
+};
+
+static struct spr_gif g_gifs[SPR_GIF_MAX];
+static uint64_t g_gif_pixels;
+
+struct gif_load {
+	struct spr_gif *g;
+	int cap;
+	uint64_t pixels;
+	uint8_t *rgba;
+};
+
+static const char *gif_frame(void *ctx, const uint8_t *argb, int w, int h, int delay_cs)
+{
+	struct gif_load *ld = ctx;
+	struct spr_gif *g = ld->g;
+	size_t i, cells = (size_t)w * h;
+
+	ld->pixels += cells;
+	if (g_gif_pixels + ld->pixels > SPR_GIF_PIXELS)
+		return "the GIFs on sprites would pass 64 million pixels in all";
+	if (g->n == ld->cap) {
+		ld->cap = ld->cap ? ld->cap * 2 : 16;
+		g->t = xrealloc(g->t, ld->cap * sizeof *g->t);
+		g->at = xrealloc(g->at, ld->cap * sizeof *g->at);
+	}
+	if (!ld->rgba)
+		ld->rgba = xmalloc(cells * 4);
+	for (i = 0; i < cells; i++) {
+		ld->rgba[i * 4] = argb[i * 4 + 1];
+		ld->rgba[i * 4 + 1] = argb[i * 4 + 2];
+		ld->rgba[i * 4 + 2] = argb[i * 4 + 3];
+		ld->rgba[i * 4 + 3] = argb[i * 4];
+	}
+	memset(&g->t[g->n], 0, sizeof g->t[g->n]);
+	gfx_init_texture_with_pixels(&g->t[g->n], w, h, ld->rgba);
+	g->at[g->n] = g->total;
+	/* As browsers do: a delay under 20 ms plays as 100 ms. */
+	g->total += delay_cs >= 2 ? delay_cs * 10 : 100;
+	g->n++;
+	return NULL;
+}
+
+static void gif_free(struct spr_gif *g)
+{
+	int i;
+	for (i = 0; i < g->n; i++)
+		gfx_delete_texture(&g->t[i]);
+	free(g->t);
+	free(g->at);
+	memset(g, 0, sizeof *g);
+}
+
+/* The frames of the GIF at path, decoded the first time. NULL with *err on a bad file. */
+static struct spr_gif *gif_ref(const char *path, const char **err)
+{
+	struct gif_load ld = { 0 };
+	int i, free_i = -1, count;
+	for (i = 0; i < SPR_GIF_MAX; i++) {
+		if (g_gifs[i].refs > 0 && !strcmp(g_gifs[i].path, path)) {
+			g_gifs[i].refs++;
+			return &g_gifs[i];
+		}
+		if (g_gifs[i].refs <= 0 && free_i < 0)
+			free_i = i;
+	}
+	if (free_i < 0) {
+		*err = "too many GIFs on sprites";
+		return NULL;
+	}
+	ld.g = &g_gifs[free_i];
+	memset(ld.g, 0, sizeof *ld.g);
+	*err = rq_gif_frames(path, gif_frame, &ld, &ld.g->w, &ld.g->h, &count);
+	free(ld.rgba);
+	if (*err) {
+		gif_free(ld.g);
+		return NULL;
+	}
+	snprintf(ld.g->path, sizeof ld.g->path, "%s", path);
+	ld.g->refs = 1;
+	g_gif_pixels += ld.pixels;
+	return ld.g;
+}
+
+static void gif_unref(struct spr_gif *g)
+{
+	if (!g || --g->refs > 0)
+		return;
+	g_gif_pixels -= (uint64_t)g->w * g->h * g->n;
+	gif_free(g);
+}
+
 static Texture *spr_texture(struct msprite *s)
 {
+	if (s->kind == SPR_GIF)
+		return s->gif ? &s->gif->t[s->cur] : NULL;
 	if (s->kind == SPR_CG)
 		return s->cgt ? &s->cgt->t : NULL;
 	return s->own.handle ? &s->own : NULL;
@@ -186,6 +330,12 @@ static Texture *spr_texture(struct msprite *s)
 
 static void drop_content(struct msprite *s)
 {
+	if (s->gif)
+		gif_unref(s->gif);
+	s->gif = NULL;
+	s->gif_name[0] = 0;
+	s->playing = 0;
+	unref_fn(&s->gif_end);
 	if (s->cgt)
 		cg_unref(s->cgt);
 	s->cgt = NULL;
@@ -252,6 +402,147 @@ static void origin_of(const struct msprite *s, float bw, float bh, float *ox, fl
 {
 	*ox = s->center ? bw / 2 : s->ox;
 	*oy = s->center ? bh / 2 : s->oy;
+}
+
+
+/* ---- time ---- */
+
+/* The game's clock follows game-speed; clock = "real" does not. */
+static double now_of(const struct msprite *s)
+{
+	return s->real ? (double)SDL_GetTicks64() : (double)vm_game_ticks();
+}
+
+/* ms from the start of frame `from` to the start of frame f, while it plays. */
+static double frame_start(const struct msprite *s, int f)
+{
+	if (s->fps > 0)
+		return (f - s->from) * 1000.0 / s->fps;
+	return s->gif->at[f] - s->gif->at[s->from];
+}
+
+static double segment_ms(const struct msprite *s)
+{
+	double ms = frame_start(s, s->to);
+	if (s->fps > 0)
+		ms += 1000.0 / s->fps;
+	else
+		ms += (s->to + 1 < s->gif->n ? s->gif->at[s->to + 1] : s->gif->total) - s->gif->at[s->to];
+	return ms > 0 ? ms : 1;
+}
+
+static int frame_at(const struct msprite *s, double e)
+{
+	int f;
+	if (s->fps > 0) {
+		f = s->from + (int)(e * s->fps / 1000.0);
+		return f > s->to ? s->to : f;
+	}
+	for (f = s->from; f < s->to && frame_start(s, f + 1) <= e; f++)
+		;
+	return f;
+}
+
+/* After fps or the clock changed (old_now on the old clock): the frame shown goes on
+ * from its start, and a motion from where it was. */
+static void rebase(struct msprite *s, double old_now)
+{
+	if (s->gif && s->playing)
+		s->t0 = now_of(s) - frame_start(s, s->cur);
+	if (s->mv.on)
+		s->mv.t0 = now_of(s) - (old_now - s->mv.t0);
+}
+
+static void play_from(struct msprite *s, int from, int to, int loop)
+{
+	s->from = from;
+	s->to = to;
+	s->loop = loop;
+	s->cur = from;
+	s->playing = 1;
+	s->t0 = now_of(s);
+}
+
+/* ---- motion ---- */
+
+static float mv_get(const struct msprite *s, int i)
+{
+	float bw, bh;
+	switch (i) {
+	case MV_X: return s->x;
+	case MV_Y: return s->y;
+	case MV_W: base_size(s, &bw, &bh); return bw;
+	case MV_H: base_size(s, &bw, &bh); return bh;
+	case MV_SX: return s->scale_x;
+	case MV_SY: return s->scale_y;
+	case MV_ROT: return s->rotate;
+	case MV_ALPHA: return (float)s->alpha;
+	case MV_TR: return (float)s->mr;
+	case MV_TG: return (float)s->mg;
+	case MV_TB: return (float)s->mb;
+	case MV_AR: return (float)s->ar;
+	case MV_AG: return (float)s->ag;
+	default: return (float)s->ab;
+	}
+}
+
+static int byte_round(float v)
+{
+	int n = (int)lroundf(v);
+	return n < 0 ? 0 : n > 255 ? 255 : n;
+}
+
+static void mv_put(struct msprite *s, int i, float v)
+{
+	switch (i) {
+	case MV_X: s->x = v; break;
+	case MV_Y: s->y = v; break;
+	case MV_W: s->w = v > 0 ? v : 0; break;
+	case MV_H: s->h = v > 0 ? v : 0; break;
+	case MV_SX: s->scale_x = v; break;
+	case MV_SY: s->scale_y = v; break;
+	case MV_ROT: s->rotate = v; break;
+	case MV_ALPHA: s->alpha = byte_round(v); break;
+	case MV_TR: s->mr = byte_round(v); break;
+	case MV_TG: s->mg = byte_round(v); break;
+	case MV_TB: s->mb = byte_round(v); break;
+	case MV_AR: s->ar = byte_round(v); break;
+	case MV_AG: s->ag = byte_round(v); break;
+	default: s->ab = byte_round(v); break;
+	}
+}
+
+static double ease(int kind, double p)
+{
+	switch (kind) {
+	case EASE_IN: return p * p;
+	case EASE_OUT: return 1 - (1 - p) * (1 - p);
+	case EASE_IN_OUT: return p < 0.5 ? 2 * p * p : 1 - 2 * (1 - p) * (1 - p);
+	default: return p;
+	}
+}
+
+/* The option names a motion moves, and the values each one stands for. */
+static const struct { const char *name; unsigned bits; } mv_names[] = {
+	{ "x", 1u << MV_X }, { "y", 1u << MV_Y }, { "w", 1u << MV_W }, { "h", 1u << MV_H },
+	{ "scale", (1u << MV_SX) | (1u << MV_SY) }, { "scale_x", 1u << MV_SX }, { "scale_y", 1u << MV_SY },
+	{ "rotate", 1u << MV_ROT }, { "alpha", 1u << MV_ALPHA },
+	{ "tint", (1u << MV_TR) | (1u << MV_TG) | (1u << MV_TB) },
+	{ "add", (1u << MV_AR) | (1u << MV_AG) | (1u << MV_AB) },
+};
+
+/* s:set of a value a motion moves takes it out of the motion. */
+static void unmove(lua_State *L, struct msprite *s, int t)
+{
+	size_t i;
+	if (!s->mv.on)
+		return;
+	for (i = 0; i < sizeof mv_names / sizeof mv_names[0]; i++) {
+		lua_getfield(L, t, mv_names[i].name);
+		if (!lua_isnil(L, -1))
+			s->mv.mask &= ~mv_names[i].bits;
+		lua_pop(L, 1);
+	}
 }
 
 static void spr_render(struct sprite *base)
@@ -353,6 +644,7 @@ static void destroy(struct msprite *s, lua_State *L)
 	if (s->keep == KEEP_SCREEN)
 		g_keepers--;
 	drop_content(s);
+	unref_fn(&s->mv.end);
 	if (L && s->ref != LUA_NOREF)
 		luaL_unref(L, LUA_REGISTRYINDEX, s->ref);
 	g_count--;
@@ -465,6 +757,30 @@ static void opt_content(lua_State *L, struct msprite *s, int t)
 {
 	int r, g, b, a, restyle = 0;
 	float f;
+
+	lua_getfield(L, t, "gif");
+	if (!lua_isnil(L, -1)) {
+		const char *name = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
+		char full[RQ_PATH_MAX];
+		const char *err;
+		struct spr_gif *g;
+		if (!name || !name[0] || strlen(name) >= sizeof s->gif_name)
+			luaL_error(L, "rq.sprite: gif is a GIF file in the mod's folder or an rq.image.add_gif key");
+		if (s->kind != SPR_GIF || strcmp(s->gif_name, name)) {
+			if (!rq_anim_source(name, full, sizeof full) && !rq_sandbox_resolve(L, name, full, (int)sizeof full))
+				luaL_error(L, "rq.sprite: GIF '%s' is not inside the mod folder", name);
+			if (!(g = gif_ref(full, &err)))
+				luaL_error(L, "rq.sprite: GIF '%s': %s", name, err);
+			drop_content(s);
+			s->kind = SPR_GIF;
+			s->gif = g;
+			snprintf(s->gif_name, sizeof s->gif_name, "%s", name);
+			s->nat_w = g->w;
+			s->nat_h = g->h;
+			play_from(s, 0, g->n - 1, 1);
+		}
+	}
+	lua_pop(L, 1);
 
 	lua_getfield(L, t, "cg");
 	if (!lua_isnil(L, -1)) {
@@ -683,6 +999,28 @@ static void apply_opts(lua_State *L, struct msprite *s, int t)
 		opt_int(L, t, "z", &s->z);
 	}
 	opt_keep(L, s, t);
+	{
+		double old_fps = s->fps, old_now = now_of(s);
+		int old_real = s->real;
+		if (opt_num(L, t, "fps", &f)) {
+			if (f < 0 || f > 240)
+				luaL_error(L, "rq.sprite: fps is 0 (the GIF's own delays) to 240");
+			s->fps = f;
+		}
+		lua_getfield(L, t, "clock");
+		if (!lua_isnil(L, -1)) {
+			b = lua_tostring(L, -1);
+			if (b && !strcmp(b, "real"))
+				s->real = 1;
+			else if (b && !strcmp(b, "game"))
+				s->real = 0;
+			else
+				luaL_error(L, "rq.sprite: clock is \"game\" or \"real\"");
+		}
+		lua_pop(L, 1);
+		if (s->fps != old_fps || s->real != old_real)
+			rebase(s, old_now);
+	}
 }
 
 /* lua_pcall target: apply_opts(upvalue sprite, arg 1). */
@@ -734,6 +1072,8 @@ static int l_new(lua_State *L)
 	s = xcalloc(1, sizeof *s);
 	s->id = g_next_id++;
 	s->ref = LUA_NOREF;
+	s->gif_end = LUA_NOREF;
+	s->mv.end = LUA_NOREF;
 	snprintf(s->mod, sizeof s->mod, "%s", mod);
 	s->scale_x = s->scale_y = 1;
 	s->alpha = 255;
@@ -768,6 +1108,7 @@ static int l_set(lua_State *L)
 {
 	struct msprite *s = check_sprite(L, 1);
 	luaL_checktype(L, 2, LUA_TTABLE);
+	unmove(L, s, 2);
 	apply_opts(L, s, 2);
 	place(s);
 	lua_settop(L, 1);
@@ -826,6 +1167,15 @@ static int l_get(lua_State *L)
 		lua_setfield(L, -2, "edge");
 		lua_pushboolean(L, s->bold);
 		lua_setfield(L, -2, "bold");
+	} else if (s->kind == SPR_GIF) {
+		lua_pushstring(L, s->gif_name);
+		lua_setfield(L, -2, "gif");
+		set_num(L, "frame", s->cur + 1);
+		set_num(L, "frames", s->gif->n);
+		set_num(L, "gif_ms", s->gif->total);
+		set_num(L, "fps", s->fps);
+		lua_pushboolean(L, s->playing);
+		lua_setfield(L, -2, "playing");
 	}
 	set_num(L, "x", s->x);
 	set_num(L, "y", s->y);
@@ -852,6 +1202,10 @@ static int l_get(lua_State *L)
 		lua_pushstring(L, s->screen);
 		lua_setfield(L, -2, "screen");
 	}
+	lua_pushstring(L, s->real ? "real" : "game");
+	lua_setfield(L, -2, "clock");
+	lua_pushboolean(L, s->mv.on);
+	lua_setfield(L, -2, "moving");
 	lua_pushboolean(L, s->sp.in_scene);
 	lua_setfield(L, -2, "in_scene");
 	return 1;
@@ -955,6 +1309,260 @@ static int l_reset(lua_State *L)
 		}
 	}
 	return 0;
+}
+
+
+/* ---- GIF and motion ---- */
+
+static struct msprite *check_gif(lua_State *L, int idx)
+{
+	struct msprite *s = check_sprite(L, idx);
+	if (s->kind != SPR_GIF)
+		luaL_error(L, "rq.sprite: this sprite shows no gif");
+	return s;
+}
+
+static int l_play(lua_State *L)
+{
+	struct msprite *s = check_gif(L, 1);
+	int from = 1, to = s->gif->n, loop = 1, end = LUA_NOREF;
+
+	if (!lua_isnoneornil(L, 2)) {
+		luaL_checktype(L, 2, LUA_TTABLE);
+		opt_int(L, 2, "from", &from);
+		opt_int(L, 2, "to", &to);
+		lua_getfield(L, 2, "loop");
+		if (!lua_isnil(L, -1))
+			loop = lua_toboolean(L, -1);
+		lua_pop(L, 1);
+	}
+	if (from < 1 || to > s->gif->n || from > to)
+		return luaL_error(L, "rq.sprite: play from 1 to %d, with from no more than to", s->gif->n);
+	if (!lua_isnoneornil(L, 2)) {
+		lua_getfield(L, 2, "on_end");
+		if (lua_isfunction(L, -1))
+			end = luaL_ref(L, LUA_REGISTRYINDEX);
+		else if (!lua_isnil(L, -1))
+			return luaL_error(L, "rq.sprite: on_end must be a function");
+		else
+			lua_pop(L, 1);
+	}
+	unref_fn(&s->gif_end);
+	s->gif_end = end;
+	play_from(s, from - 1, to - 1, loop);
+	scene_dirty();
+	lua_settop(L, 1);
+	return 1;
+}
+
+static int l_stop(lua_State *L)
+{
+	struct msprite *s = check_gif(L, 1);
+	s->playing = 0;
+	unref_fn(&s->gif_end);
+	lua_settop(L, 1);
+	return 1;
+}
+
+/* s:frame() is the frame shown and how many; s:frame(n) shows frame n and stops. */
+static int l_frame(lua_State *L)
+{
+	struct msprite *s = check_gif(L, 1);
+	lua_Integer n;
+
+	if (lua_isnoneornil(L, 2)) {
+		lua_pushinteger(L, s->cur + 1);
+		lua_pushinteger(L, s->gif->n);
+		return 2;
+	}
+	n = luaL_checkinteger(L, 2);
+	if (n < 1 || n > s->gif->n)
+		return luaL_error(L, "rq.sprite: frame is 1 to %d", s->gif->n);
+	s->cur = (int)n - 1;
+	s->playing = 0;
+	unref_fn(&s->gif_end);
+	scene_dirty();
+	lua_settop(L, 1);
+	return 1;
+}
+
+static int l_playing(lua_State *L)
+{
+	struct msprite *s = check_sprite(L, 1);
+	lua_pushboolean(L, s->kind == SPR_GIF && s->playing);
+	return 1;
+}
+
+/* s:to{...}: from where it is to these values over ms, after delay. A new one takes
+ * the place of the one moving now, from where that one got to. */
+static int l_to(lua_State *L)
+{
+	struct msprite *s = check_sprite(L, 1);
+	struct motion m;
+	float f, delay = 0;
+	int i, r, g, b;
+	const char *e;
+
+	luaL_checktype(L, 2, LUA_TTABLE);
+	memset(&m, 0, sizeof m);
+	m.end = LUA_NOREF;
+	for (i = 0; i < MV_N; i++)
+		m.from[i] = m.to[i] = mv_get(s, i);
+	if (opt_num(L, 2, "scale", &f)) {
+		m.to[MV_SX] = m.to[MV_SY] = f;
+		m.mask |= (1u << MV_SX) | (1u << MV_SY);
+	}
+#define TO(key, idx) \
+	if (opt_num(L, 2, key, &f)) { \
+		m.to[idx] = f; \
+		m.mask |= 1u << (idx); \
+	}
+	TO("x", MV_X)
+	TO("y", MV_Y)
+	TO("w", MV_W)
+	TO("h", MV_H)
+	TO("scale_x", MV_SX)
+	TO("scale_y", MV_SY)
+	TO("rotate", MV_ROT)
+	TO("alpha", MV_ALPHA)
+#undef TO
+	if (opt_color(L, 2, "tint", &r, &g, &b, NULL)) {
+		m.to[MV_TR] = (float)r; m.to[MV_TG] = (float)g; m.to[MV_TB] = (float)b;
+		m.mask |= (1u << MV_TR) | (1u << MV_TG) | (1u << MV_TB);
+	}
+	if (opt_color(L, 2, "add", &r, &g, &b, NULL)) {
+		m.to[MV_AR] = (float)r; m.to[MV_AG] = (float)g; m.to[MV_AB] = (float)b;
+		m.mask |= (1u << MV_AR) | (1u << MV_AG) | (1u << MV_AB);
+	}
+	if (opt_num(L, 2, "ms", &f)) {
+		if (f < 0)
+			return luaL_error(L, "rq.sprite: ms must be 0 or more");
+		m.ms = f;
+	}
+	if (opt_num(L, 2, "delay", &delay) && delay < 0)
+		return luaL_error(L, "rq.sprite: delay must be 0 or more");
+	lua_getfield(L, 2, "ease");
+	if (!lua_isnil(L, -1)) {
+		e = lua_tostring(L, -1);
+		if (e && !strcmp(e, "linear"))
+			m.ease = EASE_LINEAR;
+		else if (e && !strcmp(e, "in"))
+			m.ease = EASE_IN;
+		else if (e && !strcmp(e, "out"))
+			m.ease = EASE_OUT;
+		else if (e && !strcmp(e, "in_out"))
+			m.ease = EASE_IN_OUT;
+		else
+			return luaL_error(L, "rq.sprite: ease is \"linear\", \"in\", \"out\" or \"in_out\"");
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, 2, "on_end");
+	if (lua_isfunction(L, -1))
+		m.end = luaL_ref(L, LUA_REGISTRYINDEX);
+	else if (!lua_isnil(L, -1))
+		return luaL_error(L, "rq.sprite: on_end must be a function");
+	else
+		lua_pop(L, 1);
+	unref_fn(&s->mv.end);
+	m.t0 = now_of(s) + delay;
+	m.on = 1;
+	s->mv = m;
+	lua_settop(L, 1);
+	return 1;
+}
+
+static int l_moving(lua_State *L)
+{
+	struct msprite *s = check_sprite(L, 1);
+	lua_pushboolean(L, s->mv.on);
+	return 1;
+}
+
+/* Stops the motion where it is, without its on_end. */
+static int l_halt(lua_State *L)
+{
+	struct msprite *s = check_sprite(L, 1);
+	s->mv.on = 0;
+	unref_fn(&s->mv.end);
+	lua_settop(L, 1);
+	return 1;
+}
+
+/* GIF frames and motions, once a frame. Returns whether anything changed; the on_end
+ * callbacks that are due go into fn and id. */
+static int advance(int *fn, int *id, int *np)
+{
+	int i, k, dirty = 0;
+
+	for (i = 0; i < SPR_MAX; i++) {
+		struct msprite *s = g_spr[i];
+		if (!s)
+			continue;
+		if (s->kind == SPR_GIF && s->playing) {
+			double e = now_of(s) - s->t0, len = segment_ms(s);
+			int f;
+			if (e < 0)
+				e = 0;
+			if (s->loop) {
+				f = frame_at(s, fmod(e, len));
+			} else if (e >= len) {
+				f = s->to;
+				s->playing = 0;
+				if (s->gif_end != LUA_NOREF) {
+					fn[*np] = s->gif_end;
+					id[(*np)++] = s->id;
+					s->gif_end = LUA_NOREF;
+				}
+			} else {
+				f = frame_at(s, e);
+			}
+			if (f != s->cur) {
+				s->cur = f;
+				dirty = 1;
+			}
+		}
+		if (s->mv.on) {
+			double e = now_of(s) - s->mv.t0, p;
+			if (e < 0)
+				continue;
+			p = s->mv.ms > 0 ? e / s->mv.ms : 1;
+			if (p > 1)
+				p = 1;
+			for (k = 0; k < MV_N; k++)
+				if (s->mv.mask & (1u << k))
+					mv_put(s, k, s->mv.from[k] + (s->mv.to[k] - s->mv.from[k]) * (float)ease(s->mv.ease, p));
+			if (s->mv.mask)
+				dirty = 1;
+			if (p >= 1) {
+				s->mv.on = 0;
+				if (s->mv.end != LUA_NOREF) {
+					fn[*np] = s->mv.end;
+					id[(*np)++] = s->id;
+					s->mv.end = LUA_NOREF;
+				}
+			}
+		}
+	}
+	return dirty;
+}
+
+/* on_end(s) for each that is due, after every sprite has moved. */
+static void fire_ends(const int *fn, const int *id, int n)
+{
+	int i;
+	for (i = 0; i < n && g_L; i++) {
+		struct msprite *s = by_id(id[i]);
+		lua_rawgeti(g_L, LUA_REGISTRYINDEX, fn[i]);
+		if (s)
+			lua_rawgeti(g_L, LUA_REGISTRYINDEX, s->ref);
+		else
+			lua_pushnil(g_L);
+		if (lua_pcall(g_L, 1, 0, 0) != LUA_OK) {
+			rq_log("rq.sprite on_end: %s", lua_tostring(g_L, -1));
+			lua_pop(g_L, 1);
+		}
+		luaL_unref(g_L, LUA_REGISTRYINDEX, fn[i]);
+	}
 }
 
 /* ---- the scene list ---- */
@@ -1096,7 +1704,8 @@ char *rq_sprite_scene_json(void)
 /* Before the scene is drawn: CGs that changed, and sprites kept to a screen. */
 int rq_sprite_tick(void)
 {
-	int i, dirty = reload_stale();
+	static int fn[SPR_MAX * 2], id[SPR_MAX * 2];
+	int i, np = 0, dirty = reload_stale();
 
 	if (g_keepers > 0) {
 		char screen[24];
@@ -1109,6 +1718,9 @@ int rq_sprite_tick(void)
 			}
 		}
 	}
+	if (advance(fn, id, &np))
+		dirty = 1;
+	fire_ends(fn, id, np);
 	return dirty;
 }
 
@@ -1119,6 +1731,13 @@ void rq_sprite_open(lua_State *L, int rq_index)
 		{ "get", l_get },
 		{ "remove", l_remove },
 		{ "alive", l_alive },
+		{ "play", l_play },
+		{ "stop", l_stop },
+		{ "frame", l_frame },
+		{ "playing", l_playing },
+		{ "to", l_to },
+		{ "moving", l_moving },
+		{ "halt", l_halt },
 		{ NULL, NULL }
 	};
 

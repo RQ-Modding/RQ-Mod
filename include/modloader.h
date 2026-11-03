@@ -86,6 +86,11 @@ int rq_anim_handle(const char *key);
 void rq_anim_redirect(int handle);
 int rq_anim_of_cg(int no);
 void rq_anim_cg_changed(int no);
+/* Called with each GIF frame painted on the whole canvas (ARGB, alpha 0 or 255) and its
+ * delay in hundredths of a second as the file gives it. Returns an error or NULL. */
+typedef const char *(*gif_frame_fn)(void *ctx, const uint8_t *argb, int w, int h, int delay_cs);
+const char *rq_gif_frames(const char *path, gif_frame_fn frame, void *ctx, int *w, int *h, int *count);
+int rq_anim_source(const char *key, char *path, size_t n);
 int rq_sandbox_resolve(struct lua_State *L, const char *rel, char *out, int n);
 int rq_lua_skill_define(struct lua_State *L);
 int rq_lua_skill_patch(struct lua_State *L);
@@ -395,7 +400,7 @@ int rq_mods_json(char **json_out);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "1.9.0"
+#define RQ_VERSION "1.10.0"
 
 struct rq_qbattle_skill {
 	int id;
