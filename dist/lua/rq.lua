@@ -686,7 +686,7 @@ function hud.block_game_input() end
 ---Call it on every update while a modal HUD is open. The mouse buttons are not affected (use
 ---`rq.hud.block_game_input`), and `rq.input.key` still reads the real keys.
 ---
----Since: 0.2.0
+---Since: 0.3.0
 function hud.block_keys() end
 
 ---Starts reading typed text.
@@ -695,7 +695,7 @@ function hud.block_keys() end
 ---game's font can draw are kept, and Backspace removes the last character. Read the text with
 ---`rq.hud.text_value` and end with `rq.hud.text_end`. Calling it again restarts with the new text.
 ---
----Since: 0.2.0
+---Since: 0.3.0
 ---
 ---```lua
 ---rq.hud.text_begin("Rance", 20)
@@ -712,7 +712,7 @@ function hud.text_begin(initial, max_bytes) end
 
 ---Returns the typed text and whether reading is on.
 ---
----Since: 0.2.0
+---Since: 0.3.0
 ---@return string text The text so far, in UTF-8.
 ---@return boolean active true between `text_begin` and `text_end`.
 function hud.text_value() end
@@ -721,7 +721,7 @@ function hud.text_value() end
 ---
 ---The text stays readable with `rq.hud.text_value` until the next `text_begin`.
 ---
----Since: 0.2.0
+---Since: 0.3.0
 function hud.text_end() end
 
 ---Chest loot: what the pools roll, and the items the player will find, known in advance.
@@ -1231,103 +1231,163 @@ function skilllist.set_page(page) end
 ---@return integer pages The page count; 1 before the menu first opens.
 function skilllist.page_count() end
 
+---What a profile's save holds, read from its file.
 ---@class rq.SaveSummary
----@field has_save boolean the profile holds a game save
----@field saved_at? string "YYYY-MM-DD HH:MM", mtime of the game save file
----@field world? integer
----@field fame_rank? integer
----@field fame? integer
----@field gold? integer
----@field quests? integer quests cleared
----@field suspend boolean a suspend save exists
----@field read_error? string
+---@field has_save boolean The profile holds a game save.
+---@field saved_at? string When the game save was written, "YYYY-MM-DD HH:MM" (the file's time).
+---@field world? integer The world.
+---@field fame_rank? integer The fame rank.
+---@field fame? integer Fame.
+---@field gold? integer Gold.
+---@field quests? integer Quests cleared.
+---@field suspend boolean A suspend save exists.
+---@field read_error? string Why the save could not be read.
 
+---A mod, as a profile records it.
 ---@class rq.SaveMod
----@field id string
----@field name string
----@field version string
+---@field id string The mod's id.
+---@field name string The mod's name.
+---@field version string The mod's version.
 
+---A save profile, from `rq.saves.list`.
 ---@class rq.SaveProfile
----@field id string "base" or an engine-made id
----@field name string
----@field is_base boolean the base save can never be deleted
----@field active boolean
----@field created? string
----@field last_saved? string
----@field source? string "clone of X", "imported from the vanilla game"
----@field mods? rq.SaveMod[] mods loaded when the game last wrote this save; nil if never
----@field mods_ever? string[] ids of every mod that was loaded for any save
----@field summary rq.SaveSummary
+---@field id string "base", or an id the engine made. Show `name` instead.
+---@field name string The name.
+---@field is_base boolean The base profile, which can never be deleted.
+---@field active boolean The game runs on this profile.
+---@field created? string When it was made.
+---@field last_saved? string When it was last saved.
+---@field source? string Where it came from, such as "clone of X" or "imported from the vanilla game".
+---@field mods? rq.SaveMod[] The mods loaded when the game last wrote a slot of this save; nil when it never did under the loader.
+---@field mods_ever? string[] The ids of every mod loaded for any save of this profile.
+---@field summary rq.SaveSummary What the save holds.
 
+---What `rq.saves.vanilla` returns.
 ---@class rq.VanillaSave
----@field exists boolean a game save was found
----@field path? string
----@field summary? rq.SaveSummary
+---@field exists boolean A game save was found.
+---@field path? string Its folder.
+---@field summary? rq.SaveSummary What it holds.
 
----Save profiles. The base profile is the engine's own save folder. Others are full
----copies under <home>/Profiles/<id>/save. Failing calls return nil, message.
+---Save profiles: whole save folders the player can switch between.
+---
+---The base profile is the engine's own `SaveData` folder and can never be deleted. Every other profile
+---is a full copy under `<parent of SaveData>\Profiles\<id>\save`, with a `profile.json`;
+---`Profiles\active.txt` holds the active id. The engine picks the folder at boot, so switching
+---restarts the game. Calls that fail return nil and a message. The vanilla game's own save is only
+---ever read.
+---
+---Since: 0.3.0
+---
+---```lua
+---if rq.saves.title() then
+---  for _, p in ipairs(rq.saves.list()) do
+---    rq.log(p.name, p.active and "(active)" or "", p.summary.gold)
+---  end
+---end
+---local id = rq.saves.clone("base", "Friend test")
+---if id then rq.saves.switch(id) end
+---```
 ---@class rq.saves
 local saves = {}
 
----Wrap T_Title@checkSelect so saves.title() works. Call once from init.lua.
----@return boolean
+---Wraps `T_Title@checkSelect` so `rq.saves.title` works.
+---
+---The engine already calls it at boot; calling it again is harmless.
+---
+---Since: 0.3.0
+---@return boolean ok true when the hook is in place.
 function saves.install() end
 
----True while the title screen waits for a choice (not while a sub-menu is open).
----@return boolean
+---Returns whether the title screen waits for a choice.
+---
+---It is false inside the title's sub-menus (load, config).
+---
+---Since: 0.3.0
+---@return boolean waiting true on the title's main choice.
 function saves.title() end
 
----Id of the active profile ("base" for the original save).
----@return string
+---Returns the active profile's id.
+---
+---Since: 0.3.0
+---@return string id "base" for the original save.
 function saves.active() end
 
----Base first, then the others by creation time. Reads each profile's save file.
----@return rq.SaveProfile[]
+---Lists the profiles: the base first, then the others by creation time.
+---
+---It reads every profile's save file, so call it when a window opens, not every frame.
+---
+---Since: 0.3.0
+---@return rq.SaveProfile[] profiles The profiles.
 function saves.list() end
 
----Mods loaded in this session.
----@return rq.SaveMod[]
+---Lists the mods loaded in this session.
+---
+---Since: 0.3.0
+---@return rq.SaveMod[] mods The mods.
 function saves.current_mods() end
 
----Vanilla game save in Documents/AliceSoft/<game>/SaveData. Read-only.
----@return rq.VanillaSave
+---Reads the vanilla game's save in `Documents\AliceSoft\<game>\SaveData`.
+---
+---Since: 0.3.0
+---@return rq.VanillaSave save What was found.
 function saves.vanilla() end
 
----New empty profile. Returns its id.
----@param name string
----@return string|nil id
----@return string? err
+---Makes a new, empty profile.
+---
+---Since: 0.3.0
+---@param name string The name.
+---@return string|nil id The new profile's id, or nil.
+---@return string? err Why it failed.
 function saves.create(name) end
 
----Copy a whole profile (Backup/ is skipped). Returns the new id.
----@param src_id string
----@param name string
----@return string|nil id
----@return string? err
+---Copies a whole profile into a new one.
+---
+---The game's own `Backup` folder is skipped.
+---
+---Since: 0.3.0
+---@param src_id string The profile to copy.
+---@param name string The new profile's name.
+---@return string|nil id The new profile's id, or nil.
+---@return string? err Why it failed.
 function saves.clone(src_id, name) end
 
----Copy the vanilla game's save folder into a new profile. Never writes to the source.
----@param name string
----@return string|nil id
----@return string? err
+---Copies the vanilla game's save folder into a new profile, byte for byte.
+---
+---It never writes to the source.
+---
+---Since: 0.3.0
+---@param name string The new profile's name.
+---@return string|nil id The new profile's id, or nil.
+---@return string? err Why it failed.
 function saves.import_vanilla(name) end
 
----@param id string
----@param name string
----@return boolean|nil ok
----@return string? err
+---Renames a profile.
+---
+---Since: 0.3.0
+---@param id string The profile.
+---@param name string The new name, up to 40 bytes.
+---@return boolean|nil ok true, or nil.
+---@return string? err Why it failed.
 function saves.rename(id, name) end
 
----Refuses "base" and the active profile.
----@param id string
----@return boolean|nil ok
----@return string? err
+---Deletes a profile.
+---
+---It refuses "base" and the active profile.
+---
+---Since: 0.3.0
+---@param id string The profile.
+---@return boolean|nil ok true, or nil.
+---@return string? err Why it failed.
 function saves.delete(id) end
 
----Make a profile active and restart the game. Does not return on success.
----@param id string
----@return nil
----@return string? err
+---Makes a profile active and restarts the game on it.
+---
+---It records the choice, starts a new process (which waits for this one to exit) and exits this one.
+---
+---Since: 0.3.0
+---@param id string The profile.
+---@return nil ok Nothing: on success it does not return.
+---@return string? err Why the choice could not be recorded.
 function saves.switch(id) end
 
 ---How `rq.agent.control` finds a control: a game button, or a rectangle a mod draws.
@@ -2012,243 +2072,424 @@ function chara.on_create(fn) end
 ---@return fun() remove Removes this callback.
 function chara.on_forget(fn) end
 
+---How an image is fitted to its size: "stretch" fills it, "contain" keeps the proportions and pads
+---with transparency, "cover" keeps the proportions and crops the middle, "none" keeps the file's size.
 ---@alias rq.ImageFit "stretch"|"contain"|"cover"|"none"
 
+---Options for `rq.image.add` and `rq.image.replace`.
 ---@class rq.ImageOpts
----@field fit? rq.ImageFit stretch = fill the target size, contain = keep proportions with transparent bars, cover = keep proportions and crop, none = keep the file's size
----@field w? integer target width (default: the file's size; for replace, the game CG's size)
----@field h? integer target height
----@field keep_size? boolean replace only: do not scale to the game CG's size
+---@field fit? rq.ImageFit How the file fits `w` by `h`. Default "none" for `add`, "stretch" for `replace`.
+---@field w? integer Target width. Default: the file's (for `replace`, the game CG's).
+---@field h? integer Target height. Default: the file's (for `replace`, the game CG's).
+---@field keep_size? boolean `replace` only: keep the file's size instead of the game CG's.
 
+---What `rq.image.info` returns.
 ---@class rq.ImageInfo
----@field exists boolean the CG number resolves to something (game or mod)
----@field mod boolean a mod image is on this number
----@field replaced? boolean it replaces a game CG
----@field w? integer
----@field h? integer
----@field game_w? integer size of the game's own CG (replaced only)
----@field game_h? integer
+---@field exists boolean The number shows something, from the game or a mod.
+---@field mod boolean A mod image is on this number.
+---@field replaced? boolean It replaces a game CG.
+---@field w? integer Width.
+---@field h? integer Height.
+---@field game_w? integer The game CG's own width, when replaced.
+---@field game_h? integer The game CG's own height, when replaced.
 
+---Images from a mod's folder, shown by the game as CGs.
+---
+---The engine checks these before the game's archives, so sprites, parts and every game call see the
+---mod image. Paths are inside the mod's folder. Formats: PNG (with alpha), JPEG and WebP (still), and
+---the game's QNT, AJP and PMS; a GIF goes through `add_gif`. Face cards are 196×232 and standing
+---pictures 1024×768. `face` and `portrait` in `rq.chara.define`, `edit` and `set` take a path too: a
+---base-game character's own CG is replaced, because screens keep the number they read. A save keeps a
+---mod image's number; without the mod it shows no picture there.
+---
+---Since: 0.6.0
+---
+---```lua
+---rq.chara.define({ id = "mymod:alice", name = "Alice", face = "faces/alice.png", class = 1 })
+---rq.chara.edit(52, { face = "faces/kaoru.png" })  -- a new face for Kaoru
+---rq.image.replace(2000, "faces/rance.webp", { fit = "cover" })
+---```
 ---@class rq.image
 local image = {}
 
----Register a file from the mod folder as a new CG number. The number comes from the key
----(900000 and up), so it is the same every run and safe to keep in a save.
----Formats: PNG, JPEG, WebP (still), QNT, AJP, PMS. Not GIF.
----@param key string unique text key, for example "mymod:alice_face"
----@param path string relative to the mod folder
----@param opts? rq.ImageOpts
----@return integer cg
+---Registers a file from the mod's folder as a new CG number.
+---
+---The number comes from the key (900000 and up), so it is the same every run and safe to keep in a
+---save. Without `w` and `h` the file keeps its own size.
+---
+---Raises an error for a file not in the mod's folder, a path outside it, an unknown fit, a too long
+---key, a key whose number another key has, or past 256 mod images.
+---
+---Since: 0.6.0
+---
+---```lua
+---local ICON = rq.image.add("mymod:icon", "icons/star.png", { fit = "contain", w = 56, h = 56 })
+---```
+---@param key string A key unique to this image, such as "mymod:alice_face".
+---@param path string A path inside the mod's folder.
+---@param opts? rq.ImageOpts Size and fit.
+---@return integer cg The CG number.
 function image.add(key, path, opts) end
 
----Every use of an existing game CG number shows the mod file instead, scaled to the game CG's size
----(fit "stretch" unless you say otherwise).
----@param cg integer
----@param path string relative to the mod folder
----@param opts? rq.ImageOpts
+---Shows a file wherever the game uses one of its CG numbers.
+---
+---The file is scaled to the game CG's size. Screens already built show it when they next load the CG.
+---
+---Raises an error as `rq.image.add` does.
+---
+---Since: 0.6.0
+---@param cg integer The game's CG number.
+---@param path string A path inside the mod's folder.
+---@param opts? rq.ImageOpts Fit (default "stretch") and size.
+---@see rq.image.restore
 function image.replace(cg, path, opts) end
 
----Undo image.replace.
----@param cg integer
----@return boolean removed
+---Undoes `rq.image.replace` or a `compose` on a game CG.
+---
+---Since: 0.6.0
+---@param cg integer The game's CG number.
+---@return boolean removed false when nothing replaced it.
 function image.restore(cg) end
 
----@param cg integer
----@return rq.ImageInfo
+---Returns what is on a CG number, and its size.
+---
+---Use it to read a game CG's size before drawing art for it.
+---
+---Since: 0.6.0
+---@param cg integer The CG number.
+---@return rq.ImageInfo info What the number shows.
 function image.info(cg) end
 
----Loader 1.8.0. One layer of image.compose. A layer draws one of: cg (a part of a CG, stretched
----to w x h), fill (a color) or text (in the HUD font, aligned in the box w x h).
+---One layer of `rq.image.compose`: a part of a CG, a fill, or text.
+---
+---Since: 1.8.0
 ---@class rq.ImageLayer
----@field cg? integer any CG number; the CG being composed reads the game's own picture
----@field src? integer[] {x, y, w, h} in the CG (default: all of it)
----@field fill? integer[]|{r: integer, g: integer, b: integer, a?: integer}
----@field text? string
----@field x? integer default 0
----@field y? integer default 0
----@field w? integer default: the part's own width (a fill: to the right edge)
----@field h? integer
----@field alpha? integer 0-255, default 255
----@field mode? "over"|"copy" copy replaces what is under it, alpha and all
----@field size? number text only, default 16
----@field color? integer[]|{r: integer, g: integer, b: integer} text only, default white
----@field align? "start"|"center"|"end" text only, in w
----@field valign? "top"|"center"|"bottom" text only, in h
----@field edge? boolean text only; false leaves out the dark edge
----@field bold? boolean text only
+---@field cg? integer A CG number; the CG being composed reads the game's own picture, so a page can be made from itself.
+---@field src? integer[] `{x, y, w, h}` in the CG. Default: all of it.
+---@field fill? integer[]|{r: integer, g: integer, b: integer, a?: integer} A color.
+---@field text? string Text in the HUD font, placed in the box `w` by `h`.
+---@field x? integer Left edge in the new CG. Default 0.
+---@field y? integer Top edge in the new CG. Default 0.
+---@field w? integer Width; a part is stretched to it. Default: the part's own (a fill: to the right edge).
+---@field h? integer Height. Default: the part's own (a fill: to the bottom edge).
+---@field alpha? integer Opacity, 0 to 255. Default 255.
+---@field mode? "over"|"copy" "copy" replaces what is under it, alpha and all. Default "over".
+---@field size? number Text size. Default 16.
+---@field color? integer[]|{r: integer, g: integer, b: integer} Text color. Default white.
+---@field align? "start"|"center"|"end" Text placement in `w`.
+---@field valign? "top"|"center"|"bottom" Text placement in `h`.
+---@field edge? boolean false leaves out the text's dark edge.
+---@field bold? boolean Bold text.
 
----Loader 1.8.0. A CG made from parts of other CGs, fills and text, built once when it is first
----shown. A key gives a new CG number as image.add does; a game CG number replaces that CG
----(image.restore undoes it). The size is opts.w x opts.h, or else the game CG's own size, or
----else the first layer's extent. Calling it again with the same key or number rebuilds it.
----Layers read other CGs as they are when it is built, mod images included.
----@param target string|integer
----@param layers rq.ImageLayer[]
----@param opts? {w?: integer, h?: integer}
----@return integer cg
+---Makes a CG from parts of other CGs, fills and text.
+---
+---It is built when it is first shown. A key gives a new number as `add` does; a game CG number
+---replaces that CG, and `rq.image.restore` undoes it. The size is `opts.w` by `opts.h`, else the game
+---CG's own, else the first layer's extent. Other CGs are read as they are when it is built, mod images
+---included. Calling it again with the same key or number rebuilds it.
+---
+---Raises an error for no layers or more than 256, a layer without `cg`, `text` or `fill`, an unknown
+---`mode`, or a size it cannot work out (then give `opts.w` and `opts.h`, 1 to 4096).
+---
+---Since: 1.8.0
+---
+---```lua
+---local TAB = rq.image.compose("mymod:tab", {
+---  { cg = 40031, src = { 0, 0, 150, 40 } },
+---  { text = "Mods", w = 150, h = 40, align = "center", valign = "center" },
+---})
+---```
+---@param target string|integer A key, or a game CG number to replace.
+---@param layers rq.ImageLayer[] The layers, back to front.
+---@param opts? {w?: integer, h?: integer} The size.
+---@return integer cg The CG number.
 function image.compose(target, layers, opts) end
 
+---Options for `rq.image.add_gif`.
 ---@class rq.GifOpts
----@field w? integer size on screen; default is the GIF's
----@field h? integer
+---@field w? integer Width on screen. Default: the GIF's.
+---@field h? integer Height on screen. Default: the GIF's.
 
+---What `rq.image.gif_info` returns.
 ---@class rq.GifInfo
----@field w integer size on screen
----@field h integer
----@field frames integer frames in the GIF
----@field ms integer length of one loop
+---@field w integer Width on screen.
+---@field h integer Height on screen.
+---@field frames integer Frames in the GIF.
+---@field ms integer Length of one loop, in ms.
 
----Serve a GIF from the mod folder as a game Flash file (loader 0.19.0). Named like a game file, it replaces that file.
----A bare key means Data/Flash/System/<key>.swf; a key with a slash is the full name. Errors on a bad file.
----@param key string
----@param path string file in the mod folder
----@param opts? rq.GifOpts
----@return string key
+---Serves a GIF from the mod's folder as a game Flash file.
+---
+---A bare key means `Data/Flash/System/<key>.swf`; a key with a slash is the full file name. A key
+---named like a game file replaces it everywhere, such as "タメマーク". It loops at the GIF's own
+---speed, rounded to 30 frames a second. GIF has 256 colors and on or off transparency. Up to 1024
+---pixels a side, 1024 frames and 32 million pixels in all.
+---
+---Raises an error for a bad file.
+---
+---Since: 0.19.0
+---@param key string The Flash file's key.
+---@param path string A GIF file in the mod's folder.
+---@param opts? rq.GifOpts The size on screen.
+---@return string key The key.
 function image.add_gif(key, path, opts) end
 
----Undo add_gif. New loads use the game file again, if there is one.
----@param key string
----@return boolean removed
+---Undoes `rq.image.add_gif`. New loads use the game's file again, if there is one.
+---
+---Since: 0.19.0
+---@param key string The key.
+---@return boolean removed false when no GIF had that key.
 function image.remove_gif(key) end
 
----@param key string
----@return rq.GifInfo|nil
+---Returns a GIF's size and length.
+---
+---Since: 0.19.0
+---@param key string The key.
+---@return rq.GifInfo|nil info The GIF, or nil when no GIF has that key.
 function image.gif_info(key) end
 
+---One of an item's effects: the game's own code and amount.
 ---@class rq.ItemEffect
----@field kind integer game effect code (機能), for example 20 = HP percent
----@field value integer
+---@field kind integer The game's effect code (`機能`), such as 20 for HP percent.
+---@field value integer The amount.
 
+---An item template for `rq.item.define`.
 ---@class rq.ItemDef
----@field id string text id, "mymod:binoculars". Becomes a stable number from 1000 up.
----@field name string
----@field type? "weapon"|"armor"|"item"|"special"|"quest"|"none" default "item"
----@field subtype? integer 種類詳細
----@field rank? integer 種類ランク (default 10)
----@field icon? integer|string game CG number or a file in the mod folder (100x100, proportions kept). Omitted: a grey question mark (loader 0.15.0)
----@field price? integer
----@field level? integer 装備ＬＶ
----@field rarity? integer レアランク
----@field classes? integer[] which classes may equip it (1..8). Omit for all.
----@field characters? integer[] 装備キャラ list
----@field effects? rq.ItemEffect[] up to 5
----@field info? string description; $ is a line break
----@field locked? boolean 外せません
----@field vanishes? boolean 消滅します
----@field on_create? fun(ii: integer)
+---@field id string The text id, such as "mymod:binoculars". It becomes a stable number from 1000 up.
+---@field name string The name.
+---@field type? "weapon"|"armor"|"item"|"special"|"quest"|"none" The slot: weapon (1), armor (11), item (17), special (21), quest (22), none (23, cannot be equipped). Default "item".
+---@field subtype? integer The detailed kind (`種類詳細`); a familiar is 20.
+---@field rank? integer The kind rank (`種類ランク`). Default 10.
+---@field icon? integer|string A game CG number or a file in the mod's folder (shown at 100×100, proportions kept). Default: a grey question mark (since 0.15.0).
+---@field price? integer The price.
+---@field level? integer The level needed to equip it (`装備ＬＶ`).
+---@field rarity? integer The rarity (`レアランク`).
+---@field classes? integer[] The classes that may equip it, 1 to 8. Default: all.
+---@field characters? integer[] The characters that may equip it (`装備キャラ`).
+---@field effects? rq.ItemEffect[] Up to five effects.
+---@field info? string The description; `$` is a line break.
+---@field locked? boolean Cannot be taken off (`外せません`).
+---@field vanishes? boolean Vanishes (`消滅します`).
+---@field on_create? fun(ii: integer) Runs when an instance is created.
 
+---What `rq.item.get` returns.
 ---@class rq.ItemInfo
----@field ii integer
----@field no integer item number (固有番号)
----@field id? string text id when a mod defined it
----@field name string
----@field info string
----@field type integer
----@field type_name string
----@field subtype integer
----@field rank integer
----@field icon integer
----@field price integer
----@field level integer
----@field rarity integer
----@field place integer 6 shop, 7 vault, 8 quest storage, a character's iic when equipped
----@field locked integer
----@field vanishes integer
----@field effects rq.ItemEffect[]
+---@field ii integer The instance.
+---@field no integer The item number (`固有番号`).
+---@field id? string The text id, for an item a mod defined.
+---@field name string The name.
+---@field info string The description.
+---@field type integer The slot, as the game numbers it (see `rq.ItemDef.type`).
+---@field type_name string The slot's name.
+---@field subtype integer The detailed kind.
+---@field rank integer The kind rank.
+---@field icon integer The icon CG.
+---@field price integer The price.
+---@field level integer The level needed to equip it.
+---@field rarity integer The rarity.
+---@field place integer 6 shop stock, 7 vault, 8 quest storage, or the owner's roster slot while equipped.
+---@field locked integer Non-zero when it cannot be taken off.
+---@field vanishes integer Non-zero when it vanishes.
+---@field effects rq.ItemEffect[] The effects.
 
+---Defines, gives and changes items.
+---
+---Items work like characters: define a template, then something provides it (a shop, a chest, a drop,
+---a quest, a character that starts with it). The game keeps item instances (`ii`, up to 3000) that
+---point to an item number (`no`). The calls take a number or a text id where they say `who`. The first
+---call grows the game's restock array (`◆アイテム補充数`) so numbers above 348 are safe. Effects are the
+---game's own codes; a mod that needs behavior of its own checks for its item with `rq.item.equipped`
+---and does the work in Lua.
+---
+---A familiar is an item in the item slot with `subtype = 20`; its owner needs Familiar Knowledge
+---(321). The game reads three effects by place: the monster number, the class (1 to 4) and the
+---growth. Its icon must be 6500 to 6516 or 6632, or the familiar never takes a turn.
+---
+---Since: 0.8.0
+---
+---```lua
+---local broken = rq.item.define({ id = "mymod:broken_lens", name = "Broken Lens", price = 10,
+---  info = "Cracked. It no longer magnifies anything." })
+---rq.item.define({ id = "mymod:lens", name = "Lens", price = 2000, icon = "icons/lens.png",
+---  info = "Zoom out on a dungeon.$Breaks when the dungeon ends." })
+---local ii = rq.item.give("mymod:lens", { to = rq.chara.find(1) })  -- equip it on Rance
+---rq.item.transform(ii, "mymod:broken_lens")                       -- later, it breaks
+---```
 ---@class rq.item
 local item = {}
 
----Define an item (create the template). No instance exists until it is given or stocked.
----Returns the number. Errors if the id collides with another one.
----@param def rq.ItemDef
----@return integer no
+---Registers an item template.
+---
+---No instance exists until it is given or stocked.
+---
+---Raises an error for a text id whose number another id already has.
+---
+---Since: 0.8.0
+---@param def rq.ItemDef The template.
+---@return integer no The item number.
 function item.define(def) end
 
----Create an instance and put it in the vault (or quest storage), or equip it.
----@param who string|integer item number or text id
----@param opts? {to?: integer, place?: "vault"|"quest"} to = a character's iic
----@return integer|nil ii
----@return string? err
+---Creates an instance (`Ｉ生成`) and puts it in the vault, in quest storage, or on a character.
+---
+---Raises an error for an unknown item.
+---
+---Since: 0.8.0
+---@param who string|integer An item number or text id.
+---@param opts? {to?: integer, place?: "vault"|"quest"} `to`: a roster slot to equip it on. `place`: "vault" (default) or "quest" storage.
+---@return integer|nil ii The new instance, or nil.
+---@return string? err Why it failed, or that the character cannot equip it.
 function item.give(who, opts) end
 
----@param ii integer
----@return rq.ItemInfo|nil
+---Returns an instance's fields.
+---
+---Since: 0.8.0
+---@param ii integer The instance.
+---@return rq.ItemInfo|nil info A copy of the fields, or nil when there is no such instance.
 function item.get(ii) end
 
----Write fields of an instance: name, info, effects, price, rarity, level, icon, rank, subtype, type, locked, vanishes, place.
----A familiar is subtype 20, with effects 1 to 3 as monster, class and growth. Its icon must be 6500 to 6516 or 6632, or it never takes a turn.
----@param ii integer
----@param fields table
+---Writes an instance's fields.
+---
+---The fields are `name`, `info`, `effects`, `price`, `rarity`, `level`, `icon`, `rank`, `subtype`,
+---`type`, `locked`, `vanishes` and `place`. After changing the effects of an equipped item, call
+---`rq.chara.recalc` on its owner.
+---
+---Raises an error for an unknown field.
+---
+---Since: 0.8.0
+---@param ii integer The instance.
+---@param fields table The fields to write.
 function item.set(ii, fields) end
 
----The same instance becomes another item. It keeps its place and its owner.
----@param ii integer
----@param who string|integer
----@return boolean ok
+---Turns an instance into another item, keeping its place and owner.
+---
+---Name, price, effects and description change, as for a "broken" version of an item.
+---
+---Since: 0.8.0
+---@param ii integer The instance.
+---@param who string|integer The new item number or text id.
+---@return boolean ok false when it could not change.
 function item.transform(ii, who) end
 
----Declarative edit of an item number: re-applied to every new instance of it.
----@param who string|integer
----@param patch table same fields as item.set
+---Patches an item number, for every new instance and the ones in the save.
+---
+---The patch takes the same fields as `rq.item.set`. It applies to every new instance, and to the ones
+---already in the save after each load, or on the next frame when called later (all fields but `place`
+---and `no`; an equipped item recalculates its owner). The save then keeps those values, also when the
+---mod is removed. Each mod keeps one patch per item.
+---
+---Since: 0.8.0
+---Changed: 0.15.0 Reaches instances already in the save.
+---@param who string|integer An item number or text id.
+---@param patch table The fields to set.
 function item.edit(who, patch) end
 
----Put an existing instance in its slot on a character (the old item of that slot is replaced). False if it cannot be equipped there.
----@param ii integer
----@param iic integer
----@return boolean ok
+---Equips an existing instance on a character (`キャラ_装備設定`).
+---
+---The old item of that slot is replaced, and the character is recalculated.
+---
+---Since: 0.11.0
+---@param ii integer The instance.
+---@param iic integer The character's roster slot.
+---@return boolean ok false when the character cannot wear it.
 function item.equip(ii, iic) end
 
----Delete an instance: it is taken off its owner first if equipped. False if there is no such item.
----@param ii integer
----@return boolean removed
+---Deletes an instance (`Ｉ削除`), taking it off its owner first.
+---
+---Since: 0.10.0
+---@param ii integer The instance.
+---@return boolean removed false when there is no such instance.
 function item.remove(ii) end
 
----Instances a character has equipped: { weapon, armor, item, special } (missing = empty).
----@param iic integer
----@return table
+---Returns the instances a character has equipped.
+---
+---Since: 0.8.0
+---@param iic integer The character's roster slot.
+---@return {weapon?: integer, armor?: integer, item?: integer, special?: integer} gear The instance in each slot; an empty slot is left out.
 function item.equipped(iic) end
 
----@param ii integer
----@return integer|nil
+---Returns the item number of an instance.
+---
+---Since: 0.8.0
+---@param ii integer The instance.
+---@return integer|nil no The item number, or nil when there is no such instance.
 function item.number(ii) end
 
----@param no integer
----@return string|nil
+---Returns the text id of a defined item number.
+---
+---Since: 0.8.0
+---@param no integer The item number.
+---@return string|nil id The text id, or nil when no mod defined that number.
 function item.id_of(no) end
 
----After any item is created (Ｉ生成), game or mod. May be registered many times.
----@param fn fun(ctx: {ii: integer, no: integer, id?: string})
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` after any item instance is created (`Ｉ生成`), game or mod.
+---
+---Since: 0.8.0
+---Changed: 0.23.0 Returns a remover.
+---@param fn fun(ctx: {ii: integer, no: integer, id?: string}) Gets the instance, its number, and its text id for a mod's item.
+---@return fun() remove Removes this callback.
 function item.on_create(fn) end
 
+---Small key and value storage for each mod and each save.
+---
+---It lives in `rqmod-store.json` in the active save folder, so it follows the `rq.saves` profile. Use
+---it for facts such as "this character was already recruited". Values are numbers, strings and
+---booleans. Each mod sees only its own keys. The file is written on every `set` and `delete`.
+---
+---Since: 0.4.0
+---
+---```lua
+---if not rq.store.get("alice_joined", false) then
+---  if rq.chara.recruit("mymod:alice") then rq.store.set("alice_joined", true) end
+---end
+---```
 ---@class rq.store
 local store = {}
 
----Per-mod value saved next to the active save profile (rqmod-store.json).
----@param key string
----@param default? any
----@return number|string|boolean|nil
+---Reads a key.
+---
+---Since: 0.4.0
+---@param key string The key.
+---@param default? any What to return when the key is not set.
+---@return number|string|boolean|nil value The value, or `default`.
 function store.get(key, default) end
 
----number, string or boolean. nil deletes the key.
----@param key string
----@param value number|string|boolean|nil
+---Writes a key.
+---
+---Raises an error for a value that is not a number, string, boolean or nil, or when the file cannot be
+---opened.
+---
+---Since: 0.4.0
+---@param key string The key.
+---@param value number|string|boolean|nil The value; nil deletes the key.
 function store.set(key, value) end
 
----@param key string
+---Deletes a key.
+---
+---Since: 0.4.0
+---@param key string The key.
 function store.delete(key) end
 
----@return string[]
+---Lists this mod's keys.
+---
+---Since: 0.4.0
+---@return string[] keys The keys.
 function store.keys() end
 
----Loader 1.8.0. The same calls as rq.store, in one file for every save profile
----(rqmod-global.json, in the base profile's save folder). For settings, not for game state.
+---The same calls as `rq.store`, in one file for every save profile.
+---
+---The file is `rqmod-global.json` in the base profile's save folder. Use it for settings, such as what
+---a mod's Config page changes. Its keys are apart from `rq.store`'s.
+---
+---Since: 1.8.0
+---
+---```lua
+---local on = rq.store.global.get("on", true)
+---rq.store.global.set("on", not on)
+---```
 ---@class rq.store_global
----@field get fun(key: string, default?: any): number|string|boolean|nil
----@field set fun(key: string, value: number|string|boolean|nil)
----@field delete fun(key: string)
----@field keys fun(): string[]
+---@field get fun(key: string, default?: any): number|string|boolean|nil Reads a key, or returns `default`.
+---@field set fun(key: string, value: number|string|boolean|nil) Writes a key; nil deletes it.
+---@field delete fun(key: string) Deletes a key.
+---@field keys fun(): string[] Lists this mod's keys.
 store.global = {}
 
 ---What `rq.combat.on_physical` gets for one physical hit.
