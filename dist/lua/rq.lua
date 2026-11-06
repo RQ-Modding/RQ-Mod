@@ -1055,271 +1055,574 @@ function agent.control(id, opts) end
 ---@return integer listed How many controls were listed.
 function agent.widgets(list) end
 
+---One row of a character's skill list, from `rq.chara.slots`.
 ---@class rq.CharaSlot
----@field slot integer
----@field skill integer
----@field uses integer remaining uses
----@field max integer max uses
----@field bar integer hotbar position, 0 if unequipped
+---@field slot integer The row, 1 to 20.
+---@field skill integer The skill number in the row; 0 when the row is empty.
+---@field uses integer Uses left.
+---@field max integer Most uses.
+---@field bar integer The hotbar position, 1 to 6; 0 when the skill is not on the hotbar.
 
+---What `rq.chara.on_offer` gets for the character whose buy list the game just filled.
 ---@class rq.OfferCtx
----@field iic integer
----@field no integer Ｃ番号
----@field level integer
----@field class integer
+---@field iic integer The character's roster slot.
+---@field no integer The character number (`Ｃ番号`).
+---@field level integer The character's level.
+---@field class integer The character's class (see `rq.CharaFields.class`).
 
+---A row `rq.chara.on_offer` adds to the skill buy list.
 ---@class rq.Offer
----@field skill integer
----@field cost integer
----@field level integer required level
----@field points? integer final price, replaces the game's own curve (loader 0.13.0)
+---@field skill integer The skill number.
+---@field cost integer The cost the game's price curve starts from.
+---@field level integer The level needed to buy it; below it the row shows the game's "Cannot learn yet" text.
+---@field points? integer The final price shown. It replaces the game's own price, its rise per use bought and its cap of 9. Since 0.13.0.
 
+---A row of the skill buy list, from `rq.chara.offers`.
+---@class rq.OfferRow
+---@field index integer The row's index, as `rq.chara.set_offer` takes it.
+---@field skill integer The skill number.
+---@field points integer The price in skill points (`取得可能スキルポイント`).
+
+---Reads and changes characters: their skills, stats, the skill buy list, and the roster.
+---
+---The calls work on a roster slot, the `iic` (the `id` of an entry in `rq.units()`), unless they say
+---`who`: those take a character number or a mod's text id. Base-game numbers include Rance 1, Kaoru
+---52, Onoha 62 and Rebecca 81.
+---
+---**Skills and the buy list.** `grant`, `rank`, `slots`, `set_slot`, `set_flavor`, `weapon_detail`,
+---`apply_mod`, `on_recalc`, `on_offer`, `offers`, `set_offer`, `set_uses`, `set_bar`, `clear_slot` and
+---`max_uses` need `rq.chara.install` first.
+---
+---**Roster.** `define` registers a template; the character exists, and joins the player's roster,
+---only when `recruit` runs, so a mod can give it from a quest or an event. `recruit` also works for
+---base-game characters. A text id such as `"mymod:alice"` becomes a number from 1000 up, the same
+---number every time, so saves stay valid. The roster has 181 slots (20 to 200). The roster calls
+---install what they need on first use.
+---
+---Since: 0.2.0
+---Changed: 0.4.0 Added the roster calls.
+---
+---```lua
+----- Create now, provide later
+---rq.chara.define({ id = "mymod:alice", name = "Alice", class = 1, level = 5, slots = 4,
+---  init = { atk = 10 }, skills = { { id = 100, n = 8 } } })
+---if rq.store.get("alice_joined") ~= true then
+---  local iic = rq.chara.recruit("mymod:alice", { state = 2 })
+---  if iic then rq.store.set("alice_joined", true) end
+---end
+---
+----- Edit a base-game character, also in old saves: Onoha gets Head Start 2 (skill 246)
+---rq.chara.edit(62, { init = { eva = 50, spd = 25 }, learn = { { id = 246, n = 2 } } })
+---```
 ---@class rq.chara
 local chara = {}
 
----Tail of Ｃ再計算 and Ｔ購入スキル登録, plus the combat sites. Idempotent with rq.combat.install.
----@return boolean
+---Installs the hooks the skill and buy-list calls need.
+---
+---It hooks the end of `Ｃ再計算` (the recalculation, after the game's own spear rewrite) and of
+---`Ｔ購入スキル登録` (the buy list), and the combat sites `rq.combat` uses. Calling it again, or after
+---`rq.combat.install`, does nothing more. Call it at the top of `init.lua`.
+---
+---Raises an error when the AIN is not loaded or a hook cannot be placed (the reason is in the log).
+---
+---Since: 0.2.0
+---
+---```lua
+---rq.chara.install()
+---```
+---@return boolean ok Always true; a failure raises an error.
 function chara.install() end
 
----ＣＳ追加. n is rank (type 30) or uses (type 10).
----@param iic integer
----@param skillId integer
----@param n integer
----@return integer slot
+---Gives a character a skill (`ＣＳ追加`).
+---
+---Raises an error for a slot with no character or a skill number outside 1 to 1000.
+---
+---Since: 0.2.0
+---@param iic integer The character's roster slot.
+---@param skillId integer The skill number.
+---@param n integer The rank for a knowledge skill (type 30), or the uses for an active skill (type 10).
+---@return integer slot The skill-list row it went to.
 function chara.grant(iic, skillId, n) end
 
----ＣＳ有無／ランク. 0 if the character does not have it.
----@param iic integer
----@param skillId integer
----@return integer
+---Returns a character's rank in a skill (`ＣＳ有無／ランク`).
+---
+---Since: 0.2.0
+---@param iic integer The character's roster slot.
+---@param skillId integer The skill number.
+---@return integer rank 1 to 4 (no star through three stars); 0 when the character does not have the skill or there is no character.
 function chara.rank(iic, skillId) end
 
----@param iic integer
----@return rq.CharaSlot[]
+---Lists the rows of a character's skill list that hold a skill.
+---
+---The game's screens show 6 hotbar positions, so a `slots` value above 6 adds rows but no positions.
+---
+---Since: 0.2.0
+---@param iic integer The character's roster slot.
+---@return rq.CharaSlot[] slots The rows in order; empty when there is no character.
 function chara.slots(iic) end
 
----@param iic integer
----@param slot integer
----@param skillId integer
+---Writes the skill number of a skill-list row (`ＣＳ番号`).
+---
+---Only the number changes; the uses and the battle-log line stay. See `rq.chara.set_flavor`.
+---
+---Raises an error for a slot with no character or a skill number outside 0 to 1000.
+---
+---Since: 0.2.0
+---@param iic integer The character's roster slot.
+---@param slot integer The skill-list row.
+---@param skillId integer The skill number; 0 empties the number.
 function chara.set_slot(iic, slot, skillId) end
 
----Copy Ｓ表示文 of the slot's current skill into the battle-log line.
----@param iic integer
----@param slot integer
+---Copies the battle-log line (`Ｓ表示文`) of a row's current skill to the character.
+---
+---The game's own slot swaps skip this, so call it after `rq.chara.set_slot`.
+---
+---Raises an error for a slot with no character or a row under 1.
+---
+---Since: 0.2.0
+---@param iic integer The character's roster slot.
+---@param slot integer The skill-list row.
 function chara.set_flavor(iic, slot) end
 
----Ｉ種類詳細 of the equipped weapon. Sword 2, spear/naginata 7, glove 9.
----@param iic integer
----@return integer
+---Returns the weapon kind of the character's equipped weapon (`Ｉ種類詳細`).
+---
+---Since: 0.2.0
+---@param iic integer The character's roster slot.
+---@return integer kind Sword 2, spear or naginata 7, glove 9; 0 when there is no character.
 function chara.weapon_detail(iic) end
 
----Ｃ機能適応. scale defaults to 100. Magic = 14, accuracy = 8.
----@param iic integer
----@param kind integer
----@param amount integer
----@param scale? integer
+---Applies a stat change the way the game's own skills do (`Ｃ機能適応`).
+---
+---Call it from `rq.chara.on_recalc`, so it is applied on every recalculation.
+---
+---Since: 0.2.0
+---@param iic integer The character's roster slot.
+---@param kind integer The stat, as the game numbers it: accuracy 8, magic 14.
+---@param amount integer How much to add.
+---@param scale? integer The percent of `amount` applied. Default 100.
 function chara.apply_mod(iic, kind, amount, scale) end
 
----fn(iic) after that character's Ｃ再計算. Loader 0.14.0: every mod's callback runs.
----@param fn fun(iic: integer)
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` after the game recalculates a character (`Ｃ再計算`).
+---
+---Needs `rq.chara.install`. Up to 16 callbacks in all.
+---
+---Since: 0.2.0
+---Changed: 0.14.0 Every mod's callback runs (before, the last one won).
+---Changed: 0.23.0 Returns a remover.
+---
+---```lua
+---rq.chara.on_recalc(function(iic)
+---  if rq.chara.weapon_detail(iic) == 7 then rq.chara.apply_mod(iic, 8, 10) end  -- spear: accuracy
+---end)
+---```
+---@param fn fun(iic: integer) Gets the character's roster slot.
+---@return fun() remove Removes this callback.
 function chara.on_recalc(fn) end
 
----fn(ctx) → nil, one offer {skill, cost, level, points?}, or a list of offers. Called after vanilla filled the buy list.
----Loader 0.13.0: every mod's callback runs (before, the last one won) and a list adds several rows.
----points, if given, is the final price shown: it replaces what スキルポン worked out (no use-count bump, no cap of 9).
----A row whose level gate fails keeps the game's "Cannot learn yet" text.
----@param fn fun(ctx: rq.OfferCtx): rq.Offer|rq.Offer[]|nil
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` after the game filled a character's skill buy list, to add rows.
+---
+---`fn` returns nil, one `rq.Offer`, or a list of them. Each row goes through the game's own level
+---check (`スキルレベル制限表示`). Needs `rq.chara.install`. Up to 16 callbacks in all.
+---
+---Since: 0.2.0
+---Changed: 0.13.0 Every mod's callback runs (before, the last one won); a list adds several rows; added `points`.
+---Changed: 0.23.0 Returns a remover.
+---
+---```lua
+---rq.chara.on_offer(function(ctx)
+---  if ctx.class == 4 then return { skill = 246, cost = 2, level = 10, points = 3 } end
+---end)
+---```
+---@param fn fun(ctx: rq.OfferCtx): rq.Offer|rq.Offer[]|nil Returns the rows to add.
+---@return fun() remove Removes this callback.
 function chara.on_offer(fn) end
 
----@class rq.OfferRow
----@field index integer array index in 取得可能スキル
----@field skill integer
----@field points integer buy cost (取得可能スキルポイント)
----@field points integer 取得可能スキルポイント
-
----Non-zero buy-list rows.
----@return rq.OfferRow[]
+---Lists the rows of the skill buy list that hold a skill.
+---
+---With the paged buy list of `rq.skilllist` on, these are the rows its buttons read; otherwise the
+---game's `取得可能スキル`.
+---
+---Since: 0.2.0
+---@return rq.OfferRow[] rows The rows in order; empty when there is no buy list.
 function chara.offers() end
 
----Replace a buy-list skill id. Leaves the level-lock text.
----Pass points to replace 取得可能スキルポイント (extra-use cost).
----Also updates the paged buy-list cache the buttons actually read.
----@param index integer
----@param skillId integer
----@param points? integer
+---Replaces the skill in a buy-list row.
+---
+---It writes both the game's list and the paged list's copy. The row's level text stays as it is.
+---
+---Raises an error for an index outside the list, or for `points` when the game has no price list.
+---
+---Since: 0.2.0
+---@param index integer The row's index, as `rq.chara.offers` gives it.
+---@param skillId integer The skill number.
+---@param points? integer The new price in skill points. Default: the price stays.
 function chara.set_offer(index, skillId, points) end
 
----Set remaining uses and max uses. Max is written first (cap 99 in the engine).
----@param iic integer
----@param slot integer
----@param uses integer
----@param max integer
+---Sets the uses left and the most uses of a skill-list row.
+---
+---The most uses is written first; the game caps it at 99.
+---
+---Raises an error for a slot with no character.
+---
+---Since: 0.2.0
+---@param iic integer The character's roster slot.
+---@param slot integer The skill-list row.
+---@param uses integer Uses left.
+---@param max integer Most uses.
 function chara.set_uses(iic, slot, uses, max) end
 
----ＣＳ実装中. 0 clears the hotbar entry.
----@param iic integer
----@param slot integer
----@param pos integer
+---Puts a skill-list row on the hotbar, or takes it off (`ＣＳ実装中`).
+---
+---Raises an error for a slot with no character.
+---
+---Since: 0.2.0
+---@param iic integer The character's roster slot.
+---@param slot integer The skill-list row.
+---@param pos integer The hotbar position, 1 to 6; 0 takes it off.
 function chara.set_bar(iic, slot, pos) end
 
----ＣＳ初期化. Empties the slot.
----@param iic integer
----@param slot integer
+---Empties a skill-list row (`ＣＳ初期化`).
+---
+---Raises an error for a slot with no character.
+---
+---Since: 0.2.0
+---@param iic integer The character's roster slot.
+---@param slot integer The skill-list row.
 function chara.clear_slot(iic, slot) end
 
----ＣＳ有無／最大回数. 0 if the character does not have the skill.
----@param iic integer
----@param skillId integer
----@return integer
+---Returns the most uses a character has of a skill (`ＣＳ有無／最大回数`).
+---
+---This is what the game's price (`スキルポン`) reads when it raises the cost of another use.
+---
+---Since: 0.2.0
+---@param iic integer The character's roster slot.
+---@param skillId integer The skill number.
+---@return integer max The most uses; 0 when the character does not have the skill or there is no character.
 function chara.max_uses(iic, skillId) end
 
+---Stat bonuses that each recalculation adds, in `rq.CharaFields.init`.
+---
+---`hp`, `atk`, `def`, `mag` and `mdef` are percents (`atk = 10` is +10%); the rest are flat points.
 ---@class rq.CharaInit
----@field hp? integer percent bonus (初期／体力最大). Same for atk, def, mag, mdef.
----@field spd? integer flat points. Same for hit, eva, crit, impact, resist.
----@field atk? integer
----@field def? integer
----@field hit? integer
----@field eva? integer
----@field crit? integer
----@field impact? integer
----@field resist? integer
----@field mag? integer
----@field mdef? integer
----@field sp? integer starting skill points
+---@field hp? integer Most HP, in percent.
+---@field atk? integer Attack, in percent.
+---@field def? integer Defense, in percent.
+---@field mag? integer Magic, in percent.
+---@field mdef? integer Magic defense, in percent.
+---@field spd? integer Speed, in points.
+---@field hit? integer Accuracy, in points.
+---@field eva? integer Evasion, in points.
+---@field crit? integer Critical rate, in points.
+---@field impact? integer Impact rate, in points.
+---@field resist? integer Resistance, in points.
+---@field sp? integer Skill points the character starts with.
 
+---A skill a character gets, in `rq.CharaFields.skills` and `rq.CharaEdit.learn`.
 ---@class rq.CharaSkillGrant
----@field id integer skill number
----@field n? integer rank (rank skills) or uses (use skills). Default 1.
+---@field id integer The skill number.
+---@field n? integer The rank for a rank skill, or the uses for a use skill. Default 1.
 
+---The fields `rq.chara.define` and `rq.chara.edit` share.
 ---@class rq.CharaFields
----@field name? string
----@field short? string
----@field face? integer|string game face CG number, or a path inside the mod folder (shown at 196x232, proportions kept)
----@field face_name? string 顔ＣＧ文字列
----@field portrait? integer|string 立ち絵ＣＧ number, or a path inside the mod folder (1024x768 canvas, proportions kept)
----@field class? integer 1 Fighter 2 Guard 3 Gunner 4 Sorcerer 5 Healer 6 Ranger 7 Brawler 8 Civilian
----@field sex? integer
----@field level? integer
----@field level_max? integer
----@field slots? integer equippable skill slots (rank of skill 568 plus 2). The hotbar has 6 positions.
----@field type? integer ＣＦＡ type for sorcerers, race, model, boss, weakness_known, ... (see rq.chara.get)
----@field init? rq.CharaInit bonuses applied by recalculation (hp/atk/def/mag/mdef are percents, the rest flat points)
----@field skills? rq.CharaSkillGrant[]
----@field weapon? integer|string item number or text id, created and equipped when the character is created (loader 0.15.0)
----@field armor? integer|string same as weapon
----@field item? integer|string same as weapon
----@field special? integer|string same as weapon
+---@field name? string The full name.
+---@field short? string The short name.
+---@field face? integer|string A game face CG number, or an image path inside the mod's folder (shown at 196×232, proportions kept). Default 2916.
+---@field face_name? string The face CG text (`顔ＣＧ文字列`).
+---@field portrait? integer|string A standing-picture CG number, or an image path inside the mod's folder (on a 1024×768 canvas, proportions kept).
+---@field class? integer 1 Fighter, 2 Guard, 3 Gunner, 4 Sorcerer, 5 Healer, 6 Ranger, 7 Brawler, 8 Civilian.
+---@field sex? integer The sex, as the game numbers it.
+---@field level? integer The level. `define` only.
+---@field level_max? integer The highest level. `define` only.
+---@field slots? integer Skill rows the character can equip. The hotbar has 6 positions.
+---@field type? integer The game's type value (`タイプ`). Also `race`, `model`, `boss` and any other `rq.CharaState` name.
+---@field init? rq.CharaInit Bonuses each recalculation adds.
+---@field skills? rq.CharaSkillGrant[] Skills learned when the character is created. `define` only.
+---@field weapon? integer|string An item number or text id, created and equipped when the character is created, before `on_create`. An item of the wrong kind is logged and not given. Since 0.15.0.
+---@field armor? integer|string As `weapon`, for the armor. Since 0.15.0.
+---@field item? integer|string As `weapon`, for the held item. Since 0.15.0.
+---@field special? integer|string As `weapon`, for the option slot. Since 0.15.0.
 
+---A character template for `rq.chara.define`.
 ---@class rq.CharaDef: rq.CharaFields
----@field id string text id, "mymod:alice". Becomes a stable number from 1000 up.
----@field lines? string[] battle lines 1..6
----@field on_create? fun(iic: integer)
+---@field id string The text id, such as "mymod:alice", under 64 bytes.
+---@field lines? string[] Battle lines 1 to 6.
+---@field on_create? fun(iic: integer) Runs when this character is created.
 
+---A patch for `rq.chara.edit`. `level`, `level_max`, `skills` and `lines` do not apply.
 ---@class rq.CharaEdit: rq.CharaFields
----@field learn? rq.CharaSkillGrant[] ensure these skills (raises rank, never lowers; use skills are not stacked)
----@field on_recalc? fun(iic: integer): boolean|nil return true to ask for one more recalculation
+---@field learn? rq.CharaSkillGrant[] Makes sure the character has these skills: raises a rank, never lowers it, and does not stack the uses of a use skill twice.
+---@field on_recalc? fun(iic: integer): boolean|nil Runs after each recalculation of this character; return true to ask for one more.
 
+---Options for `rq.chara.recruit`.
 ---@class rq.RecruitOpts
----@field state? integer 登録状態 (1 party, 2 reserve, 4 second string)
----@field party? integer ＰＴＡ slot to put the character in right away
+---@field state? integer Where the character goes (`登録状態`): 1 party, 2 reserve, 4 second string.
+---@field party? integer A party slot (`ＰＴＡ登録`) to put the character in at once.
 
+---What `rq.chara.on_create` gets.
 ---@class rq.CreateCtx
----@field iic integer
----@field no integer
----@field id? string text id when a mod defined this character
+---@field iic integer The new character's roster slot.
+---@field no integer The character number.
+---@field id? string The text id, for a character a mod defined.
 
+---What `rq.chara.on_forget` gets.
 ---@class rq.ForgetCtx
----@field iic integer
----@field skill integer
----@field slot integer row in the character's skill list
----@field rank integer
----@field cost integer points paid for it (0 if unknown)
----@field caller string AIN function that removed it, or "lua" for rq.chara.forget
+---@field iic integer The character's roster slot.
+---@field skill integer The skill number.
+---@field slot integer The skill-list row.
+---@field rank integer The skill's rank.
+---@field cost integer The skill points the character paid for it; 0 when the game did not record it.
+---@field caller string The AIN function that removed it, or "lua" for `rq.chara.forget`.
 
----Define a character (create the template). Nothing joins the roster until recruit.
----Returns the number. Errors if the id collides with another one.
----@param def rq.CharaDef
----@return integer no
+---Registers a character template.
+---
+---Nothing joins the roster until `rq.chara.recruit`. Defining the same id again replaces the
+---template. Up to 96 templates.
+---
+---Raises an error for a missing or too long id, an id whose number another id already has, or a
+---97th template.
+---
+---Since: 0.4.0
+---@param def rq.CharaDef The template.
+---@return integer no The character number the id maps to, 1000 or more.
+---@see rq.chara.recruit
 function chara.define(def) end
 
----Provide a character: Ｃ生成 for a defined id or a base-game number. Idempotent.
----@param who string|integer
----@param opts? rq.RecruitOpts
----@return integer|nil iic
----@return string? err
+---Creates a character in the roster (`Ｃ生成`), or finds the one already there.
+---
+---Works for a defined id and for a base-game number. `opts` applies also to a character already in
+---the roster. The Party tab's list is refreshed.
+---
+---Raises an error for a number of 1000 or more that no template has.
+---
+---Since: 0.4.0
+---Changed: 0.6.0 Refreshes the Party tab's list.
+---@param who string|integer A text id or a character number.
+---@param opts? rq.RecruitOpts Where the new character goes.
+---@return integer|nil iic The roster slot, or nil when the game refused.
+---@return string? err Why the game refused, such as a full roster.
 function chara.recruit(who, opts) end
 
----iic of the character if it exists in the roster.
----@param who string|integer
----@return integer|nil iic
+---Returns the roster slot of a character (`Ｃ番号取得`).
+---
+---Since: 0.4.0
+---@param who string|integer A text id or a character number.
+---@return integer|nil iic The roster slot, or nil when the character is not in the roster.
 function chara.find(who) end
 
----@param who string|integer
----@return boolean
+---Returns whether a character is in the roster.
+---
+---Since: 0.4.0
+---@param who string|integer A text id or a character number.
+---@return boolean recruited true when the character is in the roster.
 function chara.is_recruited(who) end
 
----Ｃ再計算 now (add heal=true for Ｃ補給 after). Applies pending edits.
----@param iic integer
----@param heal? boolean
+---Recalculates a character now (`Ｃ再計算`).
+---
+---Pending `rq.chara.edit` patches and `init` changes show at once.
+---
+---Raises an error for a slot with no character.
+---
+---Since: 0.5.0
+---@param iic integer The character's roster slot.
+---@param heal? boolean true also refills HP and uses (`Ｃ補給`). Default false.
 function chara.recalc(iic, heal) end
 
----Ｃ削除 (leaves the party first). Frees the roster slot.
----@param iic integer
+---Removes a character from the roster (`Ｃ削除`).
+---
+---The character leaves the party first. The Party tab's list is refreshed.
+---
+---Raises an error for an empty slot or a slot under 20.
+---
+---Since: 0.4.0
+---Changed: 0.6.0 Refreshes the Party tab's list.
+---@param iic integer The character's roster slot.
 function chara.dismiss(iic) end
 
----Character number (番号) of a roster slot.
----@param iic integer
----@return integer|nil
+---Returns the character number in a roster slot.
+---
+---Since: 0.4.0
+---@param iic integer The roster slot.
+---@return integer|nil no The character number, or nil when the slot is empty.
 function chara.number(iic) end
 
----Text id of a defined character number.
----@param no integer
----@return string|nil
+---Returns the text id of a defined character number.
+---
+---Since: 0.4.0
+---@param no integer The character number.
+---@return string|nil id The text id, or nil when no mod defined that number.
 function chara.id_of(no) end
 
----Declarative edit, re-applied at the end of every recalculation (so it covers old saves).
----Since 1.2.1 each edited character is recalculated once right after a save loads. An edit made
----later waits for the next recalculation; rq.chara.recalc applies it now.
----@param who string|integer character number or text id
----@param patch rq.CharaEdit
+---Patches a character, again at the end of every recalculation, so it covers old saves too.
+---
+---Each mod keeps one patch per character; calling again replaces it. Every edited character is
+---recalculated once right after a save loads. A patch made later, with the save already loaded,
+---waits for the character's next recalculation; `rq.chara.recalc` applies it now. `weapon`, `armor`,
+---`item` and `special` apply only when the character is created. Up to 192 patches.
+---
+---Since: 0.4.0
+---Changed: 1.2.1 Edited characters are recalculated once after a save loads.
+---
+---```lua
+---rq.chara.edit("mymod:alice", { init = { spd = 10 }, weakness_known = true })
+---```
+---@param who string|integer A text id or a character number (not a roster slot).
+---@param patch rq.CharaEdit The fields to set.
 function chara.edit(who, patch) end
 
----All known fields under English names (hp, atk, eva, init_eva, state, weakness_known, ...).
----@param iic integer
----@return table|nil
+---Everything `rq.chara.get` returns about a character. `rq.chara.set` takes the same names.
+---
+---Derived stats are rebuilt by each recalculation. `init_*` are the bonuses the recalculation adds;
+---for the game's own characters it writes them again first, so use `rq.chara.edit` to keep a change.
+---@class rq.CharaState
+---@field iic integer The roster slot.
+---@field id? string The text id, for a character a mod defined.
+---@field name string The full name.
+---@field short string The short name.
+---@field face_name string The face CG text.
+---@field no integer The character number.
+---@field state integer Where the character is (`登録状態`): 1 party, 2 reserve, 4 second string.
+---@field guest integer Non-zero for a guest.
+---@field locked integer Non-zero when the character cannot be removed.
+---@field face integer The face CG number.
+---@field portrait integer The standing-picture CG number.
+---@field class integer The class (see `rq.CharaFields.class`).
+---@field sex integer The sex.
+---@field level integer The level.
+---@field level_max integer The highest level.
+---@field exp integer Experience.
+---@field exp_max integer Experience for the next level.
+---@field rebirths integer Times reborn.
+---@field hp integer HP.
+---@field hp_max integer Most HP.
+---@field spd integer Speed.
+---@field atk integer Attack.
+---@field def integer Defense.
+---@field hit integer Accuracy.
+---@field eva integer Evasion.
+---@field crit integer Critical rate.
+---@field impact integer Impact rate.
+---@field resist integer Resistance.
+---@field mag integer Magic.
+---@field mdef integer Magic defense.
+---@field fire_res integer Fire resistance.
+---@field ice_res integer Ice resistance.
+---@field thunder_res integer Thunder resistance.
+---@field light_res integer Light resistance.
+---@field dark_res integer Dark resistance.
+---@field weak_element integer The weak element.
+---@field weapon integer The equipped weapon's item instance.
+---@field armor integer The equipped armor's item instance.
+---@field item integer The held item's instance.
+---@field special integer The option slot's item instance.
+---@field skill_points integer Free skill points.
+---@field race integer The race.
+---@field type integer The type value.
+---@field model integer The 3D model.
+---@field boss integer Non-zero for a boss.
+---@field weakness_known boolean The player knows the weakness.
+---@field status integer Battle state: the status change, 1 poison, 0 none. Since 0.5.0.
+---@field guard integer Battle state: guard rate. Since 0.5.0.
+---@field stealth integer Battle state: stealth rate. Since 0.5.0.
+---@field berserk integer Battle state: berserk. Since 0.5.0.
+---@field bless_all integer Battle state: blessing on the whole party. Since 0.5.0.
+---@field barrier integer Battle state: barrier. Since 0.5.0.
+---@field atk_buff integer Battle state: attack buff. Since 0.5.0.
+---@field def_buff integer Battle state: defense buff. Since 0.5.0.
+---@field charge integer Battle state: charge. Since 0.5.0.
+---@field init_hp integer Bonus to most HP, in percent.
+---@field init_spd integer Bonus to speed, in points.
+---@field init_atk integer Bonus to attack, in percent.
+---@field init_def integer Bonus to defense, in percent.
+---@field init_hit integer Bonus to accuracy, in points.
+---@field init_eva integer Bonus to evasion, in points.
+---@field init_crit integer Bonus to critical rate, in points.
+---@field init_impact integer Bonus to impact rate, in points.
+---@field init_resist integer Bonus to resistance, in points.
+---@field init_mag integer Bonus to magic, in percent.
+---@field init_mdef integer Bonus to magic defense, in percent.
+---@field init_sp integer Starting skill points.
+
+---Returns everything known about a character.
+---
+---Since: 0.4.0
+---Changed: 0.5.0 Added the battle-state fields.
+---@param iic integer The character's roster slot.
+---@return rq.CharaState|nil state A copy of the character's fields, or nil when there is no character.
 function chara.get(iic) end
 
----Write fields by the same names. Derived stats are rebuilt by the next recalculation, and so are the init_* fields of the game's own characters: use chara.edit to keep a change.
----@param iic integer
----@param fields table
+---Writes character fields by the names `rq.chara.get` uses.
+---
+---`slots`, `name`, `short` and `face_name` work too, and `face` and `portrait` take an image path
+---inside the mod's folder. A change to a derived stat (`hp_max`, `atk`, ...) lasts only until the
+---next recalculation: use `init_*`, or `rq.chara.edit` to keep it.
+---
+---Raises an error for a slot with no character or an unknown field.
+---
+---Since: 0.4.0
+---
+---```lua
+---rq.chara.set(iic, { hp = 1, weakness_known = true })
+---```
+---@param iic integer The character's roster slot.
+---@param fields table Field names and new values.
 function chara.set(iic, fields) end
 
----@param iic integer
----@return integer
+---Returns a character's free skill points.
+---
+---Since: 0.4.0
+---@param iic integer The character's roster slot.
+---@return integer points The free skill points; 0 when there is no character.
 function chara.skill_points(iic) end
 
----@param iic integer
----@param delta integer
----@return integer new total
+---Adds to a character's free skill points.
+---
+---Raises an error for a slot with no character.
+---
+---Since: 0.4.0
+---@param iic integer The character's roster slot.
+---@param delta integer Points to add; negative takes away.
+---@return integer total The new total, never below 0.
 function chara.add_skill_points(iic, delta) end
 
----Remove a skill (ＣＳ削除). Fires on_forget with caller "lua".
----@param iic integer
----@param skill integer
----@return boolean removed
----@return integer? cost points the character had paid for it
+---Removes a skill from a character (`ＣＳ削除`).
+---
+---`rq.chara.on_forget` callbacks run, with `caller` "lua".
+---
+---Raises an error for a slot with no character.
+---
+---Since: 0.4.0
+---@param iic integer The character's roster slot.
+---@param skill integer The skill number.
+---@return boolean removed false when the character did not have the skill.
+---@return integer? cost The skill points the character had paid for it.
 function chara.forget(iic, skill) end
 
----After a character is created (Ｃ生成), base game or mod. May be registered many times.
----@param fn fun(ctx: rq.CreateCtx)
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` after any character is created (`Ｃ生成`), base game or mod.
+---
+---The engine then recalculates and heals the character. Up to 16 callbacks in all.
+---
+---Since: 0.4.0
+---Changed: 0.23.0 Returns a remover.
+---@param fn fun(ctx: rq.CreateCtx) Gets the new character.
+---@return fun() remove Removes this callback.
 function chara.on_create(fn) end
 
----Before a skill row is emptied. Return points to give back (summed over callbacks). May be registered many times.
----@param fn fun(ctx: rq.ForgetCtx): integer|nil
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` before a skill row is emptied, to give skill points back.
+---
+---The points every callback returns are added up and given to the character. Use `caller` to skip
+---the removals the game makes inside its recalculation. Up to 16 callbacks in all.
+---
+---Since: 0.4.0
+---Changed: 0.23.0 Returns a remover.
+---
+---```lua
+---rq.chara.on_forget(function(ctx)
+---  if ctx.caller:find("Ｃ再計算") then return 0 end
+---  return ctx.cost > 0 and ctx.cost or 1
+---end)
+---```
+---@param fn fun(ctx: rq.ForgetCtx): integer|nil Returns the points to give back.
+---@return fun() remove Removes this callback.
 function chara.on_forget(fn) end
 
 ---@alias rq.ImageFit "stretch"|"contain"|"cover"|"none"
