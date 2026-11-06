@@ -428,10 +428,12 @@ int rq_agent_set(const char *id, const char *label, int button, int hover_only);
 int rq_agent_set_rect(const char *id, const char *label, int x, int y, int w, int h);
 void rq_agent_clear(const char *id);
 int rq_mods_json(char **json_out);
+/* JSON {"version", "entries":[{name, kind}]} of the engine's rq.* before mods load; caller frees. */
+char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "1.14.0"
+#define RQ_VERSION "1.14.1"
 
 struct rq_qbattle_skill {
 	int id;

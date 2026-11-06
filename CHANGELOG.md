@@ -3,6 +3,10 @@
 Each version is the loader version mods see as `rq.version` and declare as `loader` in `mod.json`.
 A patch version fixes or adjusts behavior, a minor version adds calls or fields, a major version removes, renames or changes the meaning of a call.
 
+## 1.14.1
+
+Docs and tooling. `rq.lua` now declares `rq.skilllist`, `rq.debug` and `rq.agent`, so editors complete them; `rq.speed` is written in the new reference format. The agent pipe answers `apidump` with every `rq.*` entry the engine exposes before mods load, for the docs coverage check (`tools/apidoc`). The window title shows RQ MOD and the loader version, and the window and exe use the RQ MOD icon.
+
 ## 1.14.0
 
 Added `rq.scene.start` and `rq.scene.active`: a scene from any place, at the next frame, one at a time, after the System menu, Config or a scene of the game's own. Tried in every place the game has (see Places under `rq.scene`). Item Previews also hide while Config opened from a message is up.

@@ -1899,7 +1899,7 @@ function scene.after(name, fn) end
 function scene.replace(name, fn) end
 
 ---@class rq
----@field version string loader semver, currently 1.14.0
+---@field version string loader semver, currently 1.14.1
 ---@field game_dir string game root (AIN)
 ---@field mods_dir string mods\
 ---@field units fun(): rq.Unit[]
@@ -1932,7 +1932,7 @@ rq = {}
 
 ---Loader semver. A mod whose manifest loader is newer than this is skipped.
 ---@type string
-rq.version = "1.14.0"
+rq.version = "1.14.1"
 
 ---Recruited units. Copy; writing it does not change the save.
 ---Right after boot it lists only the three default characters made before the save loads: wait for more than 10 units or use rq.saves.
@@ -1990,6 +1990,9 @@ rq.combat = combat
 rq.counter = counter
 rq.shop = shop
 rq.battle = battle
+rq.skilllist = skilllist
+rq.debug = debug
+rq.agent = agent
 ---@class rq.party
 local party = {}
 
@@ -2016,16 +2019,42 @@ function random.fix(value) end
 
 rq.random = random
 
+---Runs the game clock faster or slower than real time.
+---
+---The game clock drives the game's timers and waits, Flash and parts animations, the 3D map,
+---rain and snow, and battle effects. Real time stays real: sound and music, the frame cap,
+---`rq.time_ms`, the loader's own dialogs and the play time written to the save. The factor works
+---on top of the game's own battle speed setting.
+---
+---The factor is 1 on every boot, so a mod that wants another speed sets it each time it loads.
+---
+---Sounds still play at normal speed, so at 3x a voice can last longer than its animation. Frames
+---of a Flash animation that are skipped still start their sounds.
+---
+---Since: 1.2.0
 ---@class rq.speed
 local speed = {}
 
----Loader 1.2.0. Runs the game clock at factor times real time: animations, waits, the 3D map and battle effects go faster. Clamped to 0.25..8. Real time stays real: sound, the frame cap, rq.time_ms and the play time on the save. Starts at 1 on every boot; a mod sets it again.
----@param factor number
----@return number factor the clamped factor now in use
+---Sets the game clock to `factor` times real time.
+---
+---The clock does not jump: game time goes on from where it was, at the new rate.
+---
+---Since: 1.2.0
+---
+---```lua
+---rq.speed.set(2)                -- twice as fast
+---local now = rq.speed.set(100)  -- clamped: now == 8
+---```
+---@param factor number How many times faster than real time. Clamped to 0.25..8.
+---@return number factor The factor now in use, after clamping.
+---@see rq.speed.get
 function speed.set(factor) end
 
----Loader 1.2.0. The factor now in use.
----@return number
+---Returns the factor the game clock runs at.
+---
+---Since: 1.2.0
+---@return number factor 1 unless a mod called `rq.speed.set`.
+---@see rq.speed.set
 function speed.get() end
 
 rq.speed = speed

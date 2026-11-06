@@ -23,6 +23,7 @@ int main(int argc, char **argv)
 			"\n"
 			"  rqmod-ctl ui                 JSON screen dump (one object)\n"
 			"  rqmod-ctl mods               JSON mods:[{name,path}] of loaded mods\n"
+			"  rqmod-ctl apidump            JSON of the engine's rq.* API, for the docs coverage check\n"
 			"  rqmod-ctl facts              one unit, quest 126, dungeon cell, battle\n"
 			"  rqmod-ctl hover <id>         move onto a control and wait until hovered\n"
 			"  rqmod-ctl press <id>         click only if that control is hovered\n"

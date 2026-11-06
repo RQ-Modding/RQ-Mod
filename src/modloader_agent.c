@@ -223,6 +223,19 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 			free(json);
 		return 1;
 	}
+	if (!_stricmp(cmd, "apidump")) {
+		char *json = rq_api_dump_json();
+		if (!json) {
+			if (err)
+				snprintf(err, errsz, "apidump: not built yet");
+			return 0;
+		}
+		if (extra)
+			*extra = json;
+		else
+			free(json);
+		return 1;
+	}
 	if (!_stricmp(cmd, "cgdump")) {
 		char *json = NULL;
 		if (!rq_ui_cmd_cgdump(skip_ws(p), &json, err, errsz))

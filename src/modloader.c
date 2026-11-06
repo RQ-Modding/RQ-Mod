@@ -1415,6 +1415,78 @@ static void open_rq(lua_State *L)
 	lua_setglobal(L, "rq");
 }
 
+/* The engine's own rq.* API, walked once after open_rq and before any mod runs, so the
+ * docs coverage check (`rqmod-ctl apidump`, tools/apidoc) sees what the engine exposes
+ * and nothing a mod added. Built on the game thread; the pipe thread only reads the text. */
+static char *g_api_dump;
+
+static void api_dump_walk(lua_State *L, int t, const char *prefix, cJSON *arr, int visited, int depth)
+{
+	lua_pushnil(L);
+	while (lua_next(L, t)) {
+		char name[256];
+		const char *kind;
+		int vt = lua_type(L, -1);
+		if (lua_type(L, -2) != LUA_TSTRING) {
+			lua_pop(L, 1);
+			continue;
+		}
+		snprintf(name, sizeof name, "%s.%s", prefix, lua_tostring(L, -2));
+		kind = vt == LUA_TFUNCTION ? "function" : vt == LUA_TTABLE ? "table" : "value";
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddStringToObject(o, "name", name);
+		cJSON_AddStringToObject(o, "kind", kind);
+		cJSON_AddItemToArray(arr, o);
+		if (vt == LUA_TTABLE && depth < 3) {
+			lua_pushvalue(L, -1);
+			if (lua_rawget(L, visited) == LUA_TNIL) {
+				lua_pop(L, 1);
+				lua_pushvalue(L, -1);
+				lua_pushboolean(L, 1);
+				lua_rawset(L, visited);
+				api_dump_walk(L, lua_gettop(L), name, arr, visited, depth + 1);
+			} else {
+				lua_pop(L, 1);
+			}
+		}
+		lua_pop(L, 1);
+	}
+}
+
+static void api_dump_build(lua_State *L)
+{
+	cJSON *root = cJSON_CreateObject(), *arr;
+	char *printed;
+	int top = lua_gettop(L);
+	if (!root)
+		return;
+	cJSON_AddStringToObject(root, "version", RQ_VERSION);
+	arr = cJSON_AddArrayToObject(root, "entries");
+	lua_newtable(L);
+	int visited = lua_gettop(L);
+	if (lua_getglobal(L, "rq") == LUA_TTABLE) {
+		lua_pushvalue(L, -1);
+		lua_pushboolean(L, 1);
+		lua_rawset(L, visited);
+		api_dump_walk(L, lua_gettop(L), "rq", arr, visited, 1);
+	}
+	lua_settop(L, top);
+	printed = cJSON_PrintUnformatted(root);
+	cJSON_Delete(root);
+	if (!printed)
+		return;
+	free(g_api_dump);
+	g_api_dump = malloc(strlen(printed) + 2);
+	if (g_api_dump)
+		sprintf(g_api_dump, "%s\n", printed);
+	free(printed);
+}
+
+char *rq_api_dump_json(void)
+{
+	return g_api_dump ? strdup(g_api_dump) : NULL;
+}
+
 #define RQ_MOD_MAX 64
 
 struct rq_loaded_mod {
@@ -2102,6 +2174,7 @@ void rq_mods_init(struct ain *ain)
 	rq_sandbox_install(g_L);
 	rq_unwind_install(g_L);
 	open_rq(g_L);
+	api_dump_build(g_L);
 	n = load_mods(g_L);
 	rq_log("Loaded %d Lua mod(s). Ready.", n);
 	/* Vanilla buffs must all show with or without a mod asking for it. */
