@@ -2633,38 +2633,90 @@ function counter.install() end
 ---@return fun() remove Removes this callback.
 function counter.on_guard_counter(fn) end
 
+---Adds stock to Frostbuy, the item shop, and reports purchases.
+---
+---The game refills the shop's stock in `Ｔアイテム屋` every time the shop opens. `rq.shop.install` wraps
+---the end of that function so `on_stock` callbacks run right after the game's own refill. Without a
+---hook the shop keeps only the game's stock. The calls take an item number or a text id.
+---
+---Since: 0.2.0
+---
+---```lua
+---rq.shop.install()
+---rq.shop.on_stock(function()
+---  if not rq.shop.in_stock(306) then rq.shop.stock(306) end -- Skill Again
+---end)
+---```
 ---@class rq.shop
 local shop = {}
 
----Wrap the tail of Ｔアイテム屋 (Frostbuy restock on every open).
----@return boolean
+---Wraps the end of `Ｔアイテム屋` so `on_stock` callbacks run and `stock` works.
+---
+---Calling it again is harmless.
+---
+---Since: 0.2.0
+---@return boolean ok true when the hook is in place; false when a game function is missing (see the log).
 function shop.install() end
 
----Called after vanilla stock fill. Many callbacks allowed (since 0.9.0). No hook → vanilla only.
----@param fn fun()
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Registers a function that runs after the game refills the shop's stock.
+---
+---It runs on every shop open, once `rq.shop.install` was called; before that it never runs. Up to 16
+---callbacks. An error in a callback is written to the log and the others still run.
+---
+---Since: 0.2.0
+---Changed: 0.9.0 Keeps every mod's callback (before, the last one replaced the others).
+---Changed: 0.23.0 Returns a remover.
+---@param fn fun() Adds stock, usually with `rq.shop.stock`.
+---@return fun() remove Removes this callback.
+---@see rq.shop.stock
 function shop.on_stock(fn) end
 
+---What an `rq.shop.on_buy` callback gets.
 ---@class rq.BuyCtx
----@field ii integer the bought instance
----@field no integer item number
----@field id? string text id when a mod defined it
----@field price integer the instance's price
----@field name string
+---@field ii integer The item instance that was bought.
+---@field no integer Its item number.
+---@field id? string Its text id, when a mod defined the item.
+---@field price integer The price paid, in gold.
+---@field name string The item's name.
 
----After a Frostbuy purchase (T_Shop@buyItem). Many callbacks allowed.
----@param fn fun(ctx: rq.BuyCtx)
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Registers a function that runs after each Frostbuy purchase.
+---
+---It wraps the end of `T_Shop@buyItem` the first time it is used, so it needs no `install`. Use it to
+---count purchases, and raise the next price in `on_stock`. Up to 16 callbacks; an error in one is
+---written to the log.
+---
+---Since: 0.9.0
+---Changed: 0.23.0 Returns a remover.
+---
+---```lua
+---rq.shop.on_buy(function(ctx)
+---  rq.log("bought", ctx.name, "for", ctx.price)
+---end)
+---```
+---@param fn fun(ctx: rq.BuyCtx) Gets the purchase.
+---@return fun() remove Removes this callback.
 function shop.on_buy(fn) end
 
----True if item no is already shop stock (Ｉ存在 == 6).
----@param no integer
----@return boolean
+---Returns whether an item is already on sale in the shop.
+---
+---It asks the game whether an instance of that item has the shop's existence value, 6.
+---
+---Since: 0.2.0
+---Changed: 0.9.0 Accepts a text id.
+---@param no integer|string An item number or text id.
+---@return boolean stocked true when the shop already sells it.
 function shop.in_stock(no) end
 
----Ｔアイテム屋／入荷品(no). Returns item instance ii, or 0 if already in shop / failed.
----@param no integer
----@return integer
+---Puts one item on sale, through the game's `Ｔアイテム屋／入荷品`.
+---
+---Raises an error before `rq.shop.install`, for an unknown item, or for a value that is not a number
+---or a text id.
+---
+---Since: 0.2.0
+---Changed: 0.9.0 Accepts a text id.
+---Changed: 0.26.0 An unknown item raises an error instead of closing the game.
+---@param no integer|string An item number or text id.
+---@return integer ii The new instance, or 0 when the shop already had the item or the game refused it.
 function shop.stock(no) end
 
 ---Hooks into fights: events, ally skill select, marks and buffs on the cards, faces, states, drops,
@@ -3209,63 +3261,70 @@ function battle.set_time(n) end
 ---@return rq.BattleSnap snap The allies, enemies, the actor's skills and the log.
 function battle.snapshot() end
 
+---A skill as `rq.units()` lists it.
 ---@class rq.SkillBrief
----@field id integer
----@field name string
----@field rank? integer
----@field cost? integer
+---@field id integer The skill number.
+---@field name string The skill's name.
+---@field rank? integer Its rank; only in `learned` and `potential`.
+---@field cost? integer Its skill-point cost; only in `learned` and `potential`.
 
+---A recruited character, from `rq.units()`.
 ---@class rq.Unit
----@field id integer character number
----@field name string
----@field class string
----@field classId integer
----@field level integer
----@field stats {hp: integer, hpMax: integer, atk: integer, def: integer, mag: integer, mdef: integer, hit: integer, eva: integer, crit: integer, impact: integer, resist: integer, spd: integer}
----@field equipment {special: integer, weapon: integer, armor: integer, item: integer}
----@field active rq.SkillBrief[]
----@field learned rq.SkillBrief[]
----@field potential rq.SkillBrief[]
+---@field id integer The roster slot (iic), the number the `rq.chara` calls take.
+---@field name string The name.
+---@field class string The class's name.
+---@field classId integer The class number.
+---@field level integer The level.
+---@field stats {hp: integer, hpMax: integer, atk: integer, def: integer, mag: integer, mdef: integer, hit: integer, eva: integer, crit: integer, impact: integer, resist: integer, spd: integer} The current stats, as the game stores them.
+---@field equipment {special: integer, weapon: integer, armor: integer, item: integer} The item instance in each slot, 0 when it is empty.
+---@field active rq.SkillBrief[] The skills set for battle, up to 8.
+---@field learned rq.SkillBrief[] The skills the character owns, up to 40.
+---@field potential rq.SkillBrief[] The skills the character can still learn, up to 40.
 
+---An owned item instance, from `rq.items()`.
 ---@class rq.Item
----@field id integer
----@field name string
----@field type string weapon|armor|special|item
----@field typeId integer
----@field class string
----@field classId integer
----@field level integer
----@field description string
+---@field id integer The instance (ii).
+---@field name string The name.
+---@field type string "weapon", "armor", "special" or "item".
+---@field typeId integer The game's item kind: 1 weapon, 11 armor, 21 special; other values are items.
+---@field class string The name of the first class that can equip it.
+---@field classId integer That class's number, 0 when none is set.
+---@field level integer The level needed to equip it.
+---@field description string The item's text.
 
+---A quest, from `rq.quests()`.
 ---@class rq.Quest
----@field id integer
----@field name string
----@field description string
----@field map string
+---@field id integer The quest number (its index in the game's `Ｑ` array).
+---@field name string The name.
+---@field description string The quest's text.
+---@field map string Where it takes place (`発生場所`).
 
+---A castle room, from `rq.castle()`.
 ---@class rq.CastleRoom
----@field id integer
----@field name string
----@field state integer
----@field enabled boolean
----@field used boolean already used
----@field units {id: integer, name: string}[]
+---@field id integer The room's index.
+---@field name string The name.
+---@field state integer The game's raw state; above 0 means open.
+---@field enabled boolean `state` is above 0.
+---@field used boolean The room was already used.
+---@field units {id: integer, name: string}[] Always empty for now; the castle's characters are in `rq.Castle.units`.
 
+---The castle's state, from `rq.castle()`.
 ---@class rq.Castle
----@field unlocked boolean
----@field enabled boolean
----@field used boolean already used
----@field open integer raw castle-open flag
----@field rooms rq.CastleRoom[]
----@field units {id: integer, name: string}[]
+---@field unlocked boolean The castle is open.
+---@field enabled boolean Open, with a room open (or no rooms listed).
+---@field used boolean A room was already used.
+---@field open integer The game's raw castle-open flag.
+---@field rooms rq.CastleRoom[] The rooms that have a name, an open state or a use, up to 32.
+---@field units {id: integer, name: string}[] The characters on the castle roster, up to 32.
 
+---Where the party is in a dungeon, from `rq.dungeon.info()`.
 ---@class rq.DungeonInfo
----@field roomId integer
----@field roomName string
----@field mapX integer
----@field mapZ integer
----@field cell {x: integer, z: integer}
----@field party {slot: integer, id: integer, name: string}[]
+---@field roomId integer The map number.
+---@field roomName string The map's name.
+---@field mapX integer The player's cell, x.
+---@field mapZ integer The player's cell, z.
+---@field cell {x: integer, z: integer} The same cell as `mapX` and `mapZ`.
+---@field party {slot: integer, id: integer, name: string}[] The dungeon party: party slot (1 to 6), roster slot and name.
 
 ---What `rq.battle.snapshot` returns: a copy of the fight screen.
 ---@class rq.BattleSnap
@@ -3275,80 +3334,183 @@ function battle.snapshot() end
 ---@field skills {id: integer, name: string, uses: integer, enabled: boolean}[] The acting ally's skills: number, name, uses left, and whether the button can be clicked.
 ---@field log string[] The battle log lines, oldest first.
 
+---Lists the quests and follows them: clears, endings, quest moments and state.
+---
+---`rq.quests()` and `rq.quests.list()` list the quests that have a name, up to 512. `state`,
+---`set_state`, `unlock` and `start` raise an error for a quest number the game does not have. Characters recruited and quests unlocked
+---from `on_clear` show on the victory screen with the game's own animation, as the game does for
+---Tomato. Dialogue inside a quest is quest script and is not part of these hooks.
+---
+---Since: 0.2.0
+---
+---```lua
+---rq.chara.define{ id = "mymod:alice", name = "Alice", face = "faces/alice.png", class = 5 }
+---rq.quests.on_clear(function(ctx)
+---  if ctx.quest == 126 and ctx.first then
+---    rq.chara.recruit("mymod:alice", { state = 2 }) -- shown on the victory screen
+---    rq.quests.unlock(207)
+---  end
+---end)
+---```
 ---@class rq.QuestsApi
 ---@overload fun(): rq.Quest[]
----@field list fun(): rq.Quest[]
+---@field list fun(): rq.Quest[] Lists the quests, as `rq.quests()` does.
 local quests = {}
 
+---What an `rq.quests.on_clear` callback gets.
 ---@class rq.QuestClearCtx
----@field quest integer Ｑ index of the quest that was just cleared
----@field clears integer clear count including this one
----@field first boolean first clear of this quest
+---@field quest integer The quest that was just cleared.
+---@field clears integer How many times it was cleared, this clear included.
+---@field first boolean This is its first clear.
 
----Runs when a quest is cleared cleanly (not abandoned, not escaped, not failed), at the end of クエスト終了処理／クリアフラグ.
----Characters recruited here (rq.chara.recruit) and quests unlocked here (rq.quests.unlock) show on the victory screen like the game's own. Many callbacks allowed.
----@param fn fun(ctx: rq.QuestClearCtx)
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Registers a function that runs when a quest is cleared.
+---
+---It runs only for a clean clear, not for an abandon, an escape or a defeat, at the end of the game's
+---`クエスト終了処理／クリアフラグ` (wrapped the first time this is used). Characters recruited with
+---`rq.chara.recruit` and quests opened with `rq.quests.unlock` in the callback join the game's "new
+---this run" lists, so the victory screen shows them. Up to 16 callbacks; an error in one is written to
+---the log.
+---
+---Since: 0.7.0
+---Changed: 0.23.0 Returns a remover.
+---@param fn fun(ctx: rq.QuestClearCtx) Gets the cleared quest.
+---@return fun() remove Removes this callback.
+---@see rq.quests.on_end
 function quests.on_clear(fn) end
 
----0 locked, 1 available, 2 cleared.
----@param no integer
----@return integer
+---Returns a quest's state.
+---
+---Since: 0.7.0
+---@param no integer The quest number.
+---@return integer state 0 locked, 1 available, 2 cleared.
 function quests.state(no) end
 
----Ｑ状態(no, state). State 2 also records a first clear.
----@param no integer
----@param state integer 0, 1 or 2
+---Sets a quest's state, through the game's `Ｑ状態`.
+---
+---State 2 also records a first clear. Raises an error for a state other than 0, 1 or 2.
+---
+---Since: 0.7.0
+---@param no integer The quest number.
+---@param state integer 0 locked, 1 available, 2 cleared.
+---@see rq.quests.unlock
 function quests.set_state(no, state) end
 
----Make a locked quest available (Ｑ状態(no, 1)). It joins the "new quests" list on the victory screen. False if it was not locked.
----@param no integer
----@return boolean unlocked
+---Makes a locked quest available.
+---
+---It sets state 1 only when the quest is locked. A quest opened this way joins the "new quests" list
+---on the victory screen.
+---
+---Since: 0.7.0
+---@param no integer The quest number.
+---@return boolean unlocked false when the quest was not locked.
 function quests.unlock(no) end
 
+---What an `rq.quests.on_end` callback gets.
 ---@class rq.QuestEndCtx
----@field quest integer
----@field result integer the game's ending code: 1 clean clear, 2 party defeat, 3 abandoned, 4 escape device (abandoned, items kept)
----@field cleared boolean result == 1
----@field party integer[] iic list
+---@field quest integer The quest that ends.
+---@field result integer How it ends: 1 clean clear, 2 party defeat, 3 abandoned, 4 escape device (abandoned, items kept).
+---@field cleared boolean `result` is 1.
+---@field party integer[] The dungeon party's roster slots (iic).
 
----Runs at the start of クエスト終了処理 for every ending (clear, abandon, defeat). Many callbacks allowed.
----@param fn fun(ctx: rq.QuestEndCtx)
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Registers a function that runs when a quest ends, however it ends.
+---
+---It runs at the start of the game's `クエスト終了処理` (wrapped the first time this is used). Up to 16
+---callbacks; an error in one is written to the log.
+---
+---Since: 0.9.0
+---Changed: 0.23.0 Returns a remover.
+---
+---```lua
+---rq.quests.on_end(function(ctx)
+---  if not ctx.cleared then rq.log("quest", ctx.quest, "ended with", ctx.result) end
+---end)
+---```
+---@param fn fun(ctx: rq.QuestEndCtx) Gets the quest and how it ended.
+---@return fun() remove Removes this callback.
+---@see rq.quests.on_clear
 function quests.on_end(fn) end
 
----Loader 0.18.0. The quest being played, 0 in town.
----@return integer
+---Returns the quest being played.
+---
+---Since: 0.18.0
+---@return integer no The quest number, or 0 in town.
 function quests.current() end
 
----Start a quest through the game's own flow, from the hub or the quest list. Returns at once; the game moves on its next update, and rq.quests.current() gives the number when it started. Raises an error for an unknown number, a party that cannot take the quest, a running quest, or another screen. Loader 0.23.0.
----@param no integer
+---Starts a quest through the game's own flow, with no click on the quest list.
+---
+---It returns at once; the game moves on its next update, and `rq.quests.current()` gives the number
+---once the quest started. Any join dialog or scene of the quest plays as usual, and like a real start
+---it autosaves and counts as a try. A locked quest starts too, including the game's debug entries
+---(quest 10 goes straight back to town).
+---
+---Raises an error for a value that is not a whole number, an unknown quest, a quest this party cannot
+---take, while a quest runs or another is starting, and on any screen but the hub or the quest list.
+---The game can still refuse after that with its own message, at 2500 items or more or when its Alice
+---event is due.
+---
+---Since: 0.23.0
+---
+---```lua
+---if rq.ui.get().screen == "hub" then rq.quests.start(126) end
+---```
+---@param no integer The quest number.
 function quests.start(no) end
 
+---What `rq.quests.on_event` and `on_event_after` callbacks get.
+---
+---`code` 8 is `start` and 7 is `map_load`; otherwise `fg` names the kind: 4 `map_event`, 5 `warp`,
+---6 `warp_cancel`, 7 `before_battle`, 8 `after_battle`, 9 `chest`, 10 `contact`, 11 `before_warp`;
+---anything else is `other`.
 ---@class rq.QuestEvent
----@field quest integer
----@field kind "start"|"map_load"|"map_event"|"warp"|"warp_cancel"|"before_warp"|"before_battle"|"after_battle"|"chest"|"contact"|"other"
----@field no integer map event number, or map number for map_load
----@field code integer クエスト処理 argument dd
----@field fg integer クエスト処理 argument fg
----@field result? integer on_event_after only
+---@field quest integer The quest being played.
+---@field kind "start"|"map_load"|"map_event"|"warp"|"warp_cancel"|"before_warp"|"before_battle"|"after_battle"|"chest"|"contact"|"other" The quest moment.
+---@field no integer The map event number, or the map number for `map_load`.
+---@field code integer The first argument of the game's `クエスト処理`.
+---@field fg integer The third argument of `クエスト処理`.
+---@field result? integer What the game's handling returned; only in `on_event_after`.
 
----Loader 0.18.0. Runs before the game handles a quest moment. Return a number to skip the game's handling: 0 continues the quest, other values end it (1 returns to town).
----@param fn fun(ev: rq.QuestEvent): integer|nil
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Registers a function that runs before the game handles a quest moment.
+---
+---It hooks the game's `クエスト処理`. Return nothing to let the game handle it, or a number to skip the
+---game's handling: 0 continues the quest, other values end it (1 returns to town). Do not play a scene
+---on `map_load`; the map is not ready.
+---
+---Since: 0.18.0
+---Changed: 0.23.0 Returns a remover.
+---
+---```lua
+---rq.quests.on_event(function(ev)
+---  if ev.kind == "chest" then rq.log("chest at event", ev.no) end
+---end)
+---```
+---@param fn fun(ev: rq.QuestEvent): integer|nil Returns nil, or the result that replaces the game's handling.
+---@return fun() remove Removes this callback.
+---@see rq.quests.on_event_after
 function quests.on_event(fn) end
 
----Loader 0.18.0. Runs after the game handled it. Return a number to change the result.
----@param fn fun(ev: rq.QuestEvent): integer|nil
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Registers a function that runs after the game handled a quest moment.
+---
+---`ev.result` is what the game returned. Return a number to change it, or nothing to keep it.
+---
+---Since: 0.18.0
+---Changed: 0.23.0 Returns a remover.
+---@param fn fun(ev: rq.QuestEvent): integer|nil Returns nil, or the result to use instead.
+---@return fun() remove Removes this callback.
+---@see rq.quests.on_event
 function quests.on_event_after(fn) end
 
+---What `rq.quests.new_this_run` returns.
 ---@class rq.NewThisRun
----@field characters integer[] iic of characters added during the quest, shown on the victory screen
----@field quests integer[] quests unlocked during the quest
+---@field characters integer[] The roster slots (iic) of characters added during the quest, up to 5.
+---@field quests integer[] The quests unlocked during the quest, up to 5.
 
----What the victory screen will show. The game empties both lists when a quest ends.
----@return rq.NewThisRun
+---Returns what the victory screen will show as new.
+---
+---Recruiting a character and unlocking a quest add to these lists; the game empties both when a quest
+---ends.
+---
+---Since: 0.7.0
+---@return rq.NewThisRun new The new characters and quests.
 function quests.new_this_run() end
 
 ---Plays scenes with the game's own commands, so a mod can do anything a game scene does.
@@ -3838,6 +4000,8 @@ function castle.get() end
 ---It works at once, also from inside the callback, and calling it twice is harmless. Definitions
 ---(`define`, `edit`) are not callbacks and have no remover.
 ---
+---Since: 0.2.0
+---
 ---```lua
 ---local remove
 ---remove = rq.battle.on_end(function(ev)
@@ -4086,58 +4250,106 @@ function speed.get() end
 
 rq.speed = speed
 
+---Plays sounds: a game sound number, a file in the mod folder, or a sound inside a game Flash file.
+---
+---They play on the game's sound effect mixer, so Config's sound volume applies, and at real time:
+---`rq.speed` does not change them. A file or Flash sound is read once and kept in memory, so a sound
+---played on every hit reads the disk once. At most 32 mod sounds play at once; one more raises an
+---error. Music is not covered: these play beside the game's music.
+---
+---Since: 1.4.0
+---
+---```lua
+----- Berserk's sound, from its Flash file
+---rq.sound.play_flash("Data/Flash/Battle/狂戦士発動.swf")
+----- A sound of your own, looped, then faded out
+---local h = rq.sound.play("sfx/rain.ogg", { loop = 0, volume = 60 })
+---rq.sound.stop(h, 500)
+---```
 ---@class rq.sound
 local sound = {}
 
+---How `rq.sound.play` and `play_flash` play a sound.
 ---@class rq.SoundOpts
----@field volume? integer 0..100, default 100
----@field loop? integer times to play, default 1; 0 loops until stopped
----@field index? integer play_flash only: which sound of the file, from 1
+---@field volume? integer The volume, 0 to 100, clamped. Default 100.
+---@field loop? integer How many times it plays; 0 loops until stopped. Default 1.
+---@field index? integer `play_flash` only: which sound of the file, from 1. Default 1.
 
+---A sound inside a Flash file, from `rq.sound.flash_info`.
 ---@class rq.FlashSound
----@field rate integer Hz
----@field channels integer 1 or 2
----@field bits integer 8 or 16
----@field ms integer length
----@field playable boolean false for a compressed sound (MP3 or ADPCM), which play_flash refuses
+---@field rate integer The sample rate, in Hz.
+---@field channels integer 1 or 2.
+---@field bits integer 8 or 16.
+---@field ms integer The length, in milliseconds.
+---@field playable boolean false for a compressed sound (MP3 or ADPCM), which `play_flash` refuses.
 
----Loader 1.4.0. Plays on the game's sound effect mixer, so Config's sound volume applies, at real time (rq.speed does not change it).
----src is a game sound number (as rq.scene.sound) or a path in the mod folder: WAV, OGG, FLAC, Opus or MP3. A file is read once and kept in memory.
----Returns a handle, or nil when the number does not exist or the file is not a sound. A missing file or a path out of the mod folder raises an error.
----At most 32 mod sounds at once; one more raises an error.
----@param src integer|string
----@param opts? rq.SoundOpts
----@return integer|nil handle
+---Plays a game sound or a sound file from the mod folder.
+---
+---A file can be WAV, OGG, FLAC, Opus or MP3, up to 64 MB. Raises an error for a missing file, a path
+---out of the mod folder, or when 32 mod sounds already play.
+---
+---Since: 1.4.0
+---
+---```lua
+---local h = rq.sound.play("sfx/hit.wav", { volume = 80 })
+---```
+---@param src integer|string A game sound number (as for `rq.scene.sound`) or a path in the mod folder.
+---@param opts? rq.SoundOpts How to play it.
+---@return integer|nil handle The handle, or nil when the number does not exist or the file is not a sound.
+---@see rq.sound.stop
 function sound.play(src, opts) end
 
----Loader 1.4.0. Plays a sound kept inside a Flash file, such as Berserk's in "Data/Flash/Battle/狂戦士発動.swf". A bare key means Data/Flash/System/<key>.swf, as in rq.image.add_gif, and a GIF added under that key is looked at first.
----Raises an error when the file or that sound is missing, or the sound is compressed.
----@param key string
----@param opts? rq.SoundOpts
----@return integer|nil handle
+---Plays a sound kept inside a Flash file.
+---
+---Some game sounds have no number, such as Berserk's in `Data/Flash/Battle/狂戦士発動.swf`. A bare key
+---means `Data/Flash/System/<key>.swf`, as in `rq.image.add_gif`, and a GIF added under that key is
+---looked at first. Only uncompressed (PCM) sounds play. Raises an error when the file or that sound
+---is missing, the sound is compressed, `index` is below 1, or 32 mod sounds already play.
+---
+---Since: 1.4.0
+---@param key string The Flash file's key or path.
+---@param opts? rq.SoundOpts How to play it; `index` picks the sound.
+---@return integer|nil handle The handle, or nil when the sound did not start.
+---@see rq.sound.flash_info
 function sound.play_flash(key, opts) end
 
----Loader 1.4.0. The sounds in a Flash file, in the order index counts them. nil when there is no such file.
----@param key string
----@return rq.FlashSound[]|nil
+---Lists the sounds in a Flash file.
+---
+---Since: 1.4.0
+---
+---```lua
+---for i, s in ipairs(rq.sound.flash_info("Data/Flash/Battle/狂戦士発動.swf") or {}) do
+---  rq.log(i, s.ms, s.playable)
+---end
+---```
+---@param key string The Flash file's key or path, as for `play_flash`.
+---@return rq.FlashSound[]|nil sounds The sounds, in the order `index` counts them; nil when there is no such file.
 function sound.flash_info(key) end
 
----Loader 1.4.0. Stops at once, or fades out over fade_ms. false when the handle already ended.
----@param handle integer
----@param fade_ms? integer
----@return boolean
+---Stops a sound, at once or with a fade out.
+---
+---Since: 1.4.0
+---@param handle integer A handle from `play` or `play_flash`.
+---@param fade_ms? integer The fade out, in milliseconds. Default 0: stop at once.
+---@return boolean stopped false when the handle already ended.
 function sound.stop(handle, fade_ms) end
 
----Loader 1.4.0. Whether the sound still plays. An ended handle stays false, even when its slot plays something new.
----@param handle integer
----@return boolean
+---Returns whether a sound still plays.
+---
+---An ended handle stays false, even when its slot plays something new.
+---
+---Since: 1.4.0
+---@param handle integer A handle from `play` or `play_flash`.
+---@return boolean playing true while it plays.
 function sound.playing(handle) end
 
----Loader 1.4.0. Changes the volume (0..100) at once or over fade_ms. false when the handle already ended.
----@param handle integer
----@param volume integer
----@param fade_ms? integer
----@return boolean
+---Changes a sound's volume, at once or over a fade.
+---
+---Since: 1.4.0
+---@param handle integer A handle from `play` or `play_flash`.
+---@param volume integer The new volume, 0 to 100, clamped.
+---@param fade_ms? integer The fade, in milliseconds. Default 0: at once.
+---@return boolean changed false when the handle already ended.
 function sound.set_volume(handle, volume, fade_ms) end
 
 
