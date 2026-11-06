@@ -4010,7 +4010,7 @@ function castle.get() end
 ---end)
 ---```
 ---@class rq
----@field version string The loader version, such as "1.14.1". A mod whose `mod.json` asks for a newer `loader` is not loaded.
+---@field version string The loader version, such as "1.14.2". A mod whose `mod.json` asks for a newer `loader` is not loaded.
 ---@field game_dir string The game folder (where the AIN is).
 ---@field mods_dir string The `mods` folder, ending in a backslash.
 ---@field units rq.units
@@ -4045,7 +4045,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "1.14.1"
+rq.version = "1.14.2"
 
 rq.units = units
 rq.items = items
