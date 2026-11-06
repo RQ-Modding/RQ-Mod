@@ -3513,389 +3513,653 @@ function sound.playing(handle) end
 function sound.set_volume(handle, volume, fade_ms) end
 
 
----Loader 1.7.0. A part of a CG drawn at any size: the edges stay, the middle stretches.
+---A part of a CG drawn at any size: the edges stay as they are, the middle stretches.
+---
+---Since: 1.7.0
 ---@class rq.UiPiece
----@field cg integer
----@field src? integer[] {x, y, w, h} in the CG (default: all of it)
----@field edge? integer[] {left, top, right, bottom} kept as they are
----@field mid? integer[] {x, w}: the middle columns, from x in src (default: what the edges leave)
----@field vmid? integer[] {y, h}: the middle rows, from y in src
----@field vfit? "crop" take the top rows of the middle instead of squashing it
+---@field cg integer The CG number; one from `rq.image.add` works.
+---@field src? integer[] `{x, y, w, h}` in the CG. Default: all of it.
+---@field edge? integer[] `{left, top, right, bottom}`: the edges kept as they are, in pixels.
+---@field mid? integer[] `{x, w}`: the middle columns, from `x` in `src`, such as one empty column between a frame and the text the game drew on it. Default: what the edges leave.
+---@field vmid? integer[] `{y, h}`: the middle rows, from `y` in `src`.
+---@field vfit? "crop" Takes the top rows of the middle instead of squashing them.
 
----Loader 1.7.0. A look for the kit: pieces, text styles, colors and sounds. See rq.uikit.themes.config.
+---A look for the kit: pieces, text styles, colors and sounds.
+---
+---`rq.uikit.themes.config` is the look of the game's Config screen; it holds Config's pieces only.
+---
+---Since: 1.7.0
 ---@class rq.UiTheme
----@field label rq.HudTextStyle
----@field dim {r: integer, g: integer, b: integer}
----@field page rq.UiPiece
----@field block rq.UiPiece
----@field button rq.UiPiece
----@field button_text rq.HudTextStyle
----@field button_cover {r: integer, g: integer, b: integer, a: integer}
----@field tab {normal: rq.UiPiece, hover: rq.UiPiece, current: rq.UiPiece}
----@field tab_text {normal: rq.HudTextStyle, hover: rq.HudTextStyle, current: rq.HudTextStyle}
----@field check_frame rq.UiPiece
----@field check_mark rq.UiPiece
----@field hover_bar rq.UiPiece
----@field track rq.UiPiece
----@field knob rq.UiPiece
----@field knob_hot rq.UiPiece
----@field list_text rq.HudTextStyle
----@field list_current {r: integer, g: integer, b: integer}
----@field scrollbar {r: integer, g: integer, b: integer, a: integer}
----@field sound {hover?: integer, click?: integer, error?: integer}
+---@field label rq.HudTextStyle Label text.
+---@field dim {r: integer, g: integer, b: integer} The grey-green of Config's Low and High.
+---@field page rq.UiPiece A Config page.
+---@field block rq.UiPiece The 3D tab's dark block.
+---@field button rq.UiPiece A button.
+---@field button_text rq.HudTextStyle Button text.
+---@field button_cover {r: integer, g: integer, b: integer, a: integer} The cover that pulses over a hovered button.
+---@field tab {normal: rq.UiPiece, hover: rq.UiPiece, current: rq.UiPiece} The tabs.
+---@field tab_text {normal: rq.HudTextStyle, hover: rq.HudTextStyle, current: rq.HudTextStyle} Tab text.
+---@field check_frame rq.UiPiece The checkbox frame.
+---@field check_mark rq.UiPiece The checkmark.
+---@field hover_bar rq.UiPiece The bar over a hovered row.
+---@field track rq.UiPiece The slider track.
+---@field knob rq.UiPiece The slider knob.
+---@field knob_hot rq.UiPiece The knob while hovered or dragged.
+---@field list_text rq.HudTextStyle List row text.
+---@field list_current {r: integer, g: integer, b: integer} The color of the chosen list row.
+---@field scrollbar {r: integer, g: integer, b: integer, a: integer} A list's scroll bar.
+---@field sound {hover?: integer, click?: integer, error?: integer} Sound numbers; nil plays none.
 
----Where a widget goes. Without x and y it goes where its row or column puts it.
+---Where a widget goes.
+---
+---Without `x` and `y` it goes where its row or column puts it. A widget given both `x` and `y` stands
+---where it says and does not move the row on.
 ---@class rq.UiPlace
----@field x? integer
----@field y? integer
----@field w? integer|"fill"
----@field h? integer
----@field id? any keeps the widget's state across updates; give one to widgets that show or hide
+---@field x? integer Left edge, in game pixels.
+---@field y? integer Top edge, in game pixels.
+---@field w? integer|"fill" Width in pixels, or "fill": the width left in the row, or the column's width less its pad. "fill" needs a row or column with a `w`.
+---@field h? integer Height in pixels.
+---@field id? any Keeps the widget's state across updates (a drag, a list's scroll). Without one a widget is known by the order of the calls, so give one to widgets that show or hide.
 
+---A row or column for `rq.uikit.row` and `col`.
 ---@class rq.UiBox: rq.UiPlace
----@field gap? integer
----@field pad? integer
----@field align? "start"|"center"|"end"
+---@field gap? integer Pixels between widgets.
+---@field pad? integer Pixels inside the box's edge.
+---@field align? "start"|"center"|"end" Across the box: up and down in a row (needs `h`), left and right in a column (needs `w`).
 
+---One entry of `rq.uikit.menu`.
 ---@class rq.UiMenuItem
----@field text string
----@field items? (string|rq.UiMenuItem)[]
----@field disabled? boolean
+---@field text string The text.
+---@field items? (string|rq.UiMenuItem)[] The next level; picking this entry opens it.
+---@field disabled? boolean The entry cannot be picked.
 
----Loader 1.7.0. Widgets in the look of the game's Config screen, drawn with rq.hud from the
----game's own pictures. Immediate mode: call them from rq.on_frame on every update they show,
----keep the values, and pass them back in. The game sees no mouse while one is under it.
+---Widgets in the look of the game's Config screen.
+---
+---They are drawn with `rq.hud` from the game's own pictures: Config draws its labels into its
+---pictures, so the kit cuts out the parts that carry no text and writes its own text on them. The kit
+---is Lua on the public `rq.hud` calls.
+---
+---It works in immediate mode: call the widgets from `rq.on_frame` on every update they show, keep the
+---values yourself, and pass them back in. Each widget returns the new value and whether it changed on
+---this update. While the mouse is over a widget the game sees no mouse. Hover and click play the
+---game's own sounds (1001 and 1002). The widgets are listed for `rqmod-ctl ui` in the section `"kit"`.
+---Keyboard moves between widgets are not there yet.
+---
+---Since: 1.7.0
+---
+---```lua
+---local ui = rq.uikit
+---local vol, mute = 0.8, false
+---rq.on_frame(function()
+---  ui.panel({ x = 12, y = 85, w = 1000, h = 595 })
+---  ui.col({ x = 62, y = 105, gap = 20 }, function()
+---    ui.row({ h = 30, align = "center" }, function()
+---      ui.label("Master", { w = 218 })
+---      vol = ui.slider(vol, { low = "Low", high = "High", id = "vol" })
+---      mute = ui.checkbox(mute, "Mute", { x = 640, id = "mute" })
+---    end)
+---  end)
+---end)
+---```
 ---@class rq.uikit
----@field theme rq.UiTheme the theme in use
----@field themes {config: rq.UiTheme}
+---@field theme rq.UiTheme The theme in use.
+---@field themes {config: rq.UiTheme} The built-in themes.
 local uikit = {}
 
----White text with a dark edge. opts: size, color = {r, g, b}, dim, align, valign.
----@param text string
----@param opts? rq.UiPlace|{size?: number, color?: integer[], dim?: boolean, align?: string, valign?: string}
----@return integer x
----@return integer y
----@return integer w
----@return integer h
+---Draws a line of text, white with a dark edge.
+---
+---Since: 1.7.0
+---@param text string The text.
+---@param opts? rq.UiPlace|{size?: number, color?: integer[], dim?: boolean, align?: string, valign?: string} `size` (default the theme's, 17), `color` `{r, g, b}`, `dim` for the theme's dim color, `align`, `valign` (default "center").
+---@return integer x Left edge.
+---@return integer y Top edge.
+---@return integer w Width.
+---@return integer h Height.
 function uikit.label(text, opts) end
 
----A Config button with text; the cover pulses when hovered. True on the update it is clicked
----(let go over the button it went down on).
----@param text string
----@param opts? rq.UiPlace|{disabled?: boolean}
----@return boolean clicked
+---Draws a Config button with text.
+---
+---The button is at least 150 wide (or the text's width) and 40 high. When hovered, the game's cover
+---pulses over it every 2 seconds. A click counts when the button is let go over the same button it
+---went down on.
+---
+---Since: 1.7.0
+---
+---```lua
+---if rq.uikit.button("Reset", { id = "reset" }) then reset() end
+---```
+---@param text string The text.
+---@param opts? rq.UiPlace|{disabled?: boolean} Place, and `disabled` to grey it out.
+---@return boolean clicked true on the update it is clicked.
 function uikit.button(text, opts) end
 
----@param value boolean
----@param text? string
----@param opts? rq.UiPlace|{disabled?: boolean}
----@return boolean value
----@return boolean changed
+---Draws a checkbox with its text.
+---
+---The text is 42 pixels right of the box, and the game's yellow bar covers the row when hovered.
+---
+---Since: 1.7.0
+---@param value boolean Whether it is checked.
+---@param text? string The text beside it.
+---@param opts? rq.UiPlace|{disabled?: boolean} Place (`w` is the bar's width), and `disabled`.
+---@return boolean value The new value.
+---@return boolean changed true on the update it was clicked.
 function uikit.checkbox(value, text, opts) end
 
----One of several checkboxes.
----@param list string[]
----@param index? integer
----@param opts? rq.UiPlace|{dir?: "col"|"row", gap?: integer, disabled?: boolean}
----@return integer|nil index
----@return boolean changed
+---Draws one of several checkboxes, as the 3D tab's quality.
+---
+---Since: 1.7.0
+---@param list string[] The texts.
+---@param index? integer The checked one; nil for none.
+---@param opts? rq.UiPlace|{dir?: "col"|"row", gap?: integer, disabled?: boolean} `dir` (default "col"), `gap` in pixels (default 20), `disabled`.
+---@return integer|nil index The checked one.
+---@return boolean changed true on the update it changed.
 function uikit.choice(list, index, opts) end
 
----The Sound tab's slider: drag, click the track, or the wheel over it (the game does not get it).
----opts.w is the track's width (default 200).
----@param value number
----opts.label (1.8.0) names it in rqmod-ctl ui.
----@param opts? rq.UiPlace|{min?: number, max?: number, step?: number, low?: string, high?: string, label?: string, disabled?: boolean}
----@return number value
----@return boolean changed
+---Draws the Sound tab's slider.
+---
+---Drag the knob or click the track; the drag goes on while the button is down, also off the track.
+---The wheel over it moves it by `step`, or by a twentieth, and the game does not get that wheel step.
+---
+---Since: 1.7.0
+---Changed: 1.8.0 Added `opts.label`.
+---@param value number The value.
+---@param opts? rq.UiPlace|{min?: number, max?: number, step?: number, low?: string, high?: string, label?: string, disabled?: boolean} `w`: the track's width (default 200). `min` (default 0), `max` (default 1), `step`, `low` and `high` (texts at the ends), `label` (its name in `rqmod-ctl ui`), `disabled`.
+---@return number value The new value.
+---@return boolean changed true on the update it changed.
 function uikit.slider(value, opts) end
 
----Config's tabs, each opts.w wide (default 120).
----@param list string[]
----@param index integer
----@param opts? rq.UiPlace
----@return integer index
----@return boolean changed
+---Draws Config's tabs side by side: normal, hovered and current.
+---
+---Since: 1.7.0
+---@param list string[] The tab texts.
+---@param index integer The current tab.
+---@param opts? rq.UiPlace Place; `w` is each tab's width (default 120).
+---@return integer index The current tab.
+---@return boolean changed true on the update it changed.
 function uikit.tabs(list, index, opts) end
 
----A Config page (style "page") or the 3D tab's dark block ("block"); fn runs in a column inside.
----@param opts rq.UiPlace|{style?: "page"|"block", pad?: integer, gap?: integer, title?: string}
----@param fn? fun(x: integer, y: integer, w: integer, h: integer)
----@return integer x
----@return integer y
----@return integer w
----@return integer h
+---Draws a Config page or the 3D tab's dark block, and runs `fn` in a column inside it.
+---
+---A page lower than the game's keeps its top colors; it is not squashed.
+---
+---Raises an error without `w` and `h`.
+---
+---Since: 1.7.0
+---@param opts rq.UiPlace|{style?: "page"|"block", pad?: integer, gap?: integer, title?: string} `w` and `h` are needed. `style` (default "page"), `pad` (default 12), `gap`, `title`.
+---@param fn? fun(x: integer, y: integer, w: integer, h: integer) The widgets inside.
+---@return integer x Left edge.
+---@return integer y Top edge.
+---@return integer w Width.
+---@return integer h Height.
 function uikit.panel(opts, fn) end
 
----Rows on a dark block that scroll by the wheel. opts.w and opts.h are needed.
----@param items (string|{text: string, disabled?: boolean})[]
----@param index? integer
----@param opts rq.UiPlace|{row_h?: integer, block?: boolean}
----@return integer|nil index
----@return boolean changed
+---Draws rows on a dark block that scroll by the wheel.
+---
+---A bar shows when the rows do not fit. A list's clip replaces a clip of your own.
+---
+---Raises an error without `w` and `h`.
+---
+---Since: 1.7.0
+---@param items (string|{text: string, disabled?: boolean})[] The rows.
+---@param index? integer The chosen row; nil for none.
+---@param opts rq.UiPlace|{row_h?: integer, block?: boolean} `w` and `h` are needed. `row_h` (default 30), `block = false` leaves out the dark block.
+---@return integer|nil index The chosen row.
+---@return boolean changed true on the update it changed.
 function uikit.list(items, index, opts) end
 
----Lists side by side: an item with items opens the next list. path is the index at each level;
----it is a new table when it changed. opts.h is needed; opts.w is each list's width (200).
----@param tree rq.UiMenuItem[]
----@param path? integer[]
----@param opts rq.UiPlace|{gap?: integer}
----@return integer[] path
----@return boolean changed
----@return string|rq.UiMenuItem|nil item
+---Draws a menu with levels: lists side by side, where an entry with `items` opens the next list.
+---
+---A new pick on a level drops the levels after it.
+---
+---Raises an error without `h`.
+---
+---Since: 1.7.0
+---@param tree rq.UiMenuItem[] The first level.
+---@param path? integer[] The index picked at each level.
+---@param opts rq.UiPlace|{gap?: integer} `h` is needed. `w` is each list's width (default 200), `gap` (default 10).
+---@return integer[] path The path; a new table when it changed.
+---@return boolean changed true on the update it changed.
+---@return string|rq.UiMenuItem|nil item The entry at the path's end.
 function uikit.menu(tree, path, opts) end
 
----Widgets called in fn go side by side.
----@param opts rq.UiBox|fun()
----@param fn? fun(x: integer, y: integer, w?: integer, h?: integer)
----@return integer x
----@return integer y
----@return integer w
----@return integer h
+---Places the widgets called in `fn` side by side.
+---
+---Since: 1.7.0
+---@param opts rq.UiBox|fun() The box, or `fn` itself.
+---@param fn? fun(x: integer, y: integer, w?: integer, h?: integer) The widgets.
+---@return integer x Left edge.
+---@return integer y Top edge.
+---@return integer w The width the widgets cover.
+---@return integer h The height they cover.
 function uikit.row(opts, fn) end
 
----Widgets called in fn go one under the other.
----@param opts rq.UiBox|fun()
----@param fn? fun(x: integer, y: integer, w?: integer, h?: integer)
----@return integer x
----@return integer y
----@return integer w
----@return integer h
+---Places the widgets called in `fn` one under the other.
+---
+---Since: 1.7.0
+---@param opts rq.UiBox|fun() The box, or `fn` itself.
+---@param fn? fun(x: integer, y: integer, w?: integer, h?: integer) The widgets.
+---@return integer x Left edge.
+---@return integer y Top edge.
+---@return integer w The width the widgets cover.
+---@return integer h The height they cover.
 function uikit.col(opts, fn) end
 
----Empty space in a row or column.
----@param w integer
----@param h integer
+---Leaves empty space in a row or column.
+---
+---Since: 1.7.0
+---@param w integer Width, in pixels.
+---@param h integer Height, in pixels.
 function uikit.space(w, h) end
 
----Where the last widget went.
----@return integer x
----@return integer y
----@return integer w
----@return integer h
+---Returns where the last widget went, as for a tooltip beside it.
+---
+---Since: 1.7.0
+---@return integer x Left edge.
+---@return integer y Top edge.
+---@return integer w Width.
+---@return integer h Height.
 function uikit.last() end
 
----The mouse was over a kit widget on this update so far.
----@return boolean
+---Returns whether the mouse was over a kit widget on this update so far.
+---
+---Since: 1.7.0
+---@return boolean hovered true when a widget drawn so far is under the mouse.
 function uikit.hovered() end
 
----What the kit keeps for a widget, by kind and id ("list:options").
----@param id string
----@return table
+---Returns what the kit keeps for a widget.
+---
+---Since: 1.7.0
+---
+---```lua
+---local top = rq.uikit.state("list:options").top  -- the list's scroll, in pixels
+---```
+---@param id string The widget's kind and id, such as "list:options".
+---@return table state The kept state, made empty on first use.
 function uikit.state(id) end
 
----Draws a piece of the theme (its name, or a piece) at any size.
----@param piece string|rq.UiPiece
----@param x integer
----@param y integer
----@param w? integer
----@param h? integer
----@param opts? rq.HudCgOpts
+---Draws a piece of the theme at any size.
+---
+---Raises an error for a name the theme has no piece for.
+---
+---Since: 1.7.0
+---@param piece string|rq.UiPiece A piece name in the theme, or a piece.
+---@param x integer Left edge, in game pixels.
+---@param y integer Top edge, in game pixels.
+---@param w? integer Width. Default: the piece's own.
+---@param h? integer Height. Default: the piece's own.
+---@param opts? rq.HudCgOpts `alpha` and `tint`, as in `rq.hud.cg`.
 function uikit.draw(piece, x, y, w, h, opts) end
 
----A deep copy of a theme (default: Config's), to change and pass to use.
----@param theme? rq.UiTheme
----@return rq.UiTheme
+---Returns a deep copy of a theme, to change and pass to `rq.uikit.use`.
+---
+---A piece in the copy may point at a CG from `rq.image.add`.
+---
+---Since: 1.7.0
+---@param theme? rq.UiTheme The theme to copy. Default: Config's.
+---@return rq.UiTheme copy The copy.
 function uikit.copy_theme(theme) end
 
----Use this theme from now on, for every mod. Set it back when your HUD closes.
----@param theme rq.UiTheme
+---Uses a theme from now on, for every mod.
+---
+---Set it back when your HUD closes.
+---
+---Raises an error when `theme` is not a table.
+---
+---Since: 1.7.0
+---@param theme rq.UiTheme The theme.
 function uikit.use(theme) end
 
----Loader 1.8.0. A piece as layers for rq.image.compose, drawn at x, y, w by h in the new CG.
----@param piece string|rq.UiPiece
----@param x? integer
----@param y? integer
----@param w? integer
----@param h? integer
----@return rq.ImageLayer[]
+---Returns a piece as layers for `rq.image.compose`, to make a CG of it.
+---
+---The Mods tab of Config is made this way: Other 2's tab with its label cut away and new text on it.
+---
+---Since: 1.8.0
+---@param piece string|rq.UiPiece A piece name in the theme, or a piece.
+---@param x? integer Left edge in the new CG. Default 0.
+---@param y? integer Top edge in the new CG. Default 0.
+---@param w? integer Width. Default: the piece's own.
+---@param h? integer Height. Default: the piece's own.
+---@return rq.ImageLayer[] layers The layers.
 function uikit.layers(piece, x, y, w, h) end
 
----Loader 1.8.0. A page in the Mods tab of the game's Config screen.
+---A page in the Mods tab of the game's Config screen.
+---
+---Since: 1.8.0
 ---@class rq.ConfigPage
----@field id? string keeps the page across reloads (default: the title)
----@field title string its row in the list and its heading
----@field draw fun(ui: rq.uikit, box: {x: integer, y: integer, w: integer, h: integer}) runs on every update the page shows, inside a column at box
----@field on_open? fun() the page came on screen
----@field on_close? fun() it went away (another page, another tab, Config closed)
+---@field id? string Keeps the page across reloads. Default: the title.
+---@field title string Its row in the list and its heading.
+---@field draw fun(ui: rq.uikit, box: {x: integer, y: integer, w: integer, h: integer}) Runs on every update the page shows, inside a column at `box` (738 by 531, under the title). An error is logged once and shown at the bottom of the page.
+---@field on_open? fun() The page came on screen.
+---@field on_close? fun() It went away: another page, another tab, Config closed.
 
----Loader 1.8.0. The Mods tab in Config: once a mod adds a page, Config gets a tab after Other 2
----with a list of the pages on the left and the chosen page on the right, drawn with rq.uikit.
----Keep values in rq.store or rq.store.global and change them as the widgets say.
+---A Mods tab in the game's Config screen.
+---
+---Once a mod adds a page, Config gets a tab after Other 2, with a list of the pages on the left and the
+---chosen page on the right, drawn with `rq.uikit`. Config's own tabs, its buttons, the X and the right
+---click work as in the game. The tab has no key (F1 to F7 are the other tabs). Keep settings in
+---`rq.store.global` when they hold for every profile, or in `rq.store` for one save. Check that
+---`rq.config` is there, so the mod still runs on an older loader.
+---
+---Since: 1.8.0
+---
+---```lua
+---if rq.config then
+---  local on = rq.store.global.get("on", false)
+---  rq.config.page({
+---    id = "my-mod",
+---    title = "My Mod",
+---    draw = function(ui, box)
+---      local v, changed = ui.checkbox(on, "Turn it on", { id = "on" })
+---      if changed then
+---        on = v
+---        rq.store.global.set("on", on)
+---      end
+---    end,
+---  })
+---end
+---```
 ---@class rq.config
 local config = {}
 
----Adds a page, or replaces the one with the same id. Returns the id.
----@param page rq.ConfigPage
----@return string id
+---Adds a page, or replaces the one with the same id.
+---
+---Since: 1.8.0
+---@param page rq.ConfigPage The page.
+---@return string id The page's id.
 function config.page(page) end
 
----The Mods page is on screen (and no game dialog is over it).
----@return boolean
+---Returns whether the Mods page is on screen.
+---
+---Since: 1.8.0
+---@return boolean open true while the page shows and no game dialog (going to the title, quitting) is over it.
 function config.is_open() end
 
----The page shown, and every page's id in the list's order.
----@return string|nil current
----@return string[] ids
+---Returns the page shown and every page's id.
+---
+---Since: 1.8.0
+---@return string|nil current The id of the page shown, or nil.
+---@return string[] ids Every page's id, in the list's order.
 function config.pages() end
 
----Show this page (now, or the next time the Mods tab opens).
----@param id string
----@return boolean found
+---Shows a page, now or the next time the Mods tab opens.
+---
+---Since: 1.8.0
+---@param id string The page's id.
+---@return boolean found false when no page has that id.
 function config.show(id) end
 
----Loader 1.9.0. Options for rq.sprite.new and s:set. new needs one of gif, cg, fill or text.
+---Options for `rq.sprite.new` and `Sprite:set`.
+---
+---`new` needs one of `gif`, `cg`, `fill` or `text`; `set` changes only the options given. A CG that
+---`rq.image.replace` or `compose` changes is shown as it is now.
+---
+---Since: 1.9.0
 ---@class rq.SpriteOpts
----@field gif? string 1.10.0: a GIF file in the mod's folder, or an rq.image.add_gif key. Plays over and over from the start
----@field fps? number 1.10.0: frames a second for the GIF; 0 (default) for its own delays
----@field clock? "game"|"real" 1.10.0: GIFs and motion on the game's clock (follows rq.speed, the default) or real time
----@field cg? integer a CG number (rq.image.add gives one for a file in the mod)
----@field src? {x: integer, y: integer, w: integer, h: integer}|false a part of the CG; false for the whole
----@field fill? {r: integer, g: integer, b: integer, a?: integer} a colour; needs w and h
----@field text? string text in the HUD font
----@field size? number text size, default 16
----@field color? {r: integer, g: integer, b: integer} text colour, default white
----@field edge? boolean the text's dark edge, default true
----@field bold? boolean
----@field x? number the top left before scale and turn
----@field y? number
----@field w? number stretch to this width (0: its own)
----@field h? number
----@field scale? number both scale_x and scale_y
----@field scale_x? number
----@field scale_y? number
----@field rotate? number degrees, clockwise on screen, around origin
----@field origin? {x: number, y: number}|"center" in the sprite's own pixels from its top left
----@field alpha? integer 0 to 255
----@field tint? {r: integer, g: integer, b: integer} multiplied
----@field add? {r: integer, g: integer, b: integer} added before the tint
----@field blend? "normal"|"add"
----@field show? boolean default true
----@field z? integer|"back"|"cards"|"under_windows"|"top" default "under_windows" (1000)
----@field keep? "screen"|"removed" "screen": removed when rq.ui.get().screen changes
----@field attach? rq.SpriteAttach|false 1.11.0: follow a target; x, y and z are added to its (z 1 by default); false lets it go
+---@field gif? string A GIF file in the mod's folder, or an `rq.image.add_gif` key. It plays over and over from the start. Since 1.10.0.
+---@field fps? number Frames a second for the GIF, 0 to 240; 0 (default) uses the GIF's own delays. Since 1.10.0.
+---@field clock? "game"|"real" GIFs and motion run on the game's clock, which follows `rq.speed` (default), or on real time. Since 1.10.0.
+---@field cg? integer A CG number; `rq.image.add` gives one for a file in the mod.
+---@field src? {x: integer, y: integer, w: integer, h: integer}|false A part of the CG; false for the whole again.
+---@field fill? {r: integer, g: integer, b: integer, a?: integer} A color; needs `w` and `h`.
+---@field text? string Text in the HUD font.
+---@field size? number Text size, 4 to 200. Default 16.
+---@field color? {r: integer, g: integer, b: integer} Text color. Default white.
+---@field edge? boolean The text's dark edge. Default true.
+---@field bold? boolean Bold text. Default false.
+---@field x? number Left edge before scale and turn, in game pixels.
+---@field y? number Top edge before scale and turn, in game pixels.
+---@field w? number Stretch to this width; 0 for its own.
+---@field h? number Stretch to this height; 0 for its own.
+---@field scale? number Sets both `scale_x` and `scale_y`.
+---@field scale_x? number Horizontal scale, around `origin`.
+---@field scale_y? number Vertical scale, around `origin`.
+---@field rotate? number Degrees, clockwise on screen, around `origin`.
+---@field origin? {x: number, y: number}|"center" In the sprite's own pixels from its top left. Default `{0, 0}`.
+---@field alpha? integer Opacity, 0 to 255.
+---@field tint? {r: integer, g: integer, b: integer} Multiplies the colors.
+---@field add? {r: integer, g: integer, b: integer} Added to the colors before the tint.
+---@field blend? "normal"|"add" "add" adds it to what is under it, for light and glow. Default "normal".
+---@field show? boolean Shown. Default true.
+---@field z? integer|"back"|"cards"|"under_windows"|"top" A number, or "back" (0, behind all of the game's), "cards" (300, over a fight's cards and the dungeon view, under the bottom bar), "under_windows" (1000, the default: under messages, menus, fades and Config) or "top" (20000, over all of the game's).
+---@field keep? "screen"|"removed" "screen" removes it when `rq.ui.get().screen` is no longer the one it was made on. Default "removed": it stays until the mod, a load or the title removes it.
+---@field attach? rq.SpriteAttach|false Follows a target; `x`, `y` and `z` are added to its (z default 1). false lets it go. Since 1.11.0.
 
----Loader 1.11.0. What an attached sprite follows; give one of these. card and chara work only
----in a fight and go at its end; sprite and game go when their target goes.
+---What an attached sprite follows. Give one of these.
+---
+---An attached sprite follows its target's place, not its scale or turn, is hidden while the target
+---is, and goes when the target goes. On a card it follows the card's own sprite; the card's parts
+---sit over it (marks +1, the HP bar +2, the flame +10, an enemy's weak point +15), so `z = 20` is over
+---all of them. A dead enemy's card stays up until the fight ends, and a sprite on it stays too.
+---
+---Since: 1.11.0
 ---@class rq.SpriteAttach
----@field card? integer the card at this place: 1 to 5 allies, 11 to 15 enemies
----@field chara? integer this character's card, wherever a switch puts it
----@field sprite? rq.Sprite another mod sprite
----@field game? integer a game sprite number from rq.sprite.scene
+---@field card? integer The card at this place, whoever stands there: 1 to 5 allies, 11 to 15 enemies. Only in a fight; goes at its end.
+---@field chara? integer This character's card, wherever a switch puts it; hidden while they are not on a card. Only in a fight; goes at its end.
+---@field sprite? rq.Sprite Another mod sprite, with its motion. Up to 8 can follow one another, not in a ring. Goes when that one is removed.
+---@field game? integer A game sprite number from `rq.sprite.scene` (kind "sprite"). Goes when the game deletes it.
 
----Loader 1.9.0. A mod sprite among the game's own, made by rq.sprite.new.
+---A mod sprite among the game's own, made by `rq.sprite.new`.
+---
+---The methods that return the sprite can be chained.
+---
+---Since: 1.9.0
 ---@class rq.Sprite
 local Sprite = {}
 
----Changes only the options given. Returns the sprite.
----@param opts rq.SpriteOpts
----@return rq.Sprite
+---Changes only the options given.
+---
+---Raises an error for a bad option, or after the sprite was removed.
+---
+---Since: 1.9.0
+---@param opts rq.SpriteOpts The options to change.
+---@return rq.Sprite self The sprite.
 function Sprite:set(opts) end
 
----Its options now, with id, mod, w and h before the scale, origin as {x, y}, screen
----(keep = "screen") and in_scene. 1.11.0: attach, and drawn = {x, y, z} where it is drawn.
----@return table
+---Returns the sprite's options now.
+---
+---Besides the options it has `id`, `mod`, `w` and `h` before the scale (the content's own size when
+---not set), `origin` as `{x, y}`, `screen` (with `keep = "screen"`), `in_scene` (shown and drawn),
+---`clock` and `moving`. A GIF sprite adds `gif`, `frame`, `frames`, `gif_ms` (one time through),
+---`fps` and `playing`. An attached sprite adds `attach` and `drawn = {x, y, z}`, where it is drawn now.
+---
+---Raises an error after the sprite was removed.
+---
+---Since: 1.9.0
+---Changed: 1.10.0 Added the GIF and motion fields.
+---Changed: 1.11.0 Added `attach` and `drawn`.
+---@return table opts A copy of the options.
 function Sprite:get() end
 
----Removes it. set and get raise an error after that.
+---Removes the sprite.
+---
+---`set` and `get` raise an error after that.
+---
+---Since: 1.9.0
 function Sprite:remove() end
 
----False once it was removed (by the mod, a load, the title or keep).
----@return boolean
+---Returns whether the sprite is still there.
+---
+---Since: 1.9.0
+---@return boolean alive false once it was removed: by the mod, a load, the title or `keep`.
 function Sprite:alive() end
 
----Loader 1.10.0. Plays its GIF from `from` (default 1) to `to` (default the last frame), over
----again unless loop = false. on_end(s) runs when a play without loop reaches its last frame.
----@param opts? {from?: integer, to?: integer, loop?: boolean, on_end?: fun(s: rq.Sprite)}
----@return rq.Sprite
+---Plays the sprite's GIF.
+---
+---Raises an error for a sprite with no GIF, or a range outside its frames.
+---
+---Since: 1.10.0
+---@param opts? {from?: integer, to?: integer, loop?: boolean, on_end?: fun(s: rq.Sprite)} `from` (default 1) to `to` (default the last frame), over again unless `loop = false`. `on_end` runs when a play without loop reaches its last frame.
+---@return rq.Sprite self The sprite.
 function Sprite:play(opts) end
 
----Loader 1.10.0. Holds the GIF on the frame it is on.
----@return rq.Sprite
+---Holds the GIF on the frame it is on.
+---
+---Since: 1.10.0
+---@return rq.Sprite self The sprite.
 function Sprite:stop() end
 
----Loader 1.10.0. With no n: the frame shown (from 1) and the count. With n: shows it and stops.
----@param n? integer
----@return integer|rq.Sprite frame
----@return integer? count
+---Returns the GIF frame shown, or shows one and stops.
+---
+---Raises an error for a frame outside the GIF.
+---
+---Since: 1.10.0
+---@param n? integer The frame to show, from 1; leave it out to read.
+---@return integer|rq.Sprite frame Without `n`: the frame shown. With `n`: the sprite.
+---@return integer? count Without `n`: how many frames there are.
 function Sprite:frame(n) end
 
----Loader 1.10.0. Whether its GIF is playing.
----@return boolean
+---Returns whether the sprite's GIF is playing.
+---
+---Since: 1.10.0
+---@return boolean playing true while it plays.
 function Sprite:playing() end
 
----Loader 1.10.0. Options for s:to: the values to move to, and how.
+---The values `Sprite:to` moves to, and how.
+---
+---Since: 1.10.0
 ---@class rq.SpriteMotion
----@field x? number
----@field y? number
----@field w? number
----@field h? number
----@field scale? number
----@field scale_x? number
----@field scale_y? number
----@field rotate? number
----@field alpha? integer
----@field tint? {r: integer, g: integer, b: integer}
----@field add? {r: integer, g: integer, b: integer}
----@field ms? number how long, default 0 (a jump)
----@field delay? number ms before it starts
----@field ease? "linear"|"in"|"out"|"in_out" default "linear"
----@field on_end? fun(s: rq.Sprite) once the last values are drawn
+---@field x? number Left edge to move to.
+---@field y? number Top edge to move to.
+---@field w? number Width to move to.
+---@field h? number Height to move to.
+---@field scale? number Scale to move to, both ways.
+---@field scale_x? number Horizontal scale to move to.
+---@field scale_y? number Vertical scale to move to.
+---@field rotate? number Turn to move to, in degrees.
+---@field alpha? integer Opacity to move to.
+---@field tint? {r: integer, g: integer, b: integer} Tint to move to.
+---@field add? {r: integer, g: integer, b: integer} Added color to move to.
+---@field ms? number How long, in ms. Default 0, a jump.
+---@field delay? number Ms before it starts. Default 0.
+---@field ease? "linear"|"in"|"out"|"in_out" "in" starts slow, "out" ends slow. Default "linear".
+---@field on_end? fun(s: rq.Sprite) Runs once a frame has drawn the last values; it may call `to` again for the next step.
 
----Loader 1.10.0. Moves from the values it has now to these. A new one takes the place of the
----one moving, from where it got to (the old on_end does not run). s:set of a value takes that
----value out of the motion.
----@param opts rq.SpriteMotion
----@return rq.Sprite
+---Moves the sprite from the values it has now to new ones, over time.
+---
+---A new `to` takes the place of the one moving, from where it got to, and the old `on_end` does not
+---run. `Sprite:set` of a value takes that value out of the motion, and the rest goes on. Removing the
+---sprite ends it too.
+---
+---Raises an error for a negative `ms` or `delay`, an unknown `ease`, or an `on_end` that is not a
+---function.
+---
+---Since: 1.10.0
+---
+---```lua
+---rq.sprite.new({ fill = { 255, 255, 255 }, w = 1024, h = 768, z = "top" })
+---  :to({ alpha = 0, ms = 300, on_end = function(s) s:remove() end })  -- a white flash
+---```
+---@param opts rq.SpriteMotion The values and the timing.
+---@return rq.Sprite self The sprite.
 function Sprite:to(opts) end
 
----Loader 1.10.0. Whether a motion is waiting or moving.
----@return boolean
+---Returns whether a motion is waiting or moving.
+---
+---Since: 1.10.0
+---@return boolean moving true until the motion ends.
 function Sprite:moving() end
 
----Loader 1.10.0. Stops the motion where it is, without its on_end.
----@return rq.Sprite
+---Stops the motion where it is, without its `on_end`.
+---
+---Since: 1.10.0
+---@return rq.Sprite self The sprite.
 function Sprite:halt() end
 
----Loader 1.9.0. One row of rq.sprite.scene, back to front.
+---One row of `rq.sprite.scene`.
+---
+---Since: 1.9.0
 ---@class rq.SceneRow
----@field kind "sprite"|"part"|"mod"|"other"
----@field no integer the sprite or part number; a mod sprite's id
----@field z integer
----@field z2 integer
----@field x integer
----@field y integer
----@field w integer
----@field h integer
----@field cg integer 0 when it shows no CG
----@field part? string a part's kind: cg, text, flash and so on
----@field mod? string the mod of a mod sprite
+---@field kind "sprite"|"part"|"mod"|"other" What it is: a game sprite, a game part, a mod sprite.
+---@field no integer The sprite or part number; a mod sprite's id.
+---@field z integer Its z.
+---@field z2 integer Its second z.
+---@field x integer Left edge, in game pixels.
+---@field y integer Top edge, in game pixels.
+---@field w integer Width.
+---@field h integer Height.
+---@field cg integer The CG it shows; 0 for none.
+---@field part? string A part's kind: cg, text, flash and so on.
+---@field mod? string The mod of a mod sprite.
 
----Loader 1.9.0. Sprites a mod makes once and changes later, drawn among the game's own in z
----order, so its windows cover them (rq.hud is drawn over everything). Not saved; a load and the
----title remove every mod sprite. Call new from rq.on_frame or a callback.
+---Sprites a mod makes once and changes later, drawn among the game's own in z order.
+---
+---The game's windows, menus and fades cover them where they are above; `rq.hud` is drawn after
+---everything and nothing covers it. A sprite shows a CG or a part of one, a GIF, a fill color or text,
+---and can be moved, stretched, scaled, turned, faded and tinted, at once or over time, and can follow
+---a card or another sprite.
+---
+---They are the loader's own: the game does not save them or give their numbers out. Every mod sprite
+---goes on a load and at the title, and `rq.sprite.on_reset` says so, so a mod can make them again.
+---Call `new` from `rq.on_frame` or a callback, not at the top level of `init.lua`. GIF frames are
+---textures made once per file and shared: up to 64 GIF files and 64 million pixels in all. A delay
+---under 20 ms in a GIF plays as 100 ms, as browsers do.
+---
+---The game's own z, from `rq.sprite.scene`: 1 to 22 the hub's page and the quest list; 101 to 262 a
+---fight's field and cards, the dungeon view; 801 to 823 the bottom bar; 8001 to 8301 messages; 9001
+---and 9002 fades; 9101 the System menu; 15000 to 15010 Config.
+---
+---Since: 1.9.0
+---Changed: 1.10.0 GIFs and motion.
+---Changed: 1.11.0 Attach.
+---
+---```lua
+---local glow
+---rq.on_frame(function()
+---  if not glow or not glow:alive() then
+---    glow = rq.sprite.new({ cg = rq.image.add("glow", "glow.png"), x = 400, y = 200,
+---      origin = "center", blend = "add", alpha = 180 })
+---  end
+---  glow:set({ rotate = (rq.time_ms() / 20) % 360 })
+---end)
+---```
 ---@class rq.sprite
 local sprite = {}
 
----@param opts rq.SpriteOpts
----@return rq.Sprite
+---Makes a sprite and shows it.
+---
+---Up to 256 per mod and 1024 in all.
+---
+---Raises an error for a bad option (and leaves nothing behind), or past the limits.
+---
+---Since: 1.9.0
+---
+---```lua
+---rq.battle.on_start(function()
+---  -- a star over the card of whoever starts on rank 1, which follows them in a switch
+---  rq.sprite.new({ gif = "star.gif", x = 260, y = 4, z = 20, attach = { chara = rq.party.get()[1] } })
+---end)
+---```
+---@param opts rq.SpriteOpts What it shows and where.
+---@return rq.Sprite sprite The new sprite.
 function sprite.new(opts) end
 
----This mod's sprites, oldest first.
----@return rq.Sprite[]
+---Lists this mod's sprites.
+---
+---Since: 1.9.0
+---@return rq.Sprite[] sprites The same objects `new` gave, oldest first.
 function sprite.list() end
 
 ---Removes all of this mod's sprites.
----@return integer count
+---
+---Since: 1.9.0
+---@return integer count How many were removed.
 function sprite.clear() end
 
----fn(why) after a load ("load") or the title ("title") removed every mod sprite.
----@param fn fun(why: "load"|"title")
----@return fun() remove
+---Calls `fn` after a load or the title removed every mod sprite.
+---
+---These are the same callbacks as `rq.on_reset`.
+---
+---Since: 1.9.0
+---@param fn fun(why: "load"|"title") `why` says which one happened.
+---@return fun() remove Removes this callback.
 function sprite.on_reset(fn) end
 
----The game's scene list now, back to front.
----@return rq.SceneRow[]
+---Lists everything in the game's scene list now, back to front.
+---
+---The pipe's `scene` command gives the same as JSON, with the screen.
+---
+---Since: 1.9.0
+---@return rq.SceneRow[] rows The rows, back to front.
 function sprite.scene() end
 
 rq.sound = sound
