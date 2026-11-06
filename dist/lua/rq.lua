@@ -1864,83 +1864,146 @@ function store.keys() end
 ---@field keys fun(): string[]
 store.global = {}
 
+---What `rq.combat.on_physical` gets for one physical hit.
 ---@class rq.PhysicalCtx
----@field attacker integer
----@field defender integer
----@field skill integer
----@field attack integer pre-defense attack
----@field magic integer
----@field race integer 8 = hanny
----@field defender_type integer Ｃタイプ of the defender (22 = humanoid)
+---@field attacker integer The attacker's roster slot.
+---@field defender integer The defender's roster slot.
+---@field skill integer The skill number.
+---@field attack integer The attack before defense, as the callback before left it.
+---@field magic integer The attacker's magic.
+---@field race integer The defender's race; 8 is a hanny.
+---@field defender_type integer The defender's type (`Ｃタイプ`); 22 is humanoid.
 
+---What `rq.combat.on_accuracy` gets for one accuracy check.
 ---@class rq.AccuracyCtx
----@field attacker integer
----@field defender integer
----@field skill integer
+---@field attacker integer The attacker's roster slot.
+---@field defender integer The defender's roster slot.
+---@field skill integer The skill number.
 
+---What `rq.combat.on_crit` gets where the game rolls a critical.
 ---@class rq.CritCtx
----@field attacker integer
----@field defender integer
----@field skill integer
----@field rate integer critical chance (percent) the game is about to roll
----@field defender_type integer Ｃタイプ of the defender (22 = humanoid)
+---@field attacker integer The attacker's roster slot.
+---@field defender integer The defender's roster slot.
+---@field skill integer The skill number.
+---@field rate integer The critical chance the game is about to roll, in percent.
+---@field defender_type integer The defender's type (`Ｃタイプ`); 22 is humanoid.
 
+---Changes physical damage, accuracy and criticals.
+---
+---Physical attacks keep the game's own path: defense, variance, cap, then the usual multipliers. Lua
+---can replace the attack before defense, scale the final damage, add to the hit chance at the same
+---place as the game's own -5 and -10 for some skills, and force or deny a critical. The callbacks
+---need `rq.combat.install` (or `rq.chara.install`), and hold up to 16 each.
+---
+---Since: 0.2.0
+---
+---```lua
+---rq.combat.install()
+---rq.combat.on_physical(function(ctx)
+---  if ctx.race == 8 then return nil, 50 end  -- half damage to a hanny
+---end)
+---```
 ---@class rq.combat
 local combat = {}
 
----Same patches as rq.chara.install.
----@return boolean
+---Installs the hooks the combat callbacks need.
+---
+---It is the same call as `rq.chara.install`; calling either again does nothing more.
+---
+---Raises an error when the AIN is not loaded or a hook cannot be placed.
+---
+---Since: 0.2.0
+---@return boolean ok Always true; a failure raises an error.
 function combat.install() end
 
----fn(ctx) → nil, or attack, or attack + final percent (100 = unchanged, 50 = half of final damage).
----Loader 0.13.0: every mod's callback runs. Each one sees the attack the one before left, and the percents multiply.
----@param fn fun(ctx: rq.PhysicalCtx): integer|nil, integer|nil
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` for each physical hit, to change the attack and the final damage.
+---
+---`fn` returns nothing to keep the game's numbers, a new attack before defense, or an attack (nil
+---keeps it) and a percent of the final damage, applied after `最終ダメージ計算` (100 is unchanged, 50
+---half). Each callback sees the attack the one before left, and the percents multiply.
+---
+---Since: 0.2.0
+---Changed: 0.13.0 Every mod's callback runs (before, the last one won).
+---Changed: 0.23.0 Returns a remover.
+---@param fn fun(ctx: rq.PhysicalCtx): integer|nil, integer|nil Returns the attack, then the percent.
+---@return fun() remove Removes this callback.
 function combat.on_physical(fn) end
 
----fn(ctx) → accuracy delta added at the aa-bb site. No hook → 0.
----Loader 0.13.0: every mod's callback runs and the deltas add up.
----@param fn fun(ctx: rq.AccuracyCtx): integer
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` for each accuracy check, to add to the hit chance.
+---
+---The returned numbers of every callback add up; nil counts as 0.
+---
+---Since: 0.2.0
+---Changed: 0.13.0 Every mod's callback runs and the numbers add up (before, the last one won).
+---Changed: 0.23.0 Returns a remover.
+---@param fn fun(ctx: rq.AccuracyCtx): integer|nil Returns points to add to the hit chance; negative lowers it.
+---@return fun() remove Removes this callback.
 function combat.on_accuracy(fn) end
 
----Loader 0.12.0. Called where the game rolls a critical (the 確率演算 call in クリティカル計算).
----Return true to force it, false to deny it, anything else (nil) to roll as vanilla.
----A forced critical still adds the game's +30 to the damage multiplier.
----Many callbacks: the first one that returns a boolean decides.
----Needs combat.install (or chara.install).
----@param fn fun(ctx: rq.CritCtx): boolean|nil
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` where the game rolls a critical (the `確率演算` call in `クリティカル計算`).
+---
+---Return true to force the critical, false to deny it, nil to roll as the game does. The first
+---callback that returns a boolean decides. A forced critical still adds the game's +30 to the damage
+---multiplier, and it also happens for skills whose multiplier is above 150, which never roll one in
+---the game.
+---
+---Since: 0.12.0
+---Changed: 0.13.0 Every mod's callback runs until one decides.
+---Changed: 0.23.0 Returns a remover.
+---
+---```lua
+---rq.combat.on_crit(function(ctx)
+---  if ctx.defender_type == 22 then return true end  -- humanoids always take a critical
+---end)
+---```
+---@param fn fun(ctx: rq.CritCtx): boolean|nil Returns true, false, or nil to roll.
+---@return fun() remove Removes this callback.
 function combat.on_crit(fn) end
 
+---What `rq.counter.on_guard_counter` gets.
 ---@class rq.CounterGuardCtx
----@field guarded boolean FA[77]==1 (successful Ally Guard redirect this action)
----@field defender integer iic that took the hit (guard when redirected)
----@field attacker integer iic that attacked
----@field skill integer incoming skill id
----@field rate integer Counter rate before FA[77] wipe
+---@field guarded boolean Ally Guard redirected this hit (the game's `FA[77]` is 1).
+---@field defender integer The roster slot that took the hit: the guard when redirected.
+---@field attacker integer The attacker's roster slot.
+---@field skill integer The incoming skill number.
+---@field rate integer The Counter rate before the game's guard check clears it.
 
+---Lets the Counter skill (259) work after Ally Guard.
+---
+---The game sets the Counter rate to 0 inside `ダメージ後計算` when Ally Guard redirected the hit
+---(`FA[77]`). `rq.counter.install` patches only that place; the other effects of `FA[77]` and the
+---other Counter checks stay as the game has them. Lua decides with `on_guard_counter`.
+---
+---Since: 0.2.0
+---
+---```lua
+---rq.counter.install()
+---rq.counter.on_guard_counter(function(ctx)
+---  return ctx.guarded == true
+---end)
+---```
 ---@class rq.counter
 local counter = {}
 
----Patch the Counter FA[77] zero-out inside ダメージ後計算 only.
----Other FA[77] effects and other Counter gates stay vanilla.
----@return boolean
+---Installs the patch `on_guard_counter` needs.
+---
+---Raises an error when the AIN is not loaded or the patch cannot be placed.
+---
+---Since: 0.2.0
+---@return boolean ok Always true; a failure raises an error.
 function counter.install() end
 
----fn(ctx) → true to allow Counter rate despite FA[77]. Loader 0.14.0: every mod's callback runs, and one true allows it. No hook → vanilla block.
----@param fn fun(ctx: rq.CounterGuardCtx): boolean
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` when the game would clear the Counter rate after Ally Guard.
+---
+---One callback returning true keeps the rate. With no callback, the game's rule stays. Up to 16
+---callbacks in all.
+---
+---Since: 0.2.0
+---Changed: 0.14.0 Every mod's callback runs, and one true keeps the rate (before, the last one won).
+---Changed: 0.23.0 Returns a remover.
+---@param fn fun(ctx: rq.CounterGuardCtx): boolean|nil Returns true to keep the Counter rate.
+---@return fun() remove Removes this callback.
 function counter.on_guard_counter(fn) end
-
----@class rq.BattleActor
----@field no integer battle slot (戦闘番号)
----@field chara integer character iic
-
----@class rq.BattleSelectKeyCtx
----@field key integer SACT key (Space = 32)
----@field no integer current actor battle slot
----@field chara integer current actor iic
 
 ---@class rq.shop
 local shop = {}
@@ -1976,253 +2039,546 @@ function shop.in_stock(no) end
 ---@return integer
 function shop.stock(no) end
 
+---Hooks into fights: events, ally skill select, marks and buffs on the cards, faces, states, drops,
+---and scripted fights.
+---
+---Each event (`on_*`) installs its hook on first use; most hold up to 16 callbacks. The ally skill
+---select calls need `rq.battle.install`, `set_flame` and `set_mark` need `rq.battle.install_flame`,
+---and `set_state` needs `rq.battle.install_states`.
+---
+---A card goes by battle number: 1 to 5 are the ally ranks, 11 to 15 the enemy ranks. Characters are
+---roster slots (`iic`); enemy slots are below 20.
+---
+---Since: 0.2.0
+---
+---```lua
+---rq.battle.on_start(function(ctx)
+---  for _, e in ipairs(ctx.enemies) do
+---    rq.chara.set(e, { weakness_known = true })  -- reveal every enemy's weakness
+---  end
+---end)
+---```
 ---@class rq.battle
 local battle = {}
 
----Wrap T_BattleSelect@select / @checkKey so Lua can claim a key during ally skill select.
----@return boolean
+---The ally whose turn it is, from `rq.battle.actor`.
+---@class rq.BattleActor
+---@field no integer The battle number (`戦闘番号`).
+---@field chara integer The roster slot.
+
+---What `rq.battle.on_select_key` gets.
+---@class rq.BattleSelectKeyCtx
+---@field key integer The SACT key code (Space is 32).
+---@field no integer The acting ally's battle number.
+---@field chara integer The acting ally's roster slot.
+
+---Installs the ally skill select hooks.
+---
+---It wraps `T_BattleSelect@select`, `@checkKey` and `@exec`, so a key that `on_select_key` claims
+---completes the select like a click on that skill: the key is swallowed (Space does not also
+---Cancel), and the skill runs on the actor itself.
+---
+---Raises an error when the AIN is not loaded or a hook cannot be placed.
+---
+---Since: 0.2.0
+---@return boolean ok Always true; a failure raises an error.
 function battle.install() end
 
----fn(ctx) → nil/false for vanilla, or skill id / {skill=id} to complete select like clicking that skill.
----When claimed, C swallows the key that frame (Space does not also Cancel).
----Loader 0.14.0: callbacks run in load order until one names a skill.
----@param fn fun(ctx: rq.BattleSelectKeyCtx): integer|table|nil
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` for each key pressed while an ally chooses a skill.
+---
+---Return a skill number (or `{ skill = n }`) to choose that skill, or nil to let the game handle the
+---key. Callbacks run in load order until one names a skill. Needs `rq.battle.install`.
+---
+---Since: 0.2.0
+---Changed: 0.14.0 Every mod's callback runs until one names a skill (before, the last one won).
+---Changed: 0.23.0 Returns a remover.
+---
+---```lua
+---rq.battle.install()
+---rq.battle.on_select_key(function(ctx)
+---  if ctx.key ~= 32 then return nil end
+---  local a = rq.battle.actor()
+---  if a and rq.battle.skill_usable(a, 384) then return 384 end  -- Space: Standby
+---end)
+---```
+---@param fn fun(ctx: rq.BattleSelectKeyCtx): integer|{skill: integer}|nil Returns the skill to choose.
+---@return fun() remove Removes this callback.
 function battle.on_select_key(fn) end
 
+---What `rq.battle.on_start` gets.
 ---@class rq.BattleStartCtx
----@field boss boolean
----@field allies integer[] iic list
----@field enemies integer[] iic list (enemy slots are below 20)
----@field group integer ◆戦闘グループ
----@field rank integer ◆戦闘ランク
+---@field boss boolean The fight is a boss fight.
+---@field allies integer[] The allies' roster slots.
+---@field enemies integer[] The enemies' slots, below 20.
+---@field group integer The fight group (`◆戦闘グループ`). Since 0.9.0.
+---@field rank integer The fight rank (`◆戦闘ランク`). Since 0.9.0.
 
+---What `rq.battle.on_end` gets.
 ---@class rq.BattleEndCtx
----@field result integer the game's result code
----@field allies integer[]
----@field enemies integer[]
----@field group integer ◆戦闘グループ
----@field rank integer ◆戦闘ランク
+---@field result integer The game's result code.
+---@field allies integer[] The allies' roster slots.
+---@field enemies integer[] The enemies' slots.
+---@field group integer The fight group (`◆戦闘グループ`). Since 0.9.0.
+---@field rank integer The fight rank (`◆戦闘ランク`). Since 0.9.0.
 
----Once per battle, at the end of Ｔ戦闘前初期化 (all start-of-battle effects already ran). Many allowed.
----@param fn fun(ctx: rq.BattleStartCtx)
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` once per fight, at the end of `Ｔ戦闘前初期化`.
+---
+---Every start-of-fight effect of the game has already run (skills such as Cough, an ambush, poison
+---tea), so `rq.chara.get` and `set` on the lists see the real state.
+---
+---Since: 0.5.0
+---Changed: 0.23.0 Returns a remover.
+---
+---```lua
+---rq.battle.on_start(function(ctx)
+---  for _, a in ipairs(ctx.allies) do rq.chara.set(a, { status = 0 }) end  -- clear poison
+---end)
+---```
+---@param fn fun(ctx: rq.BattleStartCtx) Gets the fight.
+---@return fun() remove Removes this callback.
 function battle.on_start(fn) end
 
----At the start of 戦闘後処理, before cleanup. Many allowed.
----@param fn fun(ctx: rq.BattleEndCtx)
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` at the start of `戦闘後処理`, before the game cleans up the fight.
+---
+---Set a drop here with `rq.battle.set_drop`.
+---
+---Since: 0.5.0
+---Changed: 0.23.0 Returns a remover.
+---@param fn fun(ctx: rq.BattleEndCtx) Gets the fight and its result.
+---@return fun() remove Removes this callback.
 function battle.on_end(fn) end
 
+---What `rq.battle.on_support` gets.
 ---@class rq.BattleSupportCtx
----@field user integer iic that uses the skill
----@field target integer iic it is aimed at (the user for a self skill)
----@field skill integer
+---@field user integer The roster slot of who uses the skill.
+---@field target integer The roster slot it is aimed at; the user for a self skill.
+---@field skill integer The skill number.
 
----Loader 0.13.0. Called at the start of every support (blue) skill action (Ｔ補助行動), before the game applies its own
----effects. For a skill a mod defined, this is where Lua gives it its effect. Many callbacks allowed.
----@param fn fun(ctx: rq.BattleSupportCtx)
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` at the start of every support (blue) skill action (`Ｔ補助行動`).
+---
+---It runs before the game applies its own effects. A skill a mod defined has no effect of its own,
+---so this is where Lua gives it one.
+---
+---Since: 0.13.0
+---Changed: 0.23.0 Returns a remover.
+---
+---```lua
+---rq.battle.on_support(function(ctx)
+---  if ctx.skill == MY_SKILL then rq.chara.set(ctx.target, { status = 0 }) end
+---end)
+---```
+---@param fn fun(ctx: rq.BattleSupportCtx) Gets the action.
+---@return fun() remove Removes this callback.
 function battle.on_support(fn) end
 
+---What `rq.battle.on_down` gets.
 ---@class rq.BattleDownCtx
----@field iic integer the character the game just set to the downed state (Ｃ状態変化 = 3), ally or enemy
+---@field iic integer The character the game just set to downed, ally or enemy.
 
----Loader 0.12.0. Called when the game sets a character's state to 3 (downed), for every cause
----(damage, poison, capture, instant death). Loader 1.3.1: once per fall; before, it could fire
----again for a character that was already down.
----A revive is not reported. Many callbacks allowed.
----@param fn fun(ctx: rq.BattleDownCtx)
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` when the game sets a character to downed (`Ｃ状態変化` 3).
+---
+---Any cause counts: damage, poison, capture, instant death. It runs once per fall. A revive is not
+---reported.
+---
+---Since: 0.12.0
+---Changed: 0.23.0 Returns a remover.
+---Changed: 1.3.1 Once per fall; before, it could run again for a character already down.
+---@param fn fun(ctx: rq.BattleDownCtx) Gets the character.
+---@return fun() remove Removes this callback.
 function battle.on_down(fn) end
 
+---What `rq.battle.on_switch` gets for one rank.
 ---@class rq.BattleSwitchCtx
----@field left integer who stood on the rank, 0 for nobody
----@field came_in integer who stands there now, 0 for nobody
----@field rank integer 1 to 5
+---@field left integer The roster slot of who stood on the rank; 0 for nobody.
+---@field came_in integer The roster slot of who stands there now; 0 for nobody.
+---@field rank integer The ally rank, 1 to 5.
 
----Loader 0.29.0. Called for each ally rank that has someone else after a switch in a fight, with the new cards already on screen. Someone who only moved to another rank shows up as left on one rank and came_in on the other. Many callbacks allowed.
----@param fn fun(ctx: rq.BattleSwitchCtx)
+---Calls `fn` for each ally rank that holds someone else after a switch in a fight.
+---
+---The new cards are already on screen. Someone who only moved shows up as `left` on one rank and
+---`came_in` on the other.
+---
+---Since: 0.29.0
+---@param fn fun(ctx: rq.BattleSwitchCtx) Gets one rank.
 ---@return fun() remove Removes this callback.
 function battle.on_switch(fn) end
 
----Loader 0.25.0. Runs each time a skill is carried out, before its effects, for allies, enemies and summons: once per hit of a multi-hit skill, and also for a counter. skill is the skill number; user and target are characters, target 0 when there is none; unit and target_unit are the battle numbers; side is "ally", "enemy" or "summon"; counter is true during a counter. It only reports, it cannot change or stop the skill. Many allowed.
----@param fn fun(ev: {skill: integer, user: integer, unit: integer, target: integer, target_unit: integer, side: string, counter: boolean})
----@return fun() remove Removes this callback. Loader 0.23.0.
+---What `rq.battle.on_use` gets.
+---@class rq.BattleUseEvent
+---@field skill integer The skill number.
+---@field user integer The roster slot of who uses it.
+---@field unit integer The user's battle number.
+---@field target integer The target's roster slot; 0 when there is none.
+---@field target_unit integer The target's battle number.
+---@field side "ally"|"enemy"|"summon" Whose skill it is.
+---@field counter boolean true when the skill runs as a counter.
+
+---Calls `fn` each time a skill is carried out, before its effects.
+---
+---It runs for allies, enemies and summons, once per hit of a multi-hit skill, and for a counter
+---too. It only reports: it cannot change or stop the skill.
+---
+---Since: 0.25.0
+---
+---```lua
+---rq.battle.on_use(function(ev)
+---  if ev.side == "enemy" then rq.log("enemy used", ev.skill) end
+---end)
+---```
+---@param fn fun(ev: rq.BattleUseEvent) Gets the action.
+---@return fun() remove Removes this callback.
 function battle.on_use(fn) end
 
----Loader 0.12.0. Hook the ally status refresh so set_flame sticks. Also installs the battle start/end events
----(they clear every flame). Call once from init.lua.
----@return boolean
+---Installs the hooks the flame, the buffs and the marks need.
+---
+---It hooks the ally status refresh so `set_flame` sticks, and installs the fight start and end
+---events, which clear the flames and buffs. Call it once at the top of `init.lua`.
+---
+---Raises an error when a hook cannot be placed.
+---
+---Since: 0.12.0
+---@return boolean ok Always true; a failure raises an error.
 function battle.install_flame() end
 
----Loader 0.12.0. Show or hide the "charging" flame on an ally in the current battle. Allies share the enemies'
----mark object, which shows one mark at a time, so Protect, Berserk, Stealth and Barrier marks on that ally are replaced
----while the flame is on. Flames are forgotten at battle start and end (the battle screen drops its own marks).
----Returns false if the character is not in the party. Since loader 0.29.0 the flame goes with the character when the party changes places in a switch, and ends when they leave the party. Needs battle.install_flame.
----@param iic integer
----@param on boolean
----@return boolean
+---Shows or hides the enemies' "charging" flame on an ally.
+---
+---The flame goes with the character when the party changes places in a switch, and ends when they
+---leave the party. It is forgotten at the start and end of a fight. The ally's card shows one mark
+---at a time, so the flame takes turns with Protect, Berserk, Stealth and Barrier. Attack and defense
+---arrows are separate: `rq.chara.set(iic, { atk_buff = 1 })`.
+---
+---Raises an error before `rq.battle.install_flame`.
+---
+---Since: 0.12.0
+---Changed: 0.29.0 The flame follows the character in a switch.
+---@param iic integer The ally's roster slot.
+---@param on boolean true shows it, false hides it.
+---@return boolean ok false when the character is not in the party.
 function battle.set_flame(iic, on) end
 
+---A mod's buff on a card, for `rq.battle.set_buff` and `set_rank_buff`.
+---
+---The marks of a card (Protect, Berserk, Stealth, Barrier, Guard, the flame and mods' buffs) take
+---turns in one spot, fading in and out, 1.5 seconds each; a single mark stays still.
 ---@class rq.BuffDef
----@field icon? integer CG number. Use rq.image.add with fit, w and h; the spot holds about 56x56. Since loader 0.27.1 a number that is no CG raises an error, and at most 128 different icons and GIFs fit
----@field anim? string rq.image.add_gif key. Plays in the game's mark spot, about 35x26; wins over icon (loader 0.19.0)
----@field text? string short text over the icon
----@field order? integer place in the turns, lowest first; default 0, and the same order stays as added (loader 0.30.0)
----@field x? integer pixels from the left of the card to the left of the icon; default 111 on an ally, 37 on an enemy (loader 0.30.0)
----@field y? integer pixels from the top of the card to the top of the icon; default 80 on an ally, 22 on an enemy (loader 0.30.0)
----@field layer? integer z from the card's base, -100 to 100, the text one above it; default 10. Ally: 0 base, 1 text, face and skills, 40 dead, 50 no skill, 55 mask. Enemy: 0 base and name, 1 ▲▼ and states, 2 bar, 15 second line (loader 0.30.0)
----@field pinned? boolean stays shown, out of the turns (loader 0.30.0)
+---@field icon? integer A CG number, such as one from `rq.image.add` with `fit`, `w` and `h`; the spot holds about 56×56. A number that is no CG raises an error. Since 0.27.1 the icon is a game mark, so the game's windows cover it.
+---@field anim? string An `rq.image.add_gif` key, played in the game's mark spot (about 35×26, from the top-left corner); wins over `icon`. Since 0.19.0.
+---@field text? string A short text over the icon.
+---@field order? integer The place in the turns, lowest first. Default 0, as the game's marks; equal ones keep the order they were added. Since 0.30.0.
+---@field x? integer Pixels from the card's left edge to the icon's. Default 111 on an ally, 37 on an enemy. Since 0.30.0.
+---@field y? integer Pixels from the card's top edge to the icon's. Default 80 on an ally, 22 on an enemy. Since 0.30.0.
+---@field layer? integer The z from the card's base, -100 to 100, with the text one above. Default 10. The game's: on an ally 0 base, 1 text, face, skills and arrows, 40 dead, 50 no skill, 55 mask; on an enemy 0 base and name, 1 arrows and states, 2 bar, 15 second line. Since 0.30.0.
+---@field pinned? boolean Stays shown, out of the turns; it hides with the card's marks. Since 0.30.0.
 
+---How `rq.battle.set_mark` shows one of the game's marks.
 ---@class rq.MarkDef
----@field hide? boolean does not show on any card
----@field icon? integer CG number shown instead of the game's picture
----@field anim? string rq.image.add_gif key shown instead of the game's picture; wins over icon
----@field x? integer pixels from the left of the card; default where the game puts it
----@field y? integer pixels from the top of the card; default where the game puts it
----@field layer? integer as in rq.BuffDef. The default of marks 1 to 23 is 1, which is under an ally's face
----@field order? integer marks 31 to 36 only: as in rq.BuffDef
----@field pinned? boolean marks 31 to 36 only: as in rq.BuffDef
+---@field hide? boolean Takes the mark off the screen; the state itself stays.
+---@field icon? integer A CG number shown instead of the game's picture.
+---@field anim? string An `rq.image.add_gif` key shown instead of the game's picture; wins over `icon`.
+---@field x? integer Pixels from the card's left edge. Default: where the game puts it.
+---@field y? integer Pixels from the card's top edge. Default: where the game puts it.
+---@field layer? integer As in `rq.BuffDef`. Marks 1 to 23 sit at layer 1, under an ally's face.
+---@field order? integer Marks 31 to 36 only: as in `rq.BuffDef`.
+---@field pinned? boolean Marks 31 to 36 only: as in `rq.BuffDef`.
 
+---Every state of a character, from `rq.battle.states`.
 ---@class rq.BattleStates
----@field poison boolean
----@field stun boolean
----@field atk_up boolean
----@field atk_down boolean
----@field def_up boolean
----@field def_down boolean
----@field dead boolean
+---@field poison boolean Poisoned.
+---@field stun boolean Stunned.
+---@field atk_up boolean Attack ▲.
+---@field atk_down boolean Attack ▼.
+---@field def_up boolean Defense ▲.
+---@field def_down boolean Defense ▼.
+---@field dead boolean Down.
 
+---One mark a card shows, from `rq.battle.buffs`.
 ---@class rq.BuffInfo
----@field mark? integer game mark: 31 flame, 32 guard, 33 berserk, 34 stealth, 35 protect, 36 barrier
----@field key? string mod buff
----@field icon? integer mod buff
----@field rank? boolean true when the buff belongs to the rank (loader 0.29.0)
----@field pinned? boolean true when it stays shown, out of the turns (loader 0.30.0)
----@field text string
+---@field mark? integer A game mark: 31 flame, 32 guard, 33 berserk, 34 stealth, 35 protect, 36 barrier.
+---@field key? string A mod buff's key.
+---@field icon? integer A mod buff's icon.
+---@field rank? boolean true when the buff belongs to the rank. Since 0.29.0.
+---@field pinned? boolean true when it stays shown, out of the turns. Since 0.30.0.
+---@field text string The text shown with it.
 
----Loader 0.16.0. Add or change a mod's buff on a character, or remove it with no def. Enemies too since loader 0.28.0. It takes turns with
----the other marks of that card, in the card's z order, so the game's windows cover it (loader 0.27.1). At most 8 per character, cleared at battle start and end. Since loader 0.29.0 a buff belongs to the character: it leaves the card with them, shows again if they return, and can be changed or removed while they are out.
----@param iic integer
----@param key string
----@param def? rq.BuffDef
----@return boolean ok false if that character has not stood on a card in this fight
+---Adds, changes or removes a mod's buff on a character.
+---
+---The buff belongs to the character: it leaves the card with them, shows again when they come back,
+---and can be changed or removed while they are out. On an enemy the spot is over the card's second
+---line, and the game hides the marks of a dead enemy. Up to 8 per character, cleared at the start
+---and end of a fight. Up to 128 different icons and GIFs, together.
+---
+---Raises an error for a def with neither icon nor anim, a number that is no CG, an unknown anim, an
+---`x`, `y`, `layer` or `order` out of range or not whole, a too long key, or a 9th buff.
+---
+---Since: 0.16.0
+---Changed: 0.28.0 Enemies too.
+---Changed: 0.29.0 The buff follows the character.
+---
+---```lua
+---local ICON = rq.image.add("shield", "shield.png", { fit = "contain", w = 56, h = 56 })
+---rq.battle.set_buff(iic, "my-shield", { icon = ICON, text = "3" })
+---rq.battle.set_buff(iic, "my-shield")  -- remove it
+---```
+---@param iic integer The character's roster slot.
+---@param key string The buff's name, unique per character.
+---@param def? rq.BuffDef The buff; nil removes it.
+---@return boolean ok false when the character has not stood on a card in this fight.
+---@see rq.battle.set_rank_buff
 function battle.set_buff(iic, key, def) end
 
----Loader 0.29.0. The same as set_buff, but the buff stays on the spot, whoever stands there. It comes after the character's own buffs, and an empty rank can hold one. At most 8 per rank, cleared at battle start and end.
----@param rank integer battle number: 1 to 5 for allies, 11 to 15 for enemies
----@param key string
----@param def? rq.BuffDef
----@return boolean ok false for any other number
+---Adds, changes or removes a buff that stays on a card, whoever stands there.
+---
+---It works as `rq.battle.set_buff`, and comes after the character's own buffs. An empty rank can
+---hold one; it shows when someone comes in. Up to 8 per rank, cleared at the start and end of a
+---fight.
+---
+---Since: 0.29.0
+---@param rank integer The battle number: 1 to 5 for allies, 11 to 15 for enemies.
+---@param key string The buff's name, unique per rank.
+---@param def? rq.BuffDef The buff; nil removes it.
+---@return boolean ok false for any other number.
 function battle.set_rank_buff(rank, key, def) end
 
----Loader 0.30.0. Changes how a mark of the game shows, on every card, until changed again, also in later fights. Without the table it goes back to the game. Call rq.battle.install_flame() first.
----Loader 1.5.0: who = {iic = n} changes it for one character only, wherever they stand, and who = {no = n} for one card (1 to 5, 11 to 15), whoever stands there.
----A character's def wins over its card's, which wins over the one for every card, and replaces it whole: an empty table {} for one character shows the game's own mark there while every other card has a mod's icon.
----set_mark(mark, nil, who) removes that one. At most 64 for characters and cards together.
----@param mark integer 1 attack ▲, 2 attack ▼, 11 defense ▲, 12 defense ▼, 21 poison, 22 stun, 23 near death, 31 flame, 32 guard, 33 berserk, 34 stealth, 35 protect, 36 barrier
----@param def? rq.MarkDef
----@param who? {iic?: integer, no?: integer}
----@return boolean ok false for any other number
+---Changes how one of the game's marks shows, until changed again, also in later fights.
+---
+---Without `who` it is for every card. `who = { iic = n }` is for one character, wherever they stand,
+---and `who = { no = n }` for one card, whoever stands there. A character's def wins over its card's,
+---which wins over the one for every card, and replaces it whole: an empty table `{}` for one
+---character shows the game's own mark there while the other cards show a mod's icon. A hidden or
+---moved mark keeps its place in the game's stack. Up to 64 defs for characters and cards together.
+---Needs `rq.battle.install_flame`.
+---
+---Raises an error for a bad `who`, a card number that is not 1 to 5 or 11 to 15, a number that is
+---no CG, an unknown anim, or a 65th def.
+---
+---Since: 0.30.0
+---Changed: 1.5.0 Added `who`.
+---
+---```lua
+---rq.battle.set_mark(21, { icon = POISON_ICON })   -- poison, on every card
+---rq.battle.set_mark(21, {}, { iic = rq.chara.find(1) })  -- but the game's own on Rance
+---```
+---@param mark integer 1 attack ▲, 2 attack ▼, 11 defense ▲, 12 defense ▼, 21 poison, 22 stun, 23 near death, 31 flame, 32 guard, 33 berserk, 34 stealth, 35 protect, 36 barrier.
+---@param def? rq.MarkDef How it shows; nil goes back to the game's (for that `who`).
+---@param who? {iic?: integer, no?: integer} One character or one card.
+---@return boolean ok false for any other mark number.
 function battle.set_mark(mark, def, who) end
 
----Loader 0.31.0. Lets poison and stun be on one character at once, and ▲ and ▼ of one stat, from now until the game closes. Without this call the game keeps its own rules, where a new state replaces the old. rq.chara status, atk_buff and def_buff still show one value each, the one that came first, and stun over poison; use rq.battle.states for all of them.
----@return boolean ok
+---Lets poison and stun be on one character at once, and ▲ and ▼ of one stat, until the game closes.
+---
+---Without it the game's own rule stays, where a new state replaces the old. With it: poison does its
+---damage on the turn a character only recovers from stun; ▲ and ▼ both apply and cancel out;
+---recovering from stun takes only stun, First Aid only poison, and a cure of ▼ or a removal of ▲ only
+---its own side; Encourage, Self-Healing and Status Restore take both poison and stun, and death takes
+---everything. Barrier still blocks poison, a stun still cancels a charge, no two stuns in a row.
+---
+---The second state of a stat is not in the save and is forgotten when the fight ends. `rq.chara`'s
+---`status`, `atk_buff` and `def_buff` still show one value each, the one that came first, and stun
+---over poison; the second state shows as a pinned mark, listed by `buffs`. Use
+---`rq.battle.states` for all of them.
+---
+---Raises an error when a hook cannot be placed.
+---
+---Since: 0.31.0
+---@return boolean ok Always true; a failure raises an error.
 function battle.install_states() end
 
----Loader 0.31.0. Every state of a character, also without install_states.
----@param iic integer
----@return rq.BattleStates|nil states nil for a number that is no character
+---Returns every state of a character, also without `install_states`.
+---
+---Since: 0.31.0
+---@param iic integer The character's slot.
+---@return rq.BattleStates|nil states nil for a number that is no character.
 function battle.states(iic) end
 
----Loader 0.31.0. Adds or takes one state, by the rules of install_states, and the card shows it. Taking stun does not do poison damage unless poison is on: it counts as the stun ending. Call rq.battle.install_states() first.
----@param iic integer
----@param state "poison"|"stun"|"atk_up"|"atk_down"|"def_up"|"def_down"
----@param on boolean
----@return boolean ok false for a number that is no character, or someone dead
+---Adds or takes one state, by the rules of `install_states`, and the card shows it.
+---
+---Taking stun from someone also poisoned does the poison's damage, because it counts as the stun
+---ending.
+---
+---Raises an error for an unknown state, or before `rq.battle.install_states`.
+---
+---Since: 0.31.0
+---@param iic integer The character's slot.
+---@param state "poison"|"stun"|"atk_up"|"atk_down"|"def_up"|"def_down" The state.
+---@param on boolean true adds it, false takes it.
+---@return boolean ok false for a number that is no character, or someone dead.
 function battle.set_state(iic, state, on) end
 
----Loader 0.16.0. Everything the card shows in turn, by order, then what is pinned (loader 0.30.0). Enemies too since loader 0.28.0. For someone switched out, their own buffs that wait for their return (loader 0.29.0).
----@param iic integer
----@return rq.BuffInfo[]
+---Lists the marks a card shows in turn.
+---
+---They come by `order`, then the pinned ones. For someone switched out it lists their own buffs that
+---wait for their return. A game mark hidden by `set_mark` is not listed.
+---
+---Since: 0.16.0
+---Changed: 0.28.0 Enemies too.
+---@param iic integer The character's slot.
+---@return rq.BuffInfo[] marks The marks in turn order.
 function battle.buffs(iic) end
 
----The item number the battle will hand out after a win (◆戦闘後アイテム取得), 0 for none. Read it inside battle.on_end.
----@return integer
+---Returns the item a won fight hands out (`◆戦闘後アイテム取得`).
+---
+---Read it inside `rq.battle.on_end`.
+---
+---Since: 0.9.0
+---@return integer no The item number; 0 for none.
 function battle.get_drop() end
 
----Set the post-battle drop. Item number or text id; nil or false clears it. The game skips its own drop rules when one is set.
----@param who string|integer|nil|false
+---Sets the item a won fight hands out.
+---
+---Set it inside `rq.battle.on_end`. The game then skips its own drop rules and puts the item in quest
+---storage, which goes to the vault after the result screen.
+---
+---Raises an error for a value that is not a number, a text id, nil or false.
+---
+---Since: 0.9.0
+---
+---```lua
+---rq.battle.on_end(function(ctx)
+---  if ctx.boss then rq.battle.set_drop("mymod:crown") end
+---end)
+---```
+---@param who string|integer|nil|false An item number or text id; nil or false clears it.
 function battle.set_drop(who) end
 
----Loader 1.12.0. A face for this character on the cards in a fight only (the party bar and the
----rest of the game keep the game's). face is a CG number or a GIF (a file in the mod's folder or an
----rq.image.add_gif key), stretched to 196x232; nil is the game's face. It lasts until changed, also
----in later fights. With opts.ms it is a face for a while over the lasting one, on the game's clock
----(clock = "real" for real time), ended by the fight's end; nil with ms shows the game's for a while.
----The game's face sprite is drawn over, so its moves, shakes and flashes stay. Allies only.
----@param iic integer
----@param face integer|string|nil
----@param opts? {ms?: number, fps?: number, clock?: "game"|"real"}
----@return boolean
+---Shows another face for an ally on the cards in a fight.
+---
+---Only the fight's cards change; the party bar, the status pages and the scenes keep the game's. The
+---face lasts until changed, also in later fights. With `opts.ms` it is a face for a while, over the
+---lasting one, and it ends with the fight; nil with `ms` shows the game's own for a while. The game's
+---face sprite is drawn over, so the fight's moves, shakes, flashes and fades still show on it, and
+---the dead mark still covers it. The game's own faces are CGs too (Rance 2000, Lia 2150). Up to 64
+---characters.
+---
+---Raises an error for a character, CG or GIF that is not there, an `ms` of 0 or less, or a 65th
+---character.
+---
+---Since: 1.12.0
+---
+---```lua
+---local HURT = rq.image.add("hurt", "hurt.png")
+---rq.battle.on_hp(function(ev)
+---  if ev.iic == rq.chara.find("mymod:alice") then  -- half HP or less: another face
+---    rq.battle.set_face(ev.iic, ev.hp > 0 and ev.hp * 2 <= ev.max and HURT or nil)
+---  end
+---end)
+---```
+---@param iic integer The ally's roster slot.
+---@param face integer|string|nil A CG number, a GIF file in the mod's folder or an `rq.image.add_gif` key, stretched to 196×232; nil for the game's face.
+---@param opts? {ms?: number, fps?: number, clock?: "game"|"real"} `ms`: how long, for a face for a while. `fps`: GIF speed, as on a sprite. `clock`: "game" (default) or "real" time.
+---@return boolean ok true.
+---@see rq.battle.get_face
 function battle.set_face(iic, face, opts) end
 
----Loader 1.12.0. What set_face set: face and temp (a CG number or the GIF's name, left out for the
----game's), temp_ms left, the card (1 to 5) in a fight, and drawn in the last 250 ms. nil if nothing.
----@param iic integer
----@return {face?: integer|string, temp?: integer|string, temp_ms?: integer, card?: integer, drawn: boolean}|nil
+---Returns what `rq.battle.set_face` set for a character.
+---
+---Since: 1.12.0
+---@param iic integer The ally's roster slot.
+---@return {face?: integer|string, temp?: integer|string, temp_ms?: integer, card?: integer, drawn: boolean}|nil face `face` the lasting face and `temp` the one for a while (a CG number or the GIF's name; left out for the game's), `temp_ms` the ms left, `card` the card (1 to 5) in a fight, `drawn` whether it was drawn in the last 250 ms; nil when nothing is set.
 function battle.get_face(iic) end
 
+---What `rq.battle.on_hp` gets.
 ---@class rq.HpEvent
----@field iic integer
----@field unit integer the card: 1 to 5 allies, 11 to 15 enemies
----@field side "ally"|"enemy"
----@field hp integer
----@field max integer
----@field before integer the HP last seen; hp itself when first
----@field first boolean the first sight of this character on this card (start of a fight, a switch)
+---@field iic integer The character's slot.
+---@field unit integer The card: 1 to 5 allies, 11 to 15 enemies.
+---@field side "ally"|"enemy" Whose card it is.
+---@field hp integer HP now.
+---@field max integer Most HP.
+---@field before integer HP when last seen; `hp` itself the first time.
+---@field first boolean The first sight of this character on this card (the start of a fight, a switch).
 
----Loader 1.12.0. In a fight, fn(ev) each time a character's HP changes (damage, healing, revival,
----rq.chara.set), allies and enemies, and once with first = true when one is first seen on a card.
----Read once a frame. Many allowed.
----@param fn fun(ev: rq.HpEvent)
----@return fun() remove
+---Calls `fn` in a fight each time a character's HP changes.
+---
+---Damage, healing, revival and a mod's `rq.chara.set` all count, for allies and enemies. It also runs
+---once with `first = true` when a character is first seen on a card, so one callback can set the
+---first face too. HP is read once a frame, so two changes in one frame come as one. Up to 64
+---callbacks.
+---
+---Since: 1.12.0
+---@param fn fun(ev: rq.HpEvent) Gets the change.
+---@return fun() remove Removes this callback.
 function battle.on_hp(fn) end
 
----True while T_BattleSelect@select is on the call stack (ally skill choice wait).
----@return boolean
+---Returns whether an ally is choosing a skill.
+---
+---It is true while `T_BattleSelect@select` is waiting. Needs `rq.battle.install`.
+---
+---Since: 0.2.0
+---@return boolean selecting true during ally skill select.
 function battle.in_ally_select() end
 
----Current acting ally during select, or nil.
----@return rq.BattleActor|nil
+---Returns the ally choosing a skill.
+---
+---Needs `rq.battle.install`.
+---
+---Since: 0.2.0
+---@return rq.BattleActor|nil actor The acting ally, or nil outside skill select.
 function battle.actor() end
 
----Equipped + uses remaining + not locked. Actor table ({chara}/{no}) or chara iic. While select is open it answers like the skill's button: false when the button is greyed out (no uses left, locked, or a front-row skill from the back), since loader 1.0.0.
----@param actor rq.BattleActor|integer
----@param skill_no integer
----@return boolean
+---Returns whether a character can use a skill now.
+---
+---The skill must be equipped, have uses left and not be locked. While skill select is open it
+---answers like the skill's button: false when the button is greyed out, also for a front-row skill
+---from the back.
+---
+---Since: 0.2.0
+---Changed: 1.0.0 Answers like the button during skill select.
+---@param actor rq.BattleActor|integer An actor table (`chara` or `no`), or a roster slot.
+---@param skill_no integer The skill number.
+---@return boolean usable true when the skill can be chosen.
 function battle.skill_usable(actor, skill_no) end
 
----Loader 0.22.0. Opens a fight with the current party, using the game's scripted fight. enemies lists up to five monster numbers in rank order, 0 for an empty rank. Blocks until the fight and its result screens end, while rq.on_frame keeps running; call it from a coroutine if the same mod plays the fight. Raises an error for no enemies, an unknown monster, an empty party, or during a battle.
----@param opts {enemies: integer[], exp?: integer}
----@return "won"|"lost"|"other"
+---Opens a fight with the current party, using the game's scripted fight.
+---
+---It blocks until the fight and its result screens end, as `rq.scene` commands do, while
+---`rq.on_frame` keeps running; call it from a coroutine if the same mod plays the fight. It counts as
+---a fight of the current quest.
+---
+---Raises an error for no enemies, an unknown monster, an empty party, or during a fight.
+---
+---Since: 0.22.0
+---
+---```lua
+---coroutine.wrap(function()
+---  local result = rq.battle.start({ enemies = { 0, boss_no, 0 } })
+---  rq.log("fight:", result)
+---end)()
+---```
+---@param opts {enemies: integer[], exp?: integer} `enemies`: up to five monster numbers in rank order, 0 for an empty rank. `exp`: experience for the win. Default 0.
+---@return "won"|"lost"|"other" result How the fight ended.
 function battle.start(opts) end
 
----Loader 0.22.0. "hit" or "miss" decides every accuracy check, of allies and enemies, until force_hit(nil). A hit can still do 0 damage. The game keeps the last result in the global ◆攻撃外れた (1 is a miss).
----@param mode "hit"|"miss"|nil
+---Decides every accuracy check, of allies and enemies, until `force_hit(nil)`.
+---
+---The rest of the check runs as usual, so a miss still shows in the log, and a hit can still do 0
+---damage. The game keeps the last result in the global `◆攻撃外れた` (1 is a miss).
+---
+---Raises an error for any other mode.
+---
+---Since: 0.22.0
+---@param mode "hit"|"miss"|nil The result every check gives; nil goes back to rolling.
+---@see rq.random.fix
 function battle.force_hit(mode) end
 
----Loader 0.26.0. Actions left in this fight, the number on the TIME REMAINING panel. 999 means no limit. 0 outside a fight.
----@return integer
+---Returns the actions left in this fight, the number on the TIME REMAINING panel.
+---
+---Since: 0.26.0
+---@return integer n The actions left; 999 means no limit, 0 outside a fight.
 function battle.time() end
 
----Loader 0.26.0. Sets the actions left in this fight, 0 to 999. 999 means no limit. The game sets the count again when a fight opens, so a value set outside one is lost.
----@param n integer
+---Sets the actions left in this fight.
+---
+---The game sets the count again when a fight opens, so a value set outside one is lost.
+---
+---Raises an error for a number that is not whole or not 0 to 999.
+---
+---Since: 0.26.0
+---@param n integer The actions left, 0 to 999; 999 means no limit.
 function battle.set_time(n) end
 
----Read-only fight snapshot. up is false when ally select is not open.
----@return rq.BattleSnap
+---Returns a copy of what the fight screen shows.
+---
+---Since: 0.2.0
+---@return rq.BattleSnap snap The allies, enemies, the actor's skills and the log.
 function battle.snapshot() end
 
 ---@class rq.SkillBrief
@@ -2283,12 +2639,13 @@ function battle.snapshot() end
 ---@field cell {x: integer, z: integer}
 ---@field party {slot: integer, id: integer, name: string}[]
 
+---What `rq.battle.snapshot` returns: a copy of the fight screen.
 ---@class rq.BattleSnap
----@field up boolean
----@field allies {id: integer, no: integer, name: string}[]
----@field enemies {id: integer, no: integer, name: string}[]
----@field skills {id: integer, name: string, uses: integer, enabled: boolean}[]
----@field log string[]
+---@field up boolean Ally skill select is open.
+---@field allies {id: integer, no: integer, name: string}[] Each ally: `id` the roster slot, `no` the battle number, `name`.
+---@field enemies {id: integer, no: integer, name: string}[] Each enemy, as for `allies`.
+---@field skills {id: integer, name: string, uses: integer, enabled: boolean}[] The acting ally's skills: number, name, uses left, and whether the button can be clicked.
+---@field log string[] The battle log lines, oldest first.
 
 ---@class rq.QuestsApi
 ---@overload fun(): rq.Quest[]
