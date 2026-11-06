@@ -10,33 +10,6 @@
 --- Installed copy: <game>/lua/rq.lua (next to mods\)
 --- Source: RQ-Mod repository, dist/lua/rq.lua
 
----@class rq.LootItem
----@field id integer item instance
----@field source "magnum"|"chest"
----@field seen boolean collection knowledge (identified twin owned)
----@field cg integer real CG if seen, vanilla ? CG if not
----@field name string
----@field comment string
----@field overlay integer 10403 if unseen, else 0
----@field catalog integer do not show on unseen hover
----@field floor integer
----@field x integer
----@field y integer
-
----@class rq.ChestInfo
----@field x integer
----@field y integer
----@field id integer locked item id when loot-preview encoded the tile; else 0
----@field base_pct integer this chest's vanilla/skill % (30, or 60/80/100, maybe halved)
----@field kind string "red"
----@field pct? integer on_attempt: percent so far (loader 0.14.0). on_result: chance used for this attempt
----@field rolled? integer 1..100 (vanilla RAND)
----@field success? boolean
----@field exploded? boolean fail always explodes
-
----@class rq.ChestAttemptResult
----@field pct integer 0..100
-
 ---Reaches into the game's own code (the AIN): call, hook and patch its functions, and read and write
 ---its globals.
 ---
@@ -751,253 +724,511 @@ function hud.text_value() end
 ---Since: 0.2.0
 function hud.text_end() end
 
+---Chest loot: what the pools roll, and the items the player will find, known in advance.
+---
+---A chest's loot comes from five pool functions: `item` (`持ち物を選ぶ`), `special` (`特殊を選ぶ`),
+---`rare` (`レアアイテムを選ぶ`), `ultra` (`ウルトラレアを選ぶ`) and `gear` (`武器防具を選ぶ`, weapons and
+---armor). `rq.loot.install` rolls each chest's item when it is placed, so `rq.loot.list` can show it.
+---
+---Since: 0.2.0
 ---@class rq.loot
 local loot = {}
 
+---An item for `rq.loot.add`.
 ---@class rq.LootAdd
----@field item string|integer item number or text id
----@field pool? "item"|"special"|"rare"|"ultra"|"gear" omit for every pool. gear (weapons and armor) since loader 0.15.0
----@field chance? number percent chance per roll (default 1)
----@field unique? boolean skip when the player already owns one
+---@field item string|integer An item number or text id.
+---@field pool? "item"|"special"|"rare"|"ultra"|"gear" The pool. Default: every pool. "gear" since 0.15.0.
+---@field chance? number The percent chance on each roll of the pool; may be a fraction. Default 1.
+---@field unique? boolean Skip it when the player already owns one. Default false.
 
----Chest pools (loot table). Add an item to a pool's roll with a percent chance.
----@param spec rq.LootAdd
+---Adds an item to the chest pools' rolls.
+---
+---Each roll of the pool has `chance` percent to give this item instead of the game's.
+---
+---Since: 0.9.0
+---Changed: 0.15.0 Added the "gear" pool; no `pool` includes it.
+---
+---```lua
+---rq.loot.add({ item = "mymod:charm", pool = "rare", chance = 2.5, unique = true })
+---```
+---@param spec rq.LootAdd The item and its chance.
 function loot.add(spec) end
 
----Never lets this item come out of a chest (rolls 0, so the game tries the next pool).
----@param who string|integer
----@param opts? {pool?: "item"|"special"|"rare"|"ultra"}
+---Keeps an item from ever coming out of a chest.
+---
+---The pool rolls 0 for it, so the game tries the next pool.
+---
+---Since: 0.9.0
+---@param who string|integer An item number or text id.
+---@param opts? {pool?: "item"|"special"|"rare"|"ultra"} `pool`: only this pool. Default: every pool.
 function loot.remove(who, opts) end
 
----Called after a chest pool rolled. Return another item number or text id to replace it, 0 for nothing. Many callbacks allowed.
----@param fn fun(ctx: {pool: string, item: integer}): integer|string|nil
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` after each roll of a chest pool, to replace the item.
+---
+---Since: 0.9.0
+---Changed: 0.23.0 Returns a remover.
+---@param fn fun(ctx: {pool: string, item: integer}): integer|string|nil Returns another item number or text id, 0 for nothing, or nil to keep it.
+---@return fun() remove Removes this callback.
 function loot.on_pick(fn) end
 
----Lock-roll at place, skip open generator, map HUD flags. Reds keep vanilla explode.
----Does not open UI. No on_attempt hook = vanilla % (not 100%).
----@return boolean
+---Rolls each chest's item when the chest is placed, so it is known in advance.
+---
+---It skips the game's roll at opening and sets the map's chest flags. Red chests keep the game's
+---chance and still explode on a fail, which loses the item. It opens no screen.
+---
+---Since: 0.2.0
+---@return boolean ok true when the patch is in place.
 function loot.install() end
 
----Magnum (if holding) then locked chests.
----@return rq.LootItem[]
+---An item the player will find, from `rq.loot.list`.
+---@class rq.LootItem
+---@field id integer The item instance.
+---@field source "magnum"|"chest" Held by the Magnum, or locked in a chest on the map.
+---@field seen boolean The player knows the item: another instance with the same catalog number is identified.
+---@field cg integer The item's CG when seen, else the game's "?" CG.
+---@field name string The real name when seen, else "Unidentified item".
+---@field comment string The game's item text when seen, else a line saying it is not identified.
+---@field overlay integer 10403 when not seen, else 0.
+---@field catalog integer The catalog number. Do not show it for an item not seen.
+---@field floor integer The floor.
+---@field x integer The chest's cell.
+---@field y integer The chest's cell.
+
+---Lists the items waiting for the player: the Magnum's (when it holds one), then the locked chests'.
+---
+---Needs `rq.loot.install`.
+---
+---Since: 0.2.0
+---@return rq.LootItem[] items The items.
 function loot.list() end
 
+---What `rq.chest.on_attempt` and `on_result` get for a red chest.
+---@class rq.ChestInfo
+---@field x integer The chest's cell.
+---@field y integer The chest's cell.
+---@field id integer The item locked in the chest by `rq.loot.install`; 0 when none.
+---@field base_pct integer This chest's chance from the game and the party's skills: 30, or 60, 80 or 100, maybe halved.
+---@field kind string "red".
+---@field pct? integer `on_attempt`: the percent so far. `on_result`: the chance used. Since 0.14.0.
+---@field rolled? integer `on_result`: the roll, 1 to 100.
+---@field success? boolean `on_result`: it opened.
+---@field exploded? boolean `on_result`: it exploded; a fail always does.
+
+---What `rq.chest.on_attempt` may return instead of a number.
+---@class rq.ChestAttemptResult
+---@field pct integer The chance, 0 to 100.
+
+---The chance of opening a red chest.
+---
+---Green chests always open and are not touched. A red chest rolls the game's `成功確率` (30, which a
+---thief or Chest Opening can raise), and a fail explodes (12% damage) and loses the item. The engine
+---patches only that roll, so Lua can change the chance, for instance to add pity.
+---
+---Since: 0.2.0
+---
+---```lua
+---rq.chest.install()
+---rq.chest.on_attempt(function(info)
+---  return math.min(100, info.base_pct + (rq.chest.get("pity") or 0))
+---end)
+---rq.chest.on_result(function(info)
+---  if info.success then rq.chest.set("pity", 0)
+---  else rq.chest.set("pity", (rq.chest.get("pity") or 0) + info.base_pct) end
+---end)
+---```
 ---@class rq.chest
 local chest = {}
 
----Patch the red RAND site. Fail still explodes. Idempotent with rq.loot.install.
----@return boolean
+---Patches the red chest's roll.
+---
+---Calling it again, or after `rq.loot.install`, does nothing more.
+---
+---Since: 0.2.0
+---@return boolean ok true when the patch is in place.
 function chest.install() end
 
----Called just before the fail/success roll. Return a percent (or {pct=}).
----Loader 0.14.0: every mod's callback runs. Each sees the percent the one before left in info.pct; nil keeps it.
----No hook → info.base_pct (vanilla/skill), not 100%.
----@param fn fun(info: rq.ChestInfo): integer|rq.ChestAttemptResult
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` just before a red chest rolls, to set the chance.
+---
+---Each callback sees the percent the one before left in `info.pct`; nil keeps it. With no callback the
+---chance is `info.base_pct`, not 100. The chance is written to `成功確率` and to the "(N% chance to
+---disarm)" line before that choice shows. Up to 16 callbacks.
+---
+---Since: 0.2.0
+---Changed: 0.14.0 Every mod's callback runs; added `info.pct`.
+---Changed: 0.23.0 Returns a remover.
+---@param fn fun(info: rq.ChestInfo): integer|rq.ChestAttemptResult|nil Returns the percent.
+---@return fun() remove Removes this callback.
 function chest.on_attempt(fn) end
 
----Called after the roll. Fail always exploded. rolled is 1..100. Loader 0.14.0: every mod's callback runs.
----@param fn fun(info: rq.ChestInfo)
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` after a red chest rolled.
+---
+---Up to 16 callbacks.
+---
+---Since: 0.2.0
+---Changed: 0.14.0 Every mod's callback runs.
+---Changed: 0.23.0 Returns a remover.
+---@param fn fun(info: rq.ChestInfo) Gets the chest and the roll.
+---@return fun() remove Removes this callback.
 function chest.on_result(fn) end
 
----Session integer store for pity (not a save file).
----@param key string
----@return integer|nil
+---Reads a number kept for this session, such as a pity count.
+---
+---It is not in the save; use `rq.store` for that.
+---
+---Since: 0.2.0
+---@param key string The key.
+---@return integer|nil value The number, or nil when not set.
 function chest.get(key) end
 
----@param key string
----@param val integer
+---Keeps a number for this session.
+---
+---Since: 0.2.0
+---@param key string The key.
+---@param val integer The number.
 function chest.set(key, val) end
 
----@class rq.SkillInfo
----@field id integer
----@field name string
----@field kinou integer 機能
----@field bairitsu integer 倍率
----@field target integer 対象
----@field koudou integer 行動種類 (1 physical, 2 magic, 3 special, 4 support, 0 ability)
----@field kouka integer 効果
----@field desc1 string raw 説明文１ (may still contain $)
-
+---A roster member, from `rq.orb.roster`.
 ---@class rq.OrbMember
----@field iic integer character slot
----@field state integer 登録状態 (1 PTA, 2 控え, 3 spent, …)
----@field hp integer
----@field max_hp integer
+---@field iic integer The roster slot.
+---@field state integer Where the character is (`登録状態`): 1 party, 2 reserve, 3 spent.
+---@field hp integer HP.
+---@field max_hp integer Most HP.
 
+---The blue Recovery Spring on the map (`回復の泉`, object 203).
+---
+---The engine patches the party heal inside `回復の泉処理`; Lua decides who heals and how with
+---`on_heal`. The rest of the spring (Carolie, the flash, clearing the cell) stays the game's. The calls
+---that write raise an error for a slot with no character.
+---
+---Since: 0.2.0
+---
+---```lua
+---rq.orb.install()
+---rq.orb.on_heal(function()
+---  for _, m in ipairs(rq.orb.roster()) do
+---    if m.state == 1 or m.state == 2 then
+---      rq.orb.full_heal(m.iic)
+---    elseif m.state == 3 then  -- revive the spent at 30%
+---      rq.orb.set_state(m.iic, 2)
+---      rq.orb.set_hp(m.iic, math.max(1, math.floor(m.max_hp * 3 / 10)))
+---    end
+---  end
+---end)
+---```
 ---@class rq.orb
 local orb = {}
 
----Patch 回復の泉処理 so the PTA-heal site calls Lua on_heal (or vanilla if none).
----Carolie / flash / tile clear stay in the vanilla function after the hook.
----@return boolean
+---Patches the spring's party heal so it calls `on_heal`.
+---
+---Since: 0.2.0
+---@return boolean ok true when the patch is in place.
 function orb.install() end
 
----Spring heal policy. Loader 0.14.0: every mod's callback runs, so two healers both heal. No hook, or all failed → vanilla PTA heal.
----@param fn fun()
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` when the spring heals, in place of the game's party heal.
+---
+---Every callback runs, so two mods that heal both heal. The game's heal runs only with no callback, or
+---when all of them failed. Up to 16 callbacks.
+---
+---Since: 0.2.0
+---Changed: 0.14.0 Every mod's callback runs.
+---Changed: 0.23.0 Returns a remover.
+---@param fn fun() Heals.
+---@return fun() remove Removes this callback.
 function orb.on_heal(fn) end
 
----Roster members with 登録状態 ~= 0 (iic 20..200). Optional state filter.
----@param state? integer
----@return rq.OrbMember[]
+---Lists the roster members, slots 20 to 200 with a state other than 0.
+---
+---Since: 0.2.0
+---@param state? integer Only members with this state.
+---@return rq.OrbMember[] members The members.
 function orb.roster(state) end
 
----@param iic integer
----@return integer
+---Returns where a character is (`登録状態`).
+---
+---Since: 0.2.0
+---@param iic integer The roster slot.
+---@return integer state 1 party, 2 reserve, 3 spent.
 function orb.get_state(iic) end
 
----@param iic integer
----@param state integer
+---Sets where a character is (`登録状態`).
+---
+---Since: 0.2.0
+---@param iic integer The roster slot.
+---@param state integer 1 party, 2 reserve, 3 spent.
 function orb.set_state(iic, state) end
 
----@param iic integer
----@param status integer 状態変化
+---Sets a character's status (`状態変化`).
+---
+---Since: 0.2.0
+---@param iic integer The roster slot.
+---@param status integer The status: 0 none, 1 poison, 3 downed.
 function orb.set_status(iic, status) end
 
----@param iic integer
----@return integer
+---Returns a character's HP.
+---
+---Since: 0.2.0
+---@param iic integer The roster slot.
+---@return integer hp HP.
 function orb.get_hp(iic) end
 
----@param iic integer
----@return integer
+---Returns a character's most HP.
+---
+---Since: 0.2.0
+---@param iic integer The roster slot.
+---@return integer max Most HP.
 function orb.get_max_hp(iic) end
 
----@param iic integer
----@param hp integer
+---Sets a character's HP.
+---
+---Since: 0.2.0
+---@param iic integer The roster slot.
+---@param hp integer HP.
 function orb.set_hp(iic, hp) end
 
----Ｃ補給／体力(iic, "") — set HP to max.
----@param iic integer
+---Fills a character's HP (`Ｃ補給／体力`).
+---
+---Since: 0.2.0
+---@param iic integer The roster slot.
 function orb.full_heal(iic) end
 
+---What `rq.skill.get` returns.
+---
+---It also holds every field `rq.SkillPatch` lists.
+---@class rq.SkillInfo
+---@field id integer The skill number.
+---@field name string The name.
+---@field kinou integer The function code (`機能`).
+---@field bairitsu integer The multiplier (`倍率`).
+---@field target integer The target code (`対象`).
+---@field koudou integer The action kind (`行動種類`): 1 physical, 2 magic, 3 special, 4 support, 0 ability.
+---@field kouka integer The effect code (`効果`).
+---@field desc1 string The raw description (`説明文１`); it may still hold `$`.
+
+---Reads, defines and patches skills, and rewrites their hover text.
+---
+---Skill numbers run 1 to 1000; the game's end near 600. A text id such as `"mymod:slash"` becomes a
+---stable number from 700 to 999. Strings are UTF-8 in Lua. The calls that write raise an error for a
+---number outside 1 to 1000. Up to 128 `define` and `patch` calls in all.
+---
+---Since: 0.2.0
 ---@class rq.skill
 local skill = {}
 
----Wrap スキル_説明文１ so on_describe can rewrite hover text.
----@return boolean
+---Wraps `スキル_説明文１`, the hover text on the status and fight screens, so `on_describe` can rewrite
+---it.
+---
+---Since: 0.2.0
+---@return boolean ok true when the patch is in place.
 function skill.install() end
 
----fn(skillNo, text) → text (UTF-8). Loader 0.14.0: every mod's callback runs, each gets the text the one before left. No hook → base text.
----@param fn fun(skillNo: integer, baseText: string): string
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` for a skill's hover text, to rewrite it.
+---
+---Each callback gets the text the one before left. Needs `rq.skill.install`. Up to 16 callbacks.
+---
+---Since: 0.2.0
+---Changed: 0.14.0 Every mod's callback runs.
+---Changed: 0.23.0 Returns a remover.
+---
+---```lua
+---rq.skill.install()
+---rq.skill.on_describe(function(no, text)
+---  local s = rq.skill.get(no)
+---  return text .. " (x" .. s.bairitsu .. ")"
+---end)
+---```
+---@param fn fun(skillNo: integer, baseText: string): string Returns the new text.
+---@return fun() remove Removes this callback.
 function skill.on_describe(fn) end
 
----Skill fields from AIN getters (Ｓ名前 / Ｓ機能 / Ｓ倍率 / Ｓ対象 / Ｓ説明文１).
----Also every field rq.skill.patch accepts (type, action, element, kouka2, ...). id may be a text id.
----@param id integer|string
----@return rq.SkillInfo
+---Returns a skill's fields.
+---
+---Since: 0.2.0
+---Changed: 0.5.0 Every field `rq.skill.patch` takes; text ids.
+---@param id integer|string A skill number or text id.
+---@return rq.SkillInfo info The fields.
 function skill.get(id) end
 
+---A new skill for `rq.skill.define`.
 ---@class rq.SkillSpec
----@field id integer|string 1..1000, or a text id
----@field kind "physical"|"knowledge"
----@field name? string
----@field flavor? string battle-log verb (Ｓ表示文)
----@field desc? string hover; $ becomes a newline
----@field target? integer
----@field bairitsu? integer
----@field flat? integer
----@field kinou? integer
----@field kouka? integer
----@field kouka2? integer
----@field kouka3? integer
----@field kouka4? integer
----@field cap? integer 0 = no cap
----@field basic? integer
----@field weapon? integer Ｓ発動条件／武器
----@field ef? string
+---@field id integer|string A number 1 to 1000, or a text id.
+---@field kind "physical"|"knowledge" "physical": an active attack (type 10, action 1, panel 100). "knowledge": a passive (type 30, action 0, panel 105).
+---@field name? string The name.
+---@field flavor? string The battle-log verb (`Ｓ表示文`).
+---@field desc? string The hover text; `$` is a line break.
+---@field target? integer 1 melee (front row), 2 ranged, 3 all enemies, 4 needs two or more front-row enemies.
+---@field bairitsu? integer The multiplier (`倍率`).
+---@field flat? integer Added damage (`付与ダメージ`).
+---@field kinou? integer The function code (`機能`).
+---@field kouka? integer The effect code (`効果`).
+---@field kouka2? integer The second effect code.
+---@field kouka3? integer The third effect code.
+---@field kouka4? integer The fourth effect code.
+---@field cap? integer The damage cap (`ダメージ上限`); 0 for none.
+---@field basic? integer The basic-skill flag (`基本技`).
+---@field weapon? integer The weapon it needs (`発動条件／武器`).
+---@field ef? string The game's effect text (`ＳＥＦ`).
 
----Queue a skill row. Flushed at the end of Ｓ起動時登録.
----id may be a text id ("mymod:slash"): it becomes a stable number in 700..999 (collisions are an error).
----Target codes: 1 melee (front row), 2 ranged, 3 all enemies, 4 needs two or more front-row enemies.
----@param spec rq.SkillSpec
----@return integer id numeric id
+---Defines a new skill.
+---
+---The row is written at the end of every `Ｓ起動時登録`, and at once when boot already ran.
+---
+---Raises an error for a missing id, a too long id, a text id whose number another has, or past 128
+---calls.
+---
+---Since: 0.2.0
+---Changed: 0.5.0 Text ids; returns the number.
+---
+---```lua
+---local SLASH = rq.skill.define({ id = "mymod:slash", kind = "physical", name = "Slash",
+---  target = 1, bairitsu = 120, desc = "A quick cut.$Front row." })
+---```
+---@param spec rq.SkillSpec The skill.
+---@return integer id The skill number.
 function skill.define(spec) end
 
+---Fields for `rq.skill.patch`, named after the game's.
 ---@class rq.SkillPatch
----@field name? string
----@field flavor? string
----@field desc? string
----@field ef? string
----@field basic? integer
----@field big? integer
----@field kinou? integer
----@field kouka? integer
----@field kouka2? integer
----@field kouka3? integer
----@field kouka4? integer
----@field locked? integer
----@field type? integer
----@field action? integer
----@field panel? integer
----@field target? integer
----@field bairitsu? integer
----@field cap? integer
----@field element? integer
----@field flat? integer
----@field no_first_turn? integer
----@field once_per_battle? integer
----@field needs_charge? integer
----@field efa? integer
----@field efb? integer
----@field weapon? integer
+---@field name? string The name.
+---@field flavor? string The battle-log verb.
+---@field desc? string The hover text; `$` is a line break.
+---@field ef? string The game's effect text.
+---@field basic? integer `基本技`.
+---@field big? integer `大技`.
+---@field kinou? integer `機能`, the function code.
+---@field kouka? integer `効果`, the effect code.
+---@field kouka2? integer `効果２`.
+---@field kouka3? integer `効果３`.
+---@field kouka4? integer `効果４`.
+---@field locked? integer `削除不可`: cannot be removed.
+---@field type? integer `タイプ`: 10 active, 30 knowledge.
+---@field action? integer `行動種類`, the action kind.
+---@field panel? integer `パネル色`, the panel color.
+---@field target? integer `対象`, the target code.
+---@field bairitsu? integer `倍率`, the multiplier.
+---@field cap? integer `ダメージ上限`, the damage cap.
+---@field element? integer `属性`, the element.
+---@field flat? integer `付与ダメージ`, added damage.
+---@field no_first_turn? integer `初ターン使用禁止技`: not on the first turn.
+---@field once_per_battle? integer `同一戦闘一度のみ技`: once per fight.
+---@field needs_charge? integer `要溜め`: needs a charge.
+---@field efa? integer `ＥＦＡ`.
+---@field efb? integer `ＥＦＢ`.
+---@field weapon? integer `発動条件／武器`, the weapon it needs.
 
----Change an existing skill field by field. Fields left out stay as the game made them.
----Applied in call order after Ｓ起動時登録, with the defines.
----@param id integer|string
----@param fields rq.SkillPatch
+---Changes an existing skill, field by field.
+---
+---Fields left out stay as the game made them. Patches apply after `Ｓ起動時登録`, in call order with
+---the defines, and at once when boot already ran. An unknown field is logged and skipped.
+---
+---Since: 0.5.0
+---
+---```lua
+---rq.skill.patch(246, { name = "Quick Start", desc = "Acts first.$Two ranks." })
+---```
+---@param id integer|string A skill number or text id.
+---@param fields rq.SkillPatch The fields to change.
 function skill.patch(id, fields) end
 
----Known list and potential list compare id as if it were as_id.
----False if the compSkill hook is not installed. as_id 0 clears.
----@param id integer
----@param as_id integer
----@return boolean
+---Sorts a skill in the known and potential lists as if it were another.
+---
+---It wraps `compSkill`.
+---
+---Since: 0.2.0
+---Changed: 0.5.0 Takes text ids.
+---@param id integer|string The skill to place.
+---@param as_id integer|string The skill it sorts as; 0 clears it.
+---@return boolean ok false when the compare hook is missing.
 function skill.sort_as(id, as_id) end
 
+---Pages the Potential Skills grid, 36 skills a page.
+---
+---The engine keeps up to 144 buy-list rows (index 0 to 143) and draws Previous Page and Next Page on
+---that window, with the castle's skill screen buttons. Lua decides the page. Opening the menu goes back
+---to page 1. Known Skills is not paged. A page is 36 rows of the filtered buy list in the order they
+---were added, then sorted with `compSkill`.
+---
+---Since: 0.2.0
+---
+---```lua
+---rq.skilllist.install()
+---rq.skilllist.on_page(function(ctx)
+---  if ctx.dir == 0 then return ctx.page end
+---  local p = ctx.page + ctx.dir
+---  if p < 1 or p > ctx.pages then return false end
+---  return p
+---end)
+---rq.skilllist.on_buttons(function(prev, next)
+---  if prev > 0 then rq.agent.control("skill-page-prev", { label = "Previous Page", button = prev }) end
+---  if next > 0 then rq.agent.control("skill-page-next", { label = "Next Page", button = next }) end
+---end)
+---```
 ---@class rq.skilllist
 local skilllist = {}
 
----Keep the full potential-skill buy list (144 rows) and draw Previous/Next.
----Known Skills slots stay as they are. Idempotent.
----@return boolean
+---Patches the buy list, the cut at 36 and the two buttons.
+---
+---Calling it again does nothing more.
+---
+---Since: 0.2.0
+---@return boolean ok true when the patch is in place.
 function skilllist.install() end
 
----Called when the potential-skill menu opens, before the grid is built.
----The page is already 1. Use this to reset policy. Loader 0.14.0: every mod's callback runs.
----@param fn fun()
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` when the Potential Skills menu opens, after the page is set to 1 and before the grid is
+---built.
+---
+---Up to 16 callbacks.
+---
+---Since: 0.2.0
+---Changed: 0.14.0 Every mod's callback runs.
+---Changed: 0.23.0 Returns a remover.
+---@param fn fun() Runs on open.
+---@return fun() remove Removes this callback.
 function skilllist.on_open(fn) end
 
----Decide the page. Also called once per arrow while the buttons are built,
----so a false/nil return greys that arrow (vanilla deny sound, no second call).
----An enabled click calls this again. dir is -1 or +1 (0 asks for the current page).
----Return a page number to show that page, or false to deny.
----Loader 0.14.0: every mod's callback runs and the last one that answers (not nil) decides. All nil denies.
----@param fn fun(ctx: rq.SkillListCtx): integer|false
----@return fun() remove Removes this callback. Loader 0.23.0.
+---What `rq.skilllist.on_page` gets.
+---@class rq.SkillListCtx
+---@field dir integer -1 previous, +1 next, 0 asks for the current page.
+---@field page integer The current page, from 1.
+---@field pages integer How many pages, at least 1.
+
+---Calls `fn` to decide the page.
+---
+---It is also called once per arrow while the buttons are built: false or nil greys that arrow out, so
+---its click plays the game's deny sound and does not call Lua. An enabled click calls it again. The
+---last callback that answers (not nil) decides; all nil denies. Up to 16 callbacks.
+---
+---Since: 0.2.0
+---Changed: 0.14.0 Every mod's callback runs; the last answer decides.
+---Changed: 0.23.0 Returns a remover.
+---@param fn fun(ctx: rq.SkillListCtx): integer|false|nil Returns the page to show, or false to deny.
+---@return fun() remove Removes this callback.
 function skilllist.on_page(fn) end
 
----Called after Previous / Next exist. prev_id and next_id are T_Button ids, or 0.
----Fires again whenever those buttons are rebuilt. Loader 0.14.0: every mod's callback runs.
----@param fn fun(prev_id: integer, next_id: integer)
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` after Previous and Next were made, and again whenever the window makes them again.
+---
+---Pass the ids to `rq.agent.control` so tests can press them. Up to 16 callbacks.
+---
+---Since: 0.2.0
+---Changed: 0.14.0 Every mod's callback runs.
+---Changed: 0.23.0 Returns a remover.
+---@param fn fun(prev_id: integer, next_id: integer) Gets the `T_Button` ids; 0 for an arrow that was not made.
+---@return fun() remove Removes this callback.
 function skilllist.on_buttons(fn) end
 
----@class rq.SkillListCtx
----@field dir integer -1 previous, +1 next, 0 query
----@field page integer current page, 1-based
----@field pages integer page count (at least 1)
-
----Set the page Lua will use the next time the grid is sliced. Clamped to >= 1.
----@param page integer
+---Sets the page used the next time the grid is cut.
+---
+---Raises an error before `rq.skilllist.install`.
+---
+---Since: 0.2.0
+---@param page integer The page; below 1 becomes 1.
 function skilllist.set_page(page) end
 
----Pages in the current filtered buy list. 1 before the menu has opened.
----@return integer
+---Returns how many pages the current filtered buy list has.
+---
+---Raises an error before `rq.skilllist.install`.
+---
+---Since: 0.2.0
+---@return integer pages The page count; 1 before the menu first opens.
 function skilllist.page_count() end
 
 ---@class rq.SaveSummary
