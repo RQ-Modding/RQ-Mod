@@ -17,27 +17,6 @@
 ---@field fog_far? number
 ---@field slider_steps? integer
 
----@class rq.HudTextStyle
----@field size? number
----@field r? integer
----@field g? integer
----@field b? integer
----@field a? integer Loader 1.6.0. 0 to 255, default 255
----@field w? integer Loader 1.6.0. Width of the box align places the text in
----@field h? integer Loader 1.6.0. Height of the box valign places the text in
----@field align? "left"|"center"|"right" Loader 1.6.0
----@field valign? "top"|"center"|"bottom" Loader 1.6.0
----@field edge? boolean Loader 1.7.0. false leaves out the dark edge
----@field bold? boolean Loader 1.8.0. The weight the game's own Config labels look like
-
----Loader 1.6.0. How hud.cg draws a CG.
----@class rq.HudCgOpts
----@field src? integer[]|{x: integer, y: integer, w: integer, h: integer} the part of the CG to draw, {x, y, w, h}; cut at the CG's edge
----@field w? integer stretch to this width
----@field h? integer stretch to this height
----@field alpha? integer 0 to 255, default 255
----@field tint? integer[]|{r: integer, g: integer, b: integer} multiplies the colors; {128, 128, 128} is half as bright
-
 ---@class rq.LootItem
 ---@field id integer item instance
 ---@field source "magnum"|"chest"
@@ -200,172 +179,420 @@ function dungeon.place_player(x, z, opts) end
 ---@return boolean placed
 function dungeon.place(kind, x, z, opts) end
 
+---Reads the mouse and keyboard, and drives them for the game.
+---
+---The read calls see the real buttons, also while `rq.hud.block_game_input` or `rq.hud.block_keys`
+---hides them from the game, so a modal HUD can still read clicks, Enter and Esc. The `set_*` calls,
+---`wheel` and `release` act for the player, as a test or an automation would. Typed text is read
+---with `rq.hud.text_begin`.
+---
+---Since: 0.2.0
 ---@class rq.input
 local input = {}
 
----Game pixels. Raw buttons (HUD still sees clicks while game input is blocked).
----@return integer x
----@return integer y
----@return boolean left
----@return boolean right
----@return boolean pressed Loader 1.6.0. The left button went down on this update
----@return boolean released Loader 1.6.0. The left button came up on this update
+---Returns the mouse position and buttons on this update.
+---
+---The buttons are the real ones, also while the game's input is blocked. `pressed` and `released`
+---are true only on the update the left button went down or came up, as a slider needs to start and
+---end a drag.
+---
+---Since: 0.2.0
+---Changed: 1.6.0 Added the `pressed` and `released` results.
+---
+---```lua
+---local x, y, left, right, pressed = rq.input.mouse()
+---if pressed then rq.log("click at", x, y) end
+---```
+---@return integer x Cursor x, in game pixels.
+---@return integer y Cursor y, in game pixels.
+---@return boolean left The left button is down.
+---@return boolean right The right button is down.
+---@return boolean pressed The left button went down on this update.
+---@return boolean released The left button came up on this update.
+---@see rq.hud.clicked
 function input.mouse() end
 
----Raw SACT key (VK_LBUTTON = 1, etc.).
----@param code integer
----@return boolean
+---Returns whether a key is down, by its raw SACT code.
+---
+---It reads the real key, also while `rq.hud.block_keys` hides it from the game. Get a code from a
+---name with `rq.input.code`.
+---
+---Since: 0.2.0
+---
+---```lua
+---if rq.input.key(rq.input.code("esc")) then close_menu() end
+---```
+---@param code integer A SACT key code (`VK_LBUTTON` is 1, Enter is 13).
+---@return boolean down true while the key is down.
 function input.key(code) end
 
----Loader 0.20.0. Key code for a name as in rqmod-ctl ("enter", "lmb", "f3"). Raises an error on an unknown name.
----@param key string|integer
----@return integer
+---Returns the key code for a key name.
+---
+---The names are those `rqmod-ctl` uses, such as `"enter"`, `"esc"`, `"lmb"`, `"f3"` or `"a"`. A number
+---is returned as it is.
+---
+---Raises an error for an unknown name.
+---
+---Since: 0.20.0
+---@param key string|integer A key name, or a code.
+---@return integer code The SACT key code.
 function input.code(key) end
 
----Loader 0.20.0. Press or let go of a key for the game. It stays down until you let go. The decide key is left click or Enter, and a click lands on release, so hold it for a few frames.
----@param key string|integer
----@param down boolean
+---Presses or lets go of a key for the game.
+---
+---The key stays down until you let go of it. The decide key is the left button or Enter, and a click
+---lands when the button comes up, so hold it down for a few updates before letting go.
+---
+---Raises an error for an unknown key name.
+---
+---Since: 0.20.0
+---
+---```lua
+---rq.input.set_key("enter", true)
+----- a few updates later:
+---rq.input.set_key("enter", false)
+---```
+---@param key string|integer A key name as for `rq.input.code`, or a code.
+---@param down boolean true to press it, false to let go.
 function input.set_key(key, down) end
 
----Loader 0.20.0. Move the game's mouse, in game pixels. It stays there and the real mouse is ignored until release.
----@param x integer
----@param y integer
+---Moves the game's mouse.
+---
+---The cursor stays there and the real mouse is ignored until `rq.input.release`.
+---
+---Since: 0.20.0
+---@param x integer Cursor x, in game pixels.
+---@param y integer Cursor y, in game pixels.
+---@see rq.input.release
 function input.set_mouse(x, y) end
 
----Loader 0.20.0. Send a wheel step: positive is up, negative is down.
----@param dir integer
+---Sends one wheel step to the game.
+---
+---`rq.input.scroll` counts it too.
+---
+---Since: 0.20.0
+---@param dir integer Positive scrolls up, negative scrolls down.
 function input.wheel(dir) end
 
----Loader 0.20.0. Give the mouse back to the player and let go of the mouse buttons. Keys set with set_key stay as they are.
+---Gives the mouse back to the player.
+---
+---Ends `rq.input.set_mouse` and lets go of the mouse buttons. Keys pressed with `set_key` stay as
+---they are.
+---
+---Since: 0.20.0
 function input.release() end
 
----Loader 1.7.0. Wheel steps since the last update, up positive (steps from input.wheel count too).
----With eat true, the game does not get them.
----@param eat? boolean
----@return integer steps
+---Returns the wheel steps since the last update.
+---
+---With `eat` true the game does not get them, as for a list that scrolls under the mouse. Steps sent
+---with `rq.input.wheel` count too.
+---
+---Since: 1.7.0
+---
+---```lua
+---if rq.hud.hit(list_x, list_y, list_w, list_h) then
+---  top = top - rq.input.scroll(true)
+---end
+---```
+---@param eat? boolean true to keep the steps from the game. Default false.
+---@return integer steps Up is positive, down negative; 0 when the wheel did not move.
 function input.scroll(eat) end
 
 
+---Reads what is on the screen and saves screenshots.
+---
+---`rq.ui.get` returns the same data as `rqmod-ctl ui`. Raises an error at the top level of a mod.
+---
+---Since: 0.20.0
 ---@class rq.ui
 local ui = {}
 
----Loader 0.20.0. What is on the screen, the same data as rqmod-ctl ui: screen, hover, controls, and the data of the current screen. It builds the whole list, so do not call it on every rq.on_frame. A screen with no name, such as a black one during a change of scene, says other (0.21.0). boot is only used before the first named screen.
----@return table|nil
+---Returns what is on the screen.
+---
+---The table holds `screen` (the screen's name), `hover`, `controls` (each with `id`, `x`, `y`, `w`,
+---`h`, `enabled` and more) and the data of the current screen, such as `battle` or `quests`. A
+---screen with no name, such as a black one during a change of scene, says `other`; `boot` is used
+---only before the first named screen, and `title` only for the real title screen.
+---
+---It builds the whole list, so do not call it on every `rq.on_frame`.
+---
+---Since: 0.20.0
+---Changed: 0.21.0 A screen with no name says `other`.
+---
+---```lua
+---local s = rq.ui.get()
+---if s and s.screen == "camp" then rq.log(#s.controls, "controls") end
+---```
+---@return table|nil screen The screen data, or nil before the game is ready.
+---@see rq.ui.aim
 function ui.get() end
 
----Loader 0.20.0. The point a click on this control should land on. Builds the list if nothing did during this update (0.21.0).
----@param id string
----@return integer|nil x
----@return integer|nil y
+---Returns the point a click on a control should land on.
+---
+---The point is inside the control and not covered by another control. It builds the list when
+---nothing did during this update.
+---
+---Since: 0.20.0
+---Changed: 0.21.0 Builds the list itself; before, it read the last `rq.ui.get`.
+---@param id string A control id, as `rq.ui.get` or `rqmod-ctl ui` lists it.
+---@return integer|nil x Click x in game pixels, or nil when the control is not on screen.
+---@return integer|nil y Click y in game pixels.
 function ui.aim(id) end
 
----Loader 0.21.0. Saves what the game draws as a PNG at the next drawn frame. path is relative to the mod's folder, which must already hold the folders in it; use an ASCII path. Raises an error if the path leaves the mod's folder or another shot is still waiting.
----@param path string
+---Saves what the game draws as a PNG at the next drawn frame.
+---
+---The shot is taken later, so poll `rq.ui.shot_result` from `rq.on_frame` or a coroutine. The folders
+---in the path must already exist.
+---
+---Raises an error before the game runs, when the path leaves the mod's folder, or while another shot
+---is still waiting.
+---
+---Since: 0.21.0
+---
+---```lua
+---rq.ui.shot("shots/camp.png")
+---rq.on_frame(function()
+---  local ok = rq.ui.shot_result()
+---  if ok ~= nil then rq.log("shot saved:", ok) end
+---end)
+---```
+---@param path string A path inside the mod's folder, in ASCII.
+---@see rq.ui.shot_result
 function ui.shot(path) end
 
----Loader 0.21.0. true or false once, when the shot ended. nil while it waits, or when no result is left to give.
----@return boolean|nil
+---Returns how the last `rq.ui.shot` ended, once.
+---
+---Since: 0.21.0
+---@return boolean|nil ok true or false once when the shot ended; nil while it waits, or when no result is left.
 function ui.shot_result() end
 
+---Draws text, boxes and CGs over the game, and reads clicks on them.
+---
+---The HUD is immediate mode: draw everything again on every `rq.on_frame`, and it shows for that
+---frame. It is drawn on the game's own picture, after the game's scene, in game pixels. Every frame
+---can hold up to 480 draw calls; past that, a call draws nothing.
+---
+---Since: 0.2.0
+---
+---```lua
+---local function button(x, y, w, h, label)
+---  if rq.hud.hit(x, y, w, h) then
+---    rq.hud.rect(x, y, w, h, 80, 100, 160, 235)
+---  else
+---    rq.hud.rect(x, y, w, h, 28, 36, 64, 225)
+---  end
+---  rq.hud.text(x + 14, y + 6, label, { size = 18 })
+---  return rq.hud.clicked(x, y, w, h)
+---end
+---```
 ---@class rq.hud
 local hud = {}
 
----Typically 1024×768.
----@return integer w
----@return integer h
+---Returns the size of the game screen.
+---
+---Since: 0.2.0
+---@return integer w Width in pixels, usually 1024.
+---@return integer h Height in pixels, usually 768.
 function hud.screen() end
 
----Filled rect. a default 220.
----@param x integer
----@param y integer
----@param w integer
----@param h integer
----@param r integer
----@param g integer
----@param b integer
----@param a? integer
+---Draws a filled box.
+---
+---Since: 0.2.0
+---@param x integer Left edge, in game pixels.
+---@param y integer Top edge, in game pixels.
+---@param w integer Width, in pixels.
+---@param h integer Height, in pixels.
+---@param r? integer Red, 0 to 255. Default 20.
+---@param g? integer Green, 0 to 255. Default 20.
+---@param b? integer Blue, 0 to 255. Default 30.
+---@param a? integer Opacity, 0 to 255. Default 220.
 function hud.rect(x, y, w, h, r, g, b, a) end
 
----UTF-8. Default size 16, white, dark edge. COPY glyphs. Font: VL PGothic, each letter at its own width (1.8.0).
----@param x integer
----@param y integer
----@param str string
----@param style? rq.HudTextStyle
+---How `rq.hud.text` draws text.
+---@class rq.HudTextStyle
+---@field size? number Font size, in pixels. Default 16.
+---@field r? integer Red, 0 to 255. Default 255.
+---@field g? integer Green, 0 to 255. Default 255.
+---@field b? integer Blue, 0 to 255. Default 255.
+---@field a? integer Opacity, 0 to 255. Default 255. Since 1.6.0.
+---@field w? integer Width of the box `align` places the text in, in pixels. Since 1.6.0.
+---@field h? integer Height of the box `valign` places the text in, in pixels. Since 1.6.0.
+---@field align? "left"|"center"|"right" Where the text sits in the box `w` wide. Default "left". Since 1.6.0.
+---@field valign? "top"|"center"|"bottom" Where the text sits in the box `h` high. Default "top". Since 1.6.0.
+---@field edge? boolean false leaves out the dark edge, as on Config's tabs. Default true. Since 1.7.0.
+---@field bold? boolean The heavier weight the game's own Config labels look like. Default false. Since 1.8.0.
+
+---Draws a line of UTF-8 text.
+---
+---The text is white with a dark edge unless the style says otherwise. The font is VL PGothic, from
+---the game's `xsystem4\fonts` folder, each letter at its own width. Only characters the game's font
+---can draw show. With `w` and `align` the text is placed in the box `w` wide from `x`, and with `h`
+---and `valign` in the box `h` high from `y`; text wider than the box goes past it on both sides.
+---
+---Raises an error for an unknown `align` or `valign`.
+---
+---Since: 0.2.0
+---Changed: 1.8.0 The font is VL PGothic with letters at their own width (before, VL Gothic with half-width Latin letters).
+---
+---```lua
+---rq.hud.text(0, 40, "Centered", { size = 20, w = 1024, align = "center" })
+---```
+---@param x integer Left edge, or of the box with `style.w`, in game pixels.
+---@param y integer Top edge, or of the box with `style.h`, in game pixels.
+---@param str string The text.
+---@param style? rq.HudTextStyle Size, color and placement.
+---@see rq.hud.text_width
 function hud.text(x, y, str, style) end
 
----The width hud.text takes for the same text and style (VL PGothic since 1.8.0).
----@param str string
----@param size_or_style? number|rq.HudTextStyle
----@return integer px
+---Returns how wide `rq.hud.text` draws a text.
+---
+---Only `size` and `bold` of a style count.
+---
+---Since: 0.2.0
+---@param str string The text.
+---@param size_or_style? number|rq.HudTextStyle A font size, or a style. Default size 16.
+---@return integer px Width in pixels; 0 for an empty text.
 function hud.text_width(str, size_or_style) end
 
----Word-wrap to pixel width, not a character count.
----@param str string
----@param max_px integer
----@param size? number
----@return string[] lines
+---Breaks a text into lines that fit a width.
+---
+---Lines break at spaces when they can, else inside a word, and also at each line break in the text.
+---
+---Since: 0.2.0
+---
+---```lua
+---for i, line in ipairs(rq.hud.wrap(desc, 300, 16)) do
+---  rq.hud.text(20, 100 + (i - 1) * 20, line, { size = 16 })
+---end
+---```
+---@param str string The text.
+---@param max_px integer The widest a line may be, in pixels (at least 8).
+---@param size? number The font size to measure with. Default 14.
+---@return string[] lines The lines in order; empty for an empty text.
 function hud.wrap(str, max_px, size) end
 
----Game CG by number (item icons, ? CGs), or a mod image from rq.image.add. Returns the CG's own
----size (0, 0 for no CG), whatever is drawn. Loader 1.6.0: opts draws a part, stretched, faded or
----tinted. At most 160 different CGs are kept for drawing; past that, a new one draws nothing.
----@param x integer
----@param y integer
----@param cg_no integer
----@param opts? rq.HudCgOpts
----@return integer w
----@return integer h
+---How `rq.hud.cg` draws a CG.
+---
+---Since: 1.6.0
+---@class rq.HudCgOpts
+---@field src? integer[]|{x: integer, y: integer, w: integer, h: integer} The part of the CG to draw, `{x, y, w, h}` in the CG's pixels; cut at the CG's edge.
+---@field w? integer Stretch what is drawn to this width, in pixels.
+---@field h? integer Stretch what is drawn to this height, in pixels.
+---@field alpha? integer Opacity, 0 to 255. Default 255.
+---@field tint? integer[]|{r: integer, g: integer, b: integer} Multiplies the colors: `{128, 128, 128}` is half as bright.
+
+---Draws a game CG, or a mod image.
+---
+---`cg_no` is a game CG number (item icons and the like) or a number from `rq.image.add`. Up to 160
+---different CGs are kept for drawing; past that, a new one draws nothing.
+---
+---Raises an error for a `src` whose `w` or `h` is under 1.
+---
+---Since: 0.2.0
+---Changed: 1.6.0 Added `opts`.
+---
+---```lua
+---rq.hud.cg(100, 100, icon, { w = 32, h = 32, alpha = 180 })
+---```
+---@param x integer Left edge, in game pixels.
+---@param y integer Top edge, in game pixels.
+---@param cg_no integer A CG number.
+---@param opts? rq.HudCgOpts The part, size, opacity and tint.
+---@return integer w The CG's own width, whatever is drawn; 0 when there is no such CG.
+---@return integer h The CG's own height; 0 when there is no such CG.
+---@see rq.hud.cg_size
 function hud.cg(x, y, cg_no, opts) end
 
----Loader 1.6.0. The CG's size without drawing it; nil when the number is no CG.
----@param cg_no integer
----@return integer|nil w
----@return integer h
+---Returns a CG's size without drawing it.
+---
+---Since: 1.6.0
+---@param cg_no integer A CG number.
+---@return integer|nil w Width in pixels, or nil when there is no such CG.
+---@return integer h Height in pixels.
 function hud.cg_size(cg_no) end
 
----Loader 1.6.0. Everything drawn after it shows only inside the box, until hud.clip() with no
----arguments. A new clip replaces the box. Every frame starts with no clip.
----@param x? integer
----@param y? integer
----@param w? integer
----@param h? integer
+---Shows what is drawn next only inside a box, as for a list that scrolls.
+---
+---The clip lasts until `rq.hud.clip()` with no arguments. A new clip replaces the box; it does not
+---narrow it. Every frame starts with no clip.
+---
+---Since: 1.6.0
+---@param x? integer Left edge, in game pixels. Leave all four out to end the clip.
+---@param y? integer Top edge, in game pixels.
+---@param w? integer Width, in pixels.
+---@param h? integer Height, in pixels.
 function hud.clip(x, y, w, h) end
 
----Mouse inside rect this frame.
----@param x integer
----@param y integer
----@param w integer
----@param h integer
----@return boolean
+---Returns whether the mouse is inside a box on this update.
+---
+---Since: 0.2.0
+---@param x integer Left edge, in game pixels.
+---@param y integer Top edge, in game pixels.
+---@param w integer Width, in pixels.
+---@param h integer Height, in pixels.
+---@return boolean inside true while the cursor is in the box.
 function hud.hit(x, y, w, h) end
 
----Left press edge inside rect.
----@param x integer
----@param y integer
----@param w integer
----@param h integer
----@return boolean
+---Returns whether the left button went down inside a box on this update.
+---
+---Since: 0.2.0
+---@param x integer Left edge, in game pixels.
+---@param y integer Top edge, in game pixels.
+---@param w integer Width, in pixels.
+---@param h integer Height, in pixels.
+---@return boolean clicked true on the one update the button went down in the box.
+---@see rq.hud.block_game_input
 function hud.clicked(x, y, w, h) end
 
----This frame + until mouse-up: game does not see L/R. HUD still reads raw mouse.
+---Hides the mouse buttons from the game, so a click on the HUD does not also click the game.
+---
+---It lasts for this update and until the buttons come up. `rq.input.mouse` and the HUD calls still
+---see the clicks.
+---
+---Since: 0.2.0
 function hud.block_game_input() end
 
----Block game keyboard input this frame (the HUD still reads raw keys with rq.input.key).
----Call every frame while a modal HUD is open. Mouse is blocked by block_game_input.
+---Hides the keyboard from the game for this update.
+---
+---Call it on every update while a modal HUD is open. The mouse buttons are not affected (use
+---`rq.hud.block_game_input`), and `rq.input.key` still reads the real keys.
+---
+---Since: 0.2.0
 function hud.block_keys() end
 
----Start capturing typed text (UTF-8). Only characters the game font can draw are kept.
----Backspace removes the last character. Read it with text_value, finish with text_end.
----@param initial? string
----@param max_bytes? integer default 40, at most 255
+---Starts reading typed text.
+---
+---It uses the system's text input, so input methods and keyboard layouts work. Only characters the
+---game's font can draw are kept, and Backspace removes the last character. Read the text with
+---`rq.hud.text_value` and end with `rq.hud.text_end`. Calling it again restarts with the new text.
+---
+---Since: 0.2.0
+---
+---```lua
+---rq.hud.text_begin("Rance", 20)
+---rq.on_frame(function()
+---  local text, on = rq.hud.text_value()
+---  if on then rq.hud.text(20, 20, text .. "_") end
+---  if on and rq.input.key(rq.input.code("enter")) then rq.hud.text_end() end
+---end)
+---```
+---@param initial? string The starting text, in UTF-8. Default "".
+---@param max_bytes? integer The longest the text may be, in bytes, 1 to 255. Default 40.
+---@see rq.hud.text_value
 function hud.text_begin(initial, max_bytes) end
 
----Current captured text and whether capture is on.
----@return string text
----@return boolean active
+---Returns the typed text and whether reading is on.
+---
+---Since: 0.2.0
+---@return string text The text so far, in UTF-8.
+---@return boolean active true between `text_begin` and `text_end`.
 function hud.text_value() end
 
----Stop capturing text.
+---Stops reading typed text.
+---
+---The text stays readable with `rq.hud.text_value` until the next `text_begin`.
+---
+---Since: 0.2.0
 function hud.text_end() end
 
 ---@class rq.loot
