@@ -10,13 +10,6 @@
 --- Installed copy: <game>/lua/rq.lua (next to mods\)
 --- Source: RQ-Mod repository, dist/lua/rq.lua
 
----@class rq.DungeonCamera
----@field lock? number
----@field min? number
----@field max? number
----@field fog_far? number
----@field slider_steps? integer
-
 ---@class rq.LootItem
 ---@field id integer item instance
 ---@field source "magnum"|"chest"
@@ -44,139 +37,302 @@
 ---@class rq.ChestAttemptResult
 ---@field pct integer 0..100
 
+---Reaches into the game's own code (the AIN): call, hook and patch its functions, and read and write
+---its globals.
+---
+---Names are the game's own, in UTF-8, such as `Ｔ戦闘前初期化` or `T_BattleSelect@select`; find them
+---with `rq.ain.find`. They can change with the game's data, so a mod that patches by number should
+---check the count it gets back.
+---
+---Since: 0.2.0
 ---@class rq.ain
 local ain = {}
 
----Rewrite float immediates in one AIN function.
----Loader 1.3.0: reaches the game's code of a function the loader wraps (such as Ｔ戦闘前初期化); before, it patched only the wrapper and found nothing.
----@param name string UTF-8 function name
----@param from number
----@param to number
----@param n? integer 0-based occurrence; omit = all
----@return integer count
+---Replaces float constants in one AIN function.
+---
+---Since: 0.2.0
+---Changed: 1.3.0 Reaches the game's code of a function the loader wraps (such as `Ｔ戦闘前初期化`); before, it patched only the wrapper and found nothing.
+---@param name string The function's name.
+---@param from number The value to find.
+---@param to number The new value.
+---@param n? integer Which occurrence, from 0. Default: all of them.
+---@return integer count How many constants were replaced.
 function ain.patch_float(name, from, to, n) end
 
----Loader 0.17.0. Replace an integer constant (PUSH) inside one AIN function, for example a hard-coded skill number.
----Loader 1.3.0: reaches the game's code of a function the loader wraps, as patch_float. Occurrences count every PUSH of that value, so they can differ between versions of the game's AIN; patch_int_after finds a constant by what it follows.
----@param name string AIN function name (UTF-8)
----@param from integer
----@param to integer
----@param n? integer 0-based occurrence; omit = all
----@return integer count
+---Replaces integer constants in one AIN function, such as a hard-coded skill number.
+---
+---Occurrences count every constant of that value in the function, so they can differ between
+---versions of the game's AIN; to find one constant by what it follows, use `patch_int_after`.
+---
+---Since: 0.17.0
+---Changed: 1.3.0 Reaches the game's code of a function the loader wraps.
+---@param name string The function's name.
+---@param from integer The value to find.
+---@param to integer The new value.
+---@param n? integer Which occurrence, from 0. Default: all of them.
+---@return integer count How many constants were replaced.
+---@see rq.ain.patch_int_after
 function ain.patch_int(name, from, to, n) end
 
----Loader 1.3.0. Replace the first integer constant `from` that comes within `window` instructions (default 8) after a read of a global, for example the 2 in `if (◆２倍モード == 1) { x = x * 2; }`. nth_ref picks one read of the global in the function (0-based); omit to patch after every read. A variable's index (a PUSH right after a page push) is never taken for the constant.
----@param name string AIN function name (UTF-8)
----@param global string global name (UTF-8)
----@param from integer
----@param to integer
----@param nth_ref? integer 0-based read of the global; omit = all
----@param window? integer instructions to look at after the read, default 8
----@return integer count
+---Replaces the first integer constant `from` that follows a read of a global.
+---
+---It looks at the `window` instructions after the read, as for the 2 in
+---`if (◆２倍モード == 1) { x = x * 2; }`. A variable's index is never taken for the constant.
+---
+---Raises an error for an unknown function or global.
+---
+---Since: 1.3.0
+---@param name string The function's name.
+---@param global string The global's name.
+---@param from integer The value to find.
+---@param to integer The new value.
+---@param nth_ref? integer Which read of the global in the function, from 0. Default: after every read.
+---@param window? integer How many instructions to look at after the read. Default 8.
+---@return integer count How many constants were replaced.
 function ain.patch_int_after(name, global, from, to, nth_ref, window) end
 
----Loader 0.18.0. Call any AIN function by name. Arguments must be int, bool, float or string, and all of them are required. A method (Class@method) raises an error, because it needs an object. So do SYS_セーブ実行 and SYS_ロード実行 (0.26.0). Loader 0.27.0: any other function that reaches a save under this call gets the game's own "save failed" message and nothing is written; one that reaches a load closes the game with an error. A bad index passed to a game function is a fatal error in the game, and this call cannot check it.
----A scene command blocks until it ends. Call it from a callback the game runs, not at the top level of a mod.
----@param name string AIN function name (UTF-8)
----@param ... integer|boolean|number|string
----@return any result nil for void or a struct
+---Calls any AIN function by its name.
+---
+---The arguments must be int, bool, float or string, and all of them are needed. A scene command
+---blocks until it ends, so call it from a callback the game runs, not at the top level of a mod. A
+---function that reaches a save under this call gets the game's own "save failed" message and nothing
+---is written; one that reaches a load closes the game with an error. A bad index passed to a game
+---function is a fatal error in the game, and this call cannot check it.
+---
+---Raises an error for an unknown name, a wrong number of arguments, a reference or struct argument, a
+---method (`Class@method`, which needs an object), or `SYS_セーブ実行` and `SYS_ロード実行`.
+---
+---Since: 0.18.0
+---Changed: 0.26.0 Refuses `SYS_セーブ実行` and `SYS_ロード実行`.
+---Changed: 0.27.0 A save under the call fails safely.
+---
+---```lua
+---local name = rq.ain.call("クエスト_名前", 126)
+---```
+---@param name string The function's name.
+---@param ... integer|boolean|number|string The arguments.
+---@return any result What the function returns; nil for none or a struct.
 function ain.call(name, ...) end
 
+---What an `rq.ain.hook` callback gets.
 ---@class rq.AinHookCtx
----@field name string
----@field args table arguments by position; change one to change what the function gets (references and structs are nil)
----@field skip? boolean before only: do not run the function
----@field result? any before: the value returned when skipped; after: the return value, which you may change
+---@field name string The function's name.
+---@field args table The arguments by position; change one to change what the function gets. References and structs are nil.
+---@field skip? boolean `before` only: true keeps the function from running.
+---@field result? any In `before`: what a skipped function returns. In `after`: the return value, which may be changed.
 
----Loader 0.18.0. Run Lua before and after any AIN function. A method is named Class@method. Many callbacks allowed. The same function does not fire again while its callback runs.
----@param name string AIN function name (UTF-8)
----@param opts {before?: fun(h: rq.AinHookCtx), after?: fun(h: rq.AinHookCtx)}
----@return fun() remove Removes both sides of this hook. Loader 0.23.0.
+---Runs Lua before and after any AIN function.
+---
+---A method is named `Class@method`. Many hooks may sit on one function. The function does not fire
+---its hooks again while one of its callbacks runs. A table with neither side does nothing.
+---
+---Since: 0.18.0
+---Changed: 0.23.0 Returns a remover.
+---
+---```lua
+---rq.ain.hook("message", { before = function(h)
+---  h.args[3] = h.args[3]:gsub("Rance", "Ranse")  -- rewrite every line of text
+---end })
+---```
+---@param name string The function's name.
+---@param opts {before?: fun(h: rq.AinHookCtx), after?: fun(h: rq.AinHookCtx)} The callbacks.
+---@return fun() remove Removes both sides of this hook.
 function ain.hook(name, opts) end
 
----Loader 0.22.0. Reads a game global that holds an int, bool, float or string. Give the game's own index for an array element: rq.ain.global("FA", 87) is FA[87]. Loader 0.24.0: give a field name to go into a struct: rq.ain.global("Ｑ", 126, "名前") is Ｑ[126].名前. Field names are the game's own. Raises an error for an unknown name or field, an index out of range, a whole array or a struct.
----@param name string
----@param ... integer|string indexes and field names
----@return integer|boolean|number|string
+---Reads a game global that holds an int, bool, float or string.
+---
+---Give the game's own index for an array element, and a field name to go into a struct, mixed as the
+---game does.
+---
+---Raises an error for an unknown name or field, an index out of range, a step that does not fit the
+---value, a whole array or a struct.
+---
+---Since: 0.22.0
+---Changed: 0.24.0 Field names reach into structs.
+---
+---```lua
+---local fa = rq.ain.global("FA", 87)          -- FA[87]
+---local name = rq.ain.global("Ｑ", 126, "名前")  -- Ｑ[126].名前
+---```
+---@param name string The global's name.
+---@param ... integer|string Indexes and field names.
+---@return integer|boolean|number|string value The value.
 function ain.global(name, ...) end
 
----Loader 0.22.0. Writes the same kind of global: rq.ain.set_global(name [, i, ...], value). It is the game's own state and goes into the next save, so restore what a test changes.
----@param name string
----@param ... any indexes and field names, then the value
+---Writes a game global, as `rq.ain.global` reads it: `set_global(name, [step, ...,] value)`.
+---
+---It is the game's own state and goes into the next save, so restore what a test changes.
+---
+---Raises an error as `rq.ain.global` does.
+---
+---Since: 0.22.0
+---@param name string The global's name.
+---@param ... any Indexes and field names, then the value.
 function ain.set_global(name, ...) end
 
----Loader 0.22.0. Size of an array global, with indexes and field names to reach an inner array. Many game arrays start at 1 and leave 0 unused, so the size can be one more than the entries.
----@param name string
----@param ... integer|string indexes and field names
----@return integer
+---Returns the size of an array global.
+---
+---Many game arrays start at 1 and leave 0 unused, so the size can be one more than the entries.
+---
+---Since: 0.22.0
+---@param name string The global's name.
+---@param ... integer|string Indexes and field names to reach an inner array.
+---@return integer size The number of elements.
 function ain.global_len(name, ...) end
 
----NOP matching system.MsgBox sites.
----@param needle string
----@return integer site_count
+---Removes the game's message boxes whose text contains `needle`.
+---
+---Every `system.MsgBox` call that shows a string holding `needle` is taken out of the code.
+---
+---Raises an error when the AIN is not loaded.
+---
+---Since: 0.2.0
+---@param needle string Part of the message, in UTF-8.
+---@return integer sites How many calls were taken out.
 function ain.skip_msgbox(needle) end
 
----Loader 1.0.0. Swallow the engine's own error boxes for the TADA and HTTP network checks (getserverversion).
+---Swallows the engine's own error boxes for the TADA and HTTP network checks (`getserverversion`).
+---
+---Since: 1.0.0
 function ain.skip_sdl_msgbox() end
 
----Log matching function names.
----@param needle string
----@return integer count
+---Writes the AIN functions whose name contains `needle` to the log.
+---
+---Each line is `find '<needle>' fno=<number>`. At most 40 are listed.
+---
+---Raises an error when the AIN is not loaded.
+---
+---Since: 0.2.0
+---@param needle string Part of a name, in UTF-8.
+---@return integer count How many were listed.
 function ain.find(needle) end
 
+---The camera range `rq.dungeon.camera` patches.
+---@class rq.DungeonCamera
+---@field lock? number The distance the camera is locked at on a first visit. Default 35.
+---@field min? number The nearest zoom. Default 17.5.
+---@field max? number The farthest zoom. Default 120.
+---@field fog_far? number Where the fog ends. Default 160.
+---@field slider_steps? integer Steps on the zoom slider. Default 25.
+
+---Reads and changes the dungeon: the map, the player's place, objects on it, and the camera.
+---
+---On a map grid, `x` runs east and `z` north.
+---
+---Since: 0.2.0
 ---@class rq.dungeon
 local dungeon = {}
 
----Camera-zoom. Patches clamp / fog / slider in memory.
----@param opts rq.DungeonCamera
----@return boolean
+---Patches the dungeon camera's zoom range, fog and slider in memory.
+---
+---Raises an error when `opts` is not a table or the AIN is not loaded.
+---
+---Since: 0.2.0
+---
+---```lua
+---rq.dungeon.camera({ max = 160, fog_far = 220 })
+---```
+---@param opts rq.DungeonCamera The range; a field left out keeps its default.
+---@return boolean ok false when the game lacks one of the camera functions (the log says which).
 function dungeon.camera(opts) end
 
----True between T_MapParts@create and @delete (also battle / ADV / menus).
----@return boolean
+---Returns whether the dungeon map screen exists.
+---
+---It is true between `T_MapParts@create` and `@delete`, so also in a fight, a scene or a menu on the
+---map. For "the player walks the map", use `rq.dungeon.exploring`.
+---
+---Since: 0.2.0
+---@return boolean active true while the map screen exists.
 function dungeon.active() end
 
----Map-walk only. False in Config, result, ADV, battle, profile, join dialog.
----@return boolean
+---Returns whether the player walks the map.
+---
+---False when the map is hidden or suspended (a join dialog), and during a fight, a character profile,
+---Config, the result and appraisal screens, and a scene or choice on the map.
+---
+---Since: 0.2.0
+---@return boolean exploring true while the player can walk.
 function dungeon.exploring() end
 
----Read-only copy of the current room. Does not write a save.
----@return rq.DungeonInfo
+---Returns a copy of the current room.
+---
+---Since: 0.2.0
+---@return rq.DungeonInfo info The room, the cell and the party.
 function dungeon.info() end
 
+---What `rq.dungeon.on_map` gets.
 ---@class rq.MapCtx
----@field quest integer Ｑ index of the quest being entered
----@field cleared boolean the quest was cleared before
----@field map integer map number
----@field party integer[] iic of the party
+---@field quest integer The quest being entered (its `Ｑ` index).
+---@field cleared boolean The quest was cleared before.
+---@field map integer The map number.
+---@field party integer[] The party's roster slots.
 
----Runs when the dungeon map screen is built. Return true to unlock the camera zoom even on a first visit (the game locks it at distance 35 until a quest is cleared). The range comes from whatever zoom patch is active (vanilla or camera-zoom). Many callbacks allowed.
----@param fn fun(ctx: rq.MapCtx): boolean|nil
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` when the dungeon map screen is built.
+---
+---On a first visit the game locks the camera at distance 35 until the quest is cleared. Return true
+---from any callback and the engine reports the quest as cleared for that one check, so the zoom stays
+---free. The range is whatever is patched at that moment (the game's, or `rq.dungeon.camera`).
+---
+---Since: 0.9.0
+---Changed: 0.23.0 Returns a remover.
+---
+---```lua
+---rq.dungeon.on_map(function(ctx)
+---  return ctx.quest == 126  -- free zoom on quest 126, also the first time
+---end)
+---```
+---@param fn fun(ctx: rq.MapCtx): boolean|nil Returns true to free the zoom.
+---@return fun() remove Removes this callback.
 function dungeon.on_map(fn) end
 
----Loader 0.25.0. The current map, as rqmod-ctl grid shows it: player {x, z}, mapNo, room {minX, minZ, maxX, maxZ}, rows (text, north to south, see legend), events (each {x, z, kind, tt, tz, tv}), legend and axes. x runs east and z north. Nil and a reason when not on a map.
----By default it holds only what the player reaches over plain floor, so a trap, chest or fight across a corridor hides the rest of the room.
----Loader 1.5.0: opts.whole = true holds every cell of the map, with floor the player cannot reach shown as ':'. Each event has reach (true when the player can get to it over plain floor). room.no is the game's room number (◆ＢＭＡＰ), room.whole says which kind of grid it is.
----After a portal, room.no changes a moment before the map: wait for mapNo to change before reading the new room.
----@param opts? {whole?: boolean}
----@return table|nil grid
----@return string? reason
+---Returns the current map, as `rqmod-ctl grid` shows it.
+---
+---The table holds `player` `{x, z}`, `mapNo`, `room` `{minX, minZ, maxX, maxZ, no, whole}`, `rows`
+---(text, north to south), `legend`, `axes` and `events`, each `{x, z, kind, tt, tz, tv, reach}`. By
+---default it holds only what the player reaches over plain floor, so a trap, chest or fight across a
+---corridor hides the rest of the room; `opts.whole` holds every cell, with floor the player cannot
+---reach shown as `:`. `room.no` is the game's room number (`◆ＢＭＡＰ`). After a portal, `room.no`
+---changes a moment before the map: wait for `mapNo` to change before reading the new room.
+---
+---Since: 0.25.0
+---Changed: 1.5.0 Added `opts.whole`, `reach`, `room.no` and `room.whole`.
+---@param opts? {whole?: boolean} `whole`: every cell of the map. Default false.
+---@return table|nil grid The map, or nil when not on a map.
+---@return string? reason Why there is no map.
 function dungeon.grid(opts) end
 
----Loader 1.5.0. Puts the player on a floor cell of the current map at once, also one they cannot walk to, as the game does after a portal. opts.face is "north", "east", "south" (default) or "west". grid().player shows the new cell after the game's next update. Nothing on the cell opens: walk onto it for that. Raises an error for a cell that is not floor, a cell that is not whole numbers, an unknown face, or when not on a map.
----@param x integer
----@param z integer
----@param opts? {face?: "north"|"east"|"south"|"west"}
----@return boolean placed
+---Puts the player on a floor cell of the current map at once, as the game does after a portal.
+---
+---Any floor cell works, also one the player cannot walk to. `grid().player` shows the new cell after
+---the game's next update. Nothing on the cell opens: walk onto it for that.
+---
+---Raises an error for a cell that is not floor or not whole numbers, an unknown face, or when not on a
+---map.
+---
+---Since: 1.5.0
+---@param x integer The cell, east.
+---@param z integer The cell, north.
+---@param opts? {face?: "north"|"east"|"south"|"west"} `face`: where the player looks. Default "south".
+---@return boolean placed true.
 function dungeon.place_player(x, z, opts) end
 
----Loader 0.25.0. Puts an object on a free floor cell of the current map: "chest", "red-chest", "spring", "achievement", "exp" or "gold". opts.content is a fixed item number for a chest, opts.rank its rank. Walking onto it works as for the game's own. The game leaves a used "exp" in grid().events. Raises an error for an unknown kind, a cell that is not free floor, or when not on a map.
----@param kind string
----@param x integer
----@param z integer
----@param opts? {content?: integer, rank?: integer}
----@return boolean placed
+---Puts an object on a free floor cell of the current map.
+---
+---Walking onto it works as for the game's own. The game leaves a used "exp" in `grid().events`.
+---
+---Raises an error for an unknown kind, a cell that is not free floor, or when not on a map.
+---
+---Since: 0.25.0
+---
+---```lua
+---local g = rq.dungeon.grid()
+---if g then rq.dungeon.place("chest", g.player.x + 1, g.player.z, { content = 120 }) end
+---```
+---@param kind "chest"|"red-chest"|"spring"|"achievement"|"exp"|"gold" The object.
+---@param x integer The cell, east.
+---@param z integer The cell, north.
+---@param opts? {content?: integer, rank?: integer} For a chest: `content`, a fixed item number; `rank`, its rank.
+---@return boolean placed true when the object was put down.
 function dungeon.place(kind, x, z, opts) end
 
 ---Reads the mouse and keyboard, and drives them for the game.
