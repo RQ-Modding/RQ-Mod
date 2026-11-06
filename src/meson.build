@@ -227,6 +227,19 @@ endif
 exe_inc = [incdir]
 exe_link = []
 
+# RQ MOD icon: the window icon (embedded PNG) and, on Windows, the exe icon.
+rq_py = find_program('python3', 'python', required: true)
+xsystem4 += custom_target(
+    'rq_icon_png_c',
+    input: '../res/rq-mod.png',
+    output: 'rq_icon_png.c',
+    command: [rq_py, meson.current_source_dir() / 'gen_lua_embed.py', '@INPUT@', '@OUTPUT@', 'rq_icon_png'])
+add_project_arguments('-DRQ_ICON', language : 'c')
+if host_machine.system() == 'windows'
+    xsystem4 += import('windows').compile_resources('../res/xsystem4.rc',
+        include_directories : include_directories('../res'))
+endif
+
 if get_option('profile')
     add_project_arguments('-DRQ_PROFILE', '-DRQ_PROFILE_FORCE', language : 'c')
     winsys = 'console'

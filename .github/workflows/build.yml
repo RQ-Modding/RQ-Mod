@@ -1,61 +1,24 @@
 name: Build
 
-on: [push, pull_request]
+# Every push and pull request builds the Windows package and keeps it as a workflow artifact.
+# A tag v<version> (matching RQ_VERSION in include/modloader.h) also publishes it as a GitHub release.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
 
 jobs:
-  linux-build:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        build-type: ["debug", "release"]
-
-    name: Linux ${{ matrix.build-type }}
-    steps:
-    - name: Checkout Source
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-
-    - name: Install Dependencies
-      run: |
-        sudo apt update
-        sudo apt install flex bison meson libfreetype-dev libglew-dev libffi-dev libpng-dev libsndfile-dev libturbojpeg0-dev libwebp-dev libsdl2-dev zlib1g-dev
-
-    - name: Build
-      run: |
-        mkdir -p out/${{ matrix.build-type }}
-        meson -Dbuildtype=${{ matrix.build-type }} out/${{ matrix.build-type }}
-        ninja -C out/${{ matrix.build-type }}
-
-    - name: Test
-      run: out/${{ matrix.build-type }}/src/xsystem4 test/Run/test.ain
-
-  flatpak-build:
-    name: Flatpak
-    runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-48
-      options: --privileged
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
-    - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
-      with:
-        bundle: xsystem4-linux-x86_64-nightly.flatpak
-        manifest-path: technology.haniwa.xsystem4.yml
-        cache-key: flatpak-builder-${{ github.sha }}
-
-  windows-build:
+  windows:
     runs-on: windows-latest
     name: Windows
-
     defaults:
       run:
         shell: msys2 {0}
 
     steps:
-      - name: Checkout Source
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -73,6 +36,7 @@ jobs:
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-meson
             mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-python
             mingw-w64-x86_64-SDL2
             mingw-w64-x86_64-freetype
             mingw-w64-x86_64-libjpeg-turbo
@@ -121,74 +85,51 @@ jobs:
           make -j$(nproc)
           mkdir destdir
           DESTDIR=destdir make install
-          cd ..
 
       - name: Install FFmpeg
-        run: |
-          cp -a FFmpeg/destdir/. /
+        run: cp -a FFmpeg/destdir/. /
 
       - name: Build
         run: |
-          mkdir debug
-          meson debug -Dbuildtype=debug
-          ninja -C debug
-          mkdir release
-          meson release -Dbuildtype=release
-          ninja -C release
+          meson setup build --buildtype=release
+          ninja -C build
 
-      - name: Test
+      - name: Version
+        id: version
         run: |
-          debug/src/xsystem4.exe test/Run/test.ain
-          release/src/xsystem4.exe test/Run/test.ain
-
-      - name: Copy licenses
-        run: |
-          ls /mingw64/share/licenses
-          mkdir dist
-          cp -r /mingw64/share/licenses dist/
+          v=$(sed -n 's/^#define RQ_VERSION "\(.*\)"/\1/p' include/modloader.h)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/v* && "${GITHUB_REF#refs/tags/v}" != "$v" ]]; then
+            echo "Tag ${GITHUB_REF#refs/tags/} does not match RQ_VERSION $v" >&2
+            exit 1
+          fi
 
       - name: Package
         run: |
-          cp release/src/xsystem4.exe COPYING README.md game_compatibility.md dist/
-          cp debug/src/xsystem4.exe dist/xsystem4-debug.exe
-          cp /mingw64/bin/glew32.dll dist/
-          cp extra/*.lnk dist/
-          cp -r fonts dist/
-          cp -r shaders dist/
-          mv dist xsystem4
-          zip -r -9 xsystem4-windows-x86_64-nightly.zip xsystem4
+          pkg=RQ-MOD
+          mkdir -p $pkg/xsystem4 $pkg/mods
+          cp build/src/xsystem4.exe build/tools/rqmod-ctl/rqmod-ctl.exe /mingw64/bin/glew32.dll $pkg/xsystem4/
+          cp -r fonts shaders $pkg/xsystem4/
+          cp -r dist/. $pkg/
+          cp README.md CHANGELOG.md CREDITS.md COPYING $pkg/xsystem4/
+          mkdir -p $pkg/xsystem4/licenses && cp -r /mingw64/share/licenses/. $pkg/xsystem4/licenses/
+          # Symbol list for crash reports: "RVA name", with the exe size first.
+          size=$(stat -c %s build/src/xsystem4.exe)
+          { echo "# exe-size $size"
+            nm -n build/src/xsystem4.exe | awk '$2 ~ /^[tT]$/ { printf "%x %s\n", strtonum("0x"$1) - 0x140000000, $3 }' | awk '$1 !~ /^-/'
+          } > $pkg/xsystem4/xsystem4.sym
+          cd $pkg && zip -r -9 ../RQ-MOD-${{ steps.version.outputs.version }}-windows.zip . && cd ..
 
-      - name: Upload build artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: xsystem4
-          path: xsystem4-windows-x86_64-nightly.zip
+          name: RQ-MOD-${{ steps.version.outputs.version }}-windows
+          path: RQ-MOD-${{ steps.version.outputs.version }}-windows.zip
 
-  nightly:
-    name: Update nightly release
-    needs: [windows-build, flatpak-build]
-    if: ${{ github.repository == 'nunuhara/xsystem4' && github.ref == 'refs/heads/master' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download release artifacts
-        uses: actions/download-artifact@v5
-        with:
-          merge-multiple: true
-
-      - name: Update nightly tag
-        uses: richardsimko/update-tag@v1
-        with:
-          tag_name: nightly
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Release nightly
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          prerelease: true
-          name: nightly
-          tag_name: nightly
-          files: |
-            xsystem4-windows-x86_64-nightly.zip
-            xsystem4-linux-x86_64-nightly.flatpak
+          name: RQ MOD ${{ steps.version.outputs.version }}
+          files: RQ-MOD-${{ steps.version.outputs.version }}-windows.zip
           fail_on_unmatched_files: true

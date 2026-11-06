@@ -127,9 +127,9 @@ void rq_window_title(char *buf, size_t n, const char *game_utf)
 	if (!buf || !n)
 		return;
 	if (stamp && *stamp)
-		snprintf(buf, n, "%s - XSystem4 [RQ_modding] - Build %s", game, stamp);
+		snprintf(buf, n, "%s - RQ MOD " RQ_VERSION " - Build %s", game, stamp);
 	else
-		snprintf(buf, n, "%s - XSystem4 [RQ_modding]", game);
+		snprintf(buf, n, "%s - RQ MOD " RQ_VERSION, game);
 }
 
 static void rq_print_banner(void)

@@ -773,8 +773,33 @@ static const char *exe_names[] = {
 	"yokubori",
 };
 
+#ifdef RQ_ICON
+/* RQ MOD: the window shows our icon instead of the one in the game's exe. */
+extern const char rq_icon_png[];
+extern const unsigned rq_icon_png_len;
+
+static bool rq_icon_init(void)
+{
+	struct cg *cg = cg_load_buffer((uint8_t*)rq_icon_png, rq_icon_png_len);
+	if (!cg)
+		return false;
+	SDL_Surface *s = SDL_CreateRGBSurfaceWithFormatFrom(cg->pixels, cg->metrics.w,
+		cg->metrics.h, 32, cg->metrics.w * 4, SDL_PIXELFORMAT_RGBA32);
+	if (s) {
+		SDL_SetWindowIcon(sdl.window, s);
+		SDL_FreeSurface(s);
+	}
+	cg_free(cg);
+	return s != NULL;
+}
+#endif
+
 void icon_init(void)
 {
+#ifdef RQ_ICON
+	if (rq_icon_init())
+		return;
+#endif
 	char *path = NULL;
 	if (config.boot_name)
 		path = get_exe_path(config.boot_name);

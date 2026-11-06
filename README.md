@@ -1,183 +1,105 @@
-# Rance Quest Modding xsysten4
+<p align="center"><img src="res/rq-mod.png" width="96" alt="RQ MOD icon"></p>
 
-Rance Quest Modding is a personal project with the porpuse of allowing mods to be made for the game without the decopilation and compilation requirement, it does this by exposing a Lua layer with the methods necessary to make mods possible and by using the public open-soure cross-platform implementation of alicesoft engine: [xsystem4](https://github.com/nunuhara/xsystem4).
+<h1 align="center">RQ MOD</h1>
+
+<p align="center">Mod support for <b>Rance Quest Magnum</b>: write mods in Lua and load them at runtime, with no decompiling or recompiling of the game.</p>
+
+---
+
+RQ MOD is a fork of [xsystem4](https://github.com/nunuhara/xsystem4), the open-source implementation of AliceSoft's System 4 engine, made for Rance Quest Magnum only. It adds a Lua mod loader and an `rq.*` API that lets mods change the HUD, skills, items, characters, battles, quests and more.
 
 > [!IMPORTANT]
-> This project should take no credits or merit for the engine, it's only possible because [xsystem4](https://github.com/nunuhara/xsystem4) is made by people who actually understand engine development and alicesoft's engine.
+> The engine itself is the work of the xsystem4 authors (Nunuhara Cabbage, kichikuou and contributors). RQ MOD builds on it; see [CREDITS.md](CREDITS.md).
 
-## How to install
+## Features
 
-Download any of the latest released built at [Releases Page](https://github.com/moruzerinho6/RQ_modding_xsystem4/releases)
+- Lua 5.4 mods loaded at startup from the `mods` folder, with dependencies, load order and conflicts declared in `mod.json`.
+- A Mods tab in the game's Config screen, where each mod can add its own settings page.
+- Debug overlay on F3 (mods can add to it).
+- Logs and crash reports in the `logs` folder.
+- Discord Rich Presence (can be turned off in Config, "Other 2").
 
-Extract the file and place it inside your game folder, your game folder should look like this:
+RQ MOD targets Rance Quest Magnum on Windows. Other AliceSoft games are not supported; use [xsystem4](https://github.com/nunuhara/xsystem4) for those.
 
+## Installing
+
+1. Install Rance Quest Magnum.
+2. Download the latest `RQ-MOD-*.zip` from the [Releases page](https://github.com/RQ-Modding/RQ-Mod/releases).
+3. Extract it into the game folder, so it looks like this:
+
+   ```text
+   Rance Quest Magnum/
+   ├── Data/
+   ├── DLL/
+   ├── Face CG/
+   ├── lua/
+   │   └── rq.lua            definitions for mod authors' editors
+   ├── mods/                 put mods here, one folder each
+   │   └── camera-zoom/
+   │       ├── init.lua
+   │       └── mod.json
+   ├── xsystem4/
+   │   ├── config.json
+   │   └── xsystem4.exe      start the game with this
+   └── RanceQuest.exe
+   ```
+
+4. Start the game with `xsystem4\xsystem4.exe`.
+
+To add a mod, extract its folder into `mods`. To remove it, delete the folder. The Mods tab in Config lists what is loaded.
+
+## When something goes wrong
+
+Everything is written to the `logs` folder next to `mods`:
+
+| File | What it is |
+| --- | --- |
+| `rqmod.log` | This run's log. |
+| `rqmod.prev.log` | The run before. |
+| `rqmod-crash-<date>-<time>.log` | Written when the game crashes: what happened, where, the game-script call stack and the last log lines. |
+| `rqmod-crash-<date>-<time>.dmp` | A small Windows minidump of the same moment. |
+| `rqmod-unclean-<date>-<time>.log` | The log of a run that never closed cleanly (crash, kill, hang). |
+
+When you report a problem, attach the crash `.log` (and the `.dmp` if it is small) and say which mods you had installed.
+
+## Making mods
+
+Mods are Lua 5.4. A mod is a folder in `mods` with an `init.lua` and a `mod.json`.
+
+- API definitions for your editor (VS Code with the Lua extension): `lua/rq.lua`. The release includes a `.luarc.json` that points the Lua extension at it.
+- Version history of the API: [CHANGELOG.md](CHANGELOG.md).
+- Full modding documentation: coming soon at the RQ Modding organization.
+
+## Building from source
+
+Windows, with [MSYS2](https://www.msys2.org/). In the **MINGW64** shell:
+
+```sh
+pacman -S git flex bison mingw-w64-x86_64-gcc mingw-w64-x86_64-meson mingw-w64-x86_64-pkg-config \
+  mingw-w64-x86_64-SDL2 mingw-w64-x86_64-freetype mingw-w64-x86_64-libjpeg-turbo \
+  mingw-w64-x86_64-libwebp mingw-w64-x86_64-libpng mingw-w64-x86_64-libsndfile \
+  mingw-w64-x86_64-glew mingw-w64-x86_64-python
+git clone --recurse-submodules https://github.com/RQ-Modding/RQ-Mod.git
+cd RQ-Mod
+meson setup build --buildtype=release
+ninja -C build
 ```
-/Rance Quest Magnum
-├── Data
-├── DLL
-├── Face CG
-├── logs
-├── mods
-│   └── camera-zoom <- Mod Structure Example
-│       ├── init.lua
-│       ├── README.md
-│       └── mod.json
-├── xsystem4
-│   └── xsystem4.exe <- What you want to execute
-└── RanceQuest.exe
-```
 
-## Features and Changes
+This gives `build/src/xsystem4.exe` and `build/tools/rqmod-ctl/rqmod-ctl.exe`. To run it, copy into the game's `xsystem4` folder: `xsystem4.exe`, `glew32.dll` (from `/mingw64/bin`), and the `fonts` and `shaders` folders. Then copy the contents of `dist/` into the game folder.
 
-The [xsystem4](https://github.com/nunuhara/xsystem4) engine is not complete, it still being updated weekly to properly support many the alicesoft games it wants to. While this project forks that **cross-platform** engine that **supports many alicesoft games**, this is not the case for RQMOD.
+Movie playback with FFmpeg is optional; the [release workflow](.github/workflows/build.yml) shows how to build the small static FFmpeg it uses.
 
-**This project cares only for Rance Quest Magnum** and changes are made considering only that as the compatibility, my testing also only looks at Windows as a target.
+### Repository layout
 
-- Lua API allowing mods to be created and loaded at runtime.
-- Discord RPC integration (WIP, can be disabled at the game settings "Other 2")
-- Logs System
-- Debug Menu with F3 (Mods can expand it)
-- Mods Tab on the config screen.
+| Path | What it is |
+| --- | --- |
+| `src/modloader*.c`, `src/lua/` | The mod loader and the `rq.*` API |
+| `dist/` | Files shipped into the game folder (`config.json`, `lua/rq.lua`, `.luarc.json`) |
+| `tools/rqmod-ctl/` | Command-line client for the agent pipe, used by test scripts |
+| `res/` | Icon and Windows resources |
+| `third_party/lua/` | Lua 5.4.7 |
+| everything else | The xsystem4 engine |
 
-Building
---------
+## License
 
-First install the dependencies (corresponding Debian package in parentheses):
-
-* chibi-scheme [optional, for debugger]
-* bison (bison)
-* cglm (libcglm-dev) [optional, fetched by meson if not available]
-* flex (flex)
-* freetype (libfreetype-dev)
-* glew (libglew-dev)
-* meson (meson)
-* libffi (libffi-dev)
-* libpng (libpng-dev)
-* libsndfile (libsndfile-dev)
-* libturbojpeg (libturbojpeg0-dev)
-* libwebp (libwebp-dev)
-* SDL2 (libsdl2-dev)
-* zlib (zlib1g-dev)
-
-Then fetch the git submodules,
-
-    git submodule init
-    git submodule update
-
-(Alternatively, pass `--recurse-submodules` when cloning this repository)
-
-Then build the xsystem4 executable with meson,
-
-    mkdir build
-    meson build
-    ninja -C build
-    
-Finally install it to your system (optional),
-
-    ninja -C build install
-
-### Windows
-
-xsystem4 can be built on Windows using MSYS2.
-
-First install MSYS2, and then open the MINGW64 shell and run the following command,
-
-    pacman -S make flex bison \
-        mingw-w64-x86_64-gcc \
-        mingw-w64-x86_64-meson \
-        mingw-w64-x86_64-pkg-config \
-        mingw-w64-x86_64-SDL2 \
-        mingw-w64-x86_64-freetype \
-        mingw-w64-x86_64-libjpeg-turbo \
-        mingw-w64-x86_64-libwebp \
-        mingw-w64-x86_64-libsndfile \
-        mingw-w64-x86_64-glew \
-        mingw-w64-x86_64-nasm \
-        mingw-w64-x86_64-diffutils
-
-To build with FFmpeg support, you must compile FFmpeg as a static library:
-
-    git clone https://github.com/FFmpeg/FFmpeg.git
-    cd FFmpeg
-    git checkout n7.1.2
-    ./configure --disable-everything \
-        --enable-decoder=mpegvideo \
-        --enable-decoder=mpeg1video \
-        --enable-decoder=mpeg2video \
-        --enable-decoder=mp2 \
-        --enable-parser=mpegaudio \
-        --enable-parser=mpegvideo \
-        --enable-demuxer=mpegps \
-        --enable-demuxer=mpegts \
-        --enable-demuxer=mpegtsraw \
-        --enable-demuxer=mpegvideo \
-        --enable-decoder=vc1 \
-        --enable-decoder=wmapro \
-        --enable-parser=vc1 \
-        --enable-hwaccel=vc1_d3d11va \
-        --enable-hwaccel=vc1_d3d11va2 \
-        --enable-hwaccel=vc1_dxva2 \
-        --enable-demuxer=asf \
-        --enable-protocol=file \
-        --enable-filter=scale \
-        --enable-static \
-        --disable-shared \
-        --extra-libs=-static \
-        --extra-cflags=--static
-    make
-    make install
-    cd ..
-    export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH"
-
-Then build the xsystem4 executable with meson,
-
-    mkdir build
-    meson build
-    ninja -C build
-
-To create a portable executable, it is neccessary to copy some DLLs into the same directory as xsystem4.exe.
-You can determine the required DLLs with the following command,
-
-    ldd build/src/xsystem4.exe | grep mingw64
-
-The `fonts` and `shaders` directories must also be shipped together with xsystem4.exe.
-
-Installing
-----------
-
-If building from source, run:
-
-    ninja -C build install
-
-to install xsystem4 on your system.
-
-
-Running
--------
-
-You can run a game by passing the path to its game directory to the xsystem4
-executable,
-
-    build/src/xsystem4 /path/to/game_directory
-
-Alternatively, run xsystem4 from within the game directory,
-
-    cd /path/to/game_directory
-    xsystem4
-
-### Windows
-
-If you've installed xsystem4 into the game directory as described above, simply
-double-click `xsystem4.exe` to run the game.
-
-Rance Quest modding
--------------------
-
-`meson -Dmodloader=true` compiles Lua 5.4.7 (MIT, `third_party/lua`) into the
-exe and loads `mods/*.lua` / `mods/<name>/init.lua` after `ain_open`. Default
-**off**. The player apply path turns it on (`rqmod\build-engine.ps1`).
-
-Frame/HLL/AIN profilers are compiled into that player binary and gated by
-`config.json` next to the exe (every extra layer defaults **off**). The
-separate `meson -Dprofile=true` tree still force-enables CSV for comparable
-hub captures. Do not enable `-Dmodloader` on the profile meson tree.
+GPL-2.0-or-later, the same as xsystem4. See [COPYING](COPYING) and [CREDITS.md](CREDITS.md).

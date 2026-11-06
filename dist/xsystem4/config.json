@@ -1,0 +1,13 @@
+{
+  "terminal": true,
+  "verbose": false,
+  "profile": {
+    "csv": false,
+    "leftover_ain": false,
+    "hll": false,
+    "text_cache": false,
+    "update_split": false,
+    "vm_ops": false,
+    "ain_fn": false
+  }
+}

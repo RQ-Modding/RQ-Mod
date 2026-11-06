@@ -51,6 +51,9 @@ libsys4_proj = subproject('libsys4')
 libsys4_dep = libsys4_proj.get_variable('libsys4_dep')
 
 subdir('src')
+if host_machine.system() == 'windows' and get_option('modloader')
+    subdir('tools/rqmod-ctl')
+endif
 
 install_subdir('shaders', install_dir : get_option('datadir') / 'xsystem4')
 install_subdir('fonts', install_dir : get_option('datadir') / 'xsystem4')
