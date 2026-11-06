@@ -716,58 +716,116 @@ function saves.delete(id) end
 ---@return string? err
 function saves.switch(id) end
 
+---How `rq.agent.control` finds a control: a game button, or a rectangle a mod draws.
 ---@class rq.AgentOpts
----@field label? string
----@field button? integer T_Button id. Omit it for a HUD rectangle and give x, y, w, h instead.
----@field hoverOnly? boolean
----@field x? integer HUD rectangle, game pixels
----@field y? integer
----@field w? integer
----@field h? integer
+---@field label? string The text `rqmod-ctl ui` shows for the control.
+---@field button? integer The game's `T_Button` id. Leave it out for a HUD rectangle and give `x`, `y`, `w`, `h`.
+---@field hoverOnly? boolean The control exists only while the cursor is already on its parent.
+---@field x? integer Left edge of a HUD rectangle, in game pixels.
+---@field y? integer Top edge of a HUD rectangle, in game pixels.
+---@field w? integer Width of a HUD rectangle, in game pixels.
+---@field h? integer Height of a HUD rectangle, in game pixels.
 
+---A row on the F3 debug menu.
 ---@class rq.DebugAction
----@field id string short token, not "rendering-stats"
----@field label string menu text
----@field key string pipe key name; "6", "f3", "+", "-", and "m" are reserved
----@field page? string defaults to "Main"
----@field onPress fun() called on the key edge while F3 is held
+---@field id string A short token that names the row. "rendering-stats" belongs to the engine.
+---@field label string The text on the menu.
+---@field key string The key that runs it, as a pipe key name ("7", "f4", "space"). "6", "f3", "+", "-" and "m" are reserved.
+---@field page? string The menu page. Default "Main".
+---@field onPress fun() Runs when the key goes down while F3 is held.
 
+---Adds rows to the engine's F3 debug menu.
+---
+---Hold F3 to show the menu. It redraws every frame and does not take normal play keys; F3 and the
+---keys listed on it are swallowed only so the game does not also see them. Key 6 toggles Rendering
+---Stats, which the engine owns. A menu holds up to 32 rows.
+---
+---While F3 is held, `rqmod-ctl ui` lists the rows under `debug.actions`, so a test can press them
+---with `hold f3`, `key 7`, `release f3`.
+---
+---Since: 0.2.0
 ---@class rq.debug
 local debug = {}
 
----Append or replace a debug-menu row. The engine owns F3 and Rendering Stats (key 6).
----Pass a string id, or `{ id = id }` with no label/key/onPress, to drop the row on unload.
----@param action rq.DebugAction|string
----@return boolean
+---Adds a row to the F3 menu, replaces it, or removes it.
+---
+---Pass a `rq.DebugAction` to add a row; a row with the same `id` is replaced. Pass just the id (a
+---string, or `{ id = id }` without label, key or onPress) to remove the row; call this when a mod
+---no longer needs it. Loading a mod again drops its old rows first.
+---
+---Raises an error for a missing label, key or onPress, an unknown or reserved key, an id the engine
+---owns, a page name of 24 characters or more, or a 33rd row.
+---
+---Since: 0.2.0
+---
+---```lua
+---rq.debug.action({
+---  id = "my-toggle",
+---  label = "My Toggle",
+---  key = "7",
+---  onPress = function() rq.log("my-toggle") end,
+---})
+---rq.debug.action("my-toggle")  -- remove it again
+---```
+---@param action rq.DebugAction|string The row, or the id of a row to remove.
+---@return boolean ok true when the row was added, replaced or removed.
 function debug.action(action) end
 
+---Lets the test pipe (`rqmod-ctl`) see and press a mod's controls.
+---
+---Agents and test scripts drive the game through `rqmod-ctl` (`ui`, `hover`, `press`). The game's
+---own buttons are listed automatically; a mod lists what it adds with these calls.
+---
+---Since: 0.2.0
 ---@class rq.agent
 local agent = {}
 
----Register a shown engine button with rqmod-ctl ui / hover / press.
----The row is omitted while that button is not shown. Pass nil to unregister.
----@param id string
----@param opts rq.AgentOpts|nil
----@return boolean|nil
+---Registers a control under a stable id for `rqmod-ctl ui`, `hover` and `press`.
+---
+---With `opts.button`, the control is a game `T_Button`; it is listed only while that button is
+---shown, and drops out when the game deletes it. With `x`, `y`, `w`, `h` it is a rectangle a mod
+---draws with `rq.hud`: register it on every update it is on screen and remove it when it is not.
+---`press` on a rectangle also sends Enter. Calling again with the same id updates the row. Pass no
+---`opts` to remove the registration at once.
+---
+---Raises an error when the id or the button is rejected, or when `opts` has neither a button nor a
+---full rectangle.
+---
+---Since: 0.2.0
+---
+---```lua
+---rq.on_frame(function()
+---  rq.hud.rect(20, 20, 120, 32, 40, 40, 40, 220)
+---  rq.agent.control("my-button", { label = "My button", x = 20, y = 20, w = 120, h = 32 })
+---end)
+---```
+---@param id string The pipe id: ASCII, no spaces.
+---@param opts? rq.AgentOpts The button or rectangle; nil removes the registration.
+---@return boolean|nil ok true when registered; nothing when removed.
 function agent.control(id, opts) end
 
+---A control a mod drew on this update, for `rqmod-ctl ui`.
 ---@class rq.AgentWidget
----@field id string ASCII, no spaces, under 40 characters
----@field label? string
----@field type? string "button" when left out; the kit uses text, button, check, slider, tab, row
----@field value? string|number|boolean
----@field selected? boolean
----@field disabled? boolean
----@field x integer
----@field y integer
----@field w integer
----@field h integer
+---@field id string ASCII, no spaces, under 40 characters.
+---@field label? string The text the dump shows.
+---@field type? string The kind of control. Default "button"; `rq.uikit` uses text, button, check, slider, tab and row.
+---@field value? string|number|boolean The control's value, such as "on" for a checkbox.
+---@field selected? boolean The control is the chosen one (a tab, a list row, a checked box).
+---@field disabled? boolean The control does not take input.
+---@field x integer Left edge, in game pixels.
+---@field y integer Top edge, in game pixels.
+---@field w integer Width, in game pixels.
+---@field h integer Height, in game pixels.
 
----Loader 1.8.0. What a HUD drew on this update, for rqmod-ctl ui (section "kit"). Each call
----replaces the last list; {} clears it. rq.uikit sends its widgets by itself, so call this
----only for a HUD of your own. A press on a row clicks the middle of its box.
----@param list rq.AgentWidget[]
----@return integer listed
+---Lists the controls a mod's HUD drew on this update.
+---
+---They show in `rqmod-ctl ui` in the section `"kit"`, and `press` clicks the middle of a control's
+---box. Each call replaces the previous list; `{}` clears it. `rq.uikit` lists its own widgets, so
+---call this only for a HUD of your own.
+---
+---Since: 1.8.0
+---@param list rq.AgentWidget[] Everything drawn on this update.
+---@return integer listed How many controls were listed.
 function agent.widgets(list) end
 
 ---@class rq.CharaSlot
@@ -1898,14 +1956,88 @@ function scene.after(name, fn) end
 ---@param fn fun(h: rq.AinHookCtx): any
 function scene.replace(name, fn) end
 
+---Lists the recruited characters.
+---
+---`rq.units()` and `rq.units.list()` are the same call. The list is a copy: changing it does not
+---change the save. Right after boot it holds only the three default characters the game makes
+---before a save loads; wait until it lists more than 10, or use `rq.saves`.
+---
+---Since: 0.2.0
+---
+---```lua
+---for _, u in ipairs(rq.units()) do
+---  rq.log(u.id, u.name, u.level)
+---end
+---```
+---@class rq.units
+---@overload fun(): rq.Unit[]
+local units = {}
+
+---Returns the recruited characters, as `rq.units()` does.
+---
+---Since: 0.2.0
+---@return rq.Unit[] units A copy of each recruited character.
+function units.list() end
+
+---Lists the item instances the player owns.
+---
+---`rq.items()` and `rq.items.list()` are the same call. Instances whose existence value is 0, 6 or 9
+---are left out. The list is a copy.
+---
+---Since: 0.2.0
+---@class rq.items
+---@overload fun(): rq.Item[]
+local items = {}
+
+---Returns the owned item instances, as `rq.items()` does.
+---
+---Since: 0.2.0
+---@return rq.Item[] items A copy of each owned item.
+function items.list() end
+
+---Reads the castle: whether it is open, its rooms and who is in them.
+---
+---`rq.castle()` and `rq.castle.get()` are the same call.
+---
+---Since: 0.2.0
+---@class rq.castle
+---@overload fun(): rq.Castle
+local castle = {}
+
+---Returns the castle's state, as `rq.castle()` does.
+---
+---Since: 0.2.0
+---@return rq.Castle castle A copy of the castle's state.
+function castle.get() end
+
+---The global table every mod uses to reach the game.
+---
+---The engine builds `rq` before any mod runs. Mods load before the game starts, so at the top level
+---of `init.lua` register callbacks and definitions (`rq.on_frame`, `on_*`, `define`, `edit`,
+---`patch`, `rq.image.add`). Calls that read or change game state, such as `rq.skill.get`,
+---`rq.chara.get`, `rq.item.give`, `rq.party.*` or `rq.hud.text_width`, raise an error there: make
+---them from `rq.on_frame` or a callback. The queries `rq.units()`, `rq.items()`, `rq.quests()` and
+---`rq.castle()` return empty results at that point.
+---
+---Every `on_*` call, `rq.on_frame` and `rq.ain.hook` return a function that removes the callback.
+---It works at once, also from inside the callback, and calling it twice is harmless. Definitions
+---(`define`, `edit`) are not callbacks and have no remover.
+---
+---```lua
+---local remove
+---remove = rq.battle.on_end(function(ev)
+---  rq.log("the first fight ended")
+---  remove()
+---end)
+---```
 ---@class rq
----@field version string loader semver, currently 1.14.1
----@field game_dir string game root (AIN)
----@field mods_dir string mods\
----@field units fun(): rq.Unit[]
----@field items fun(): rq.Item[]
+---@field version string The loader version, such as "1.14.1". A mod whose `mod.json` asks for a newer `loader` is not loaded.
+---@field game_dir string The game folder (where the AIN is).
+---@field mods_dir string The `mods` folder, ending in a backslash.
+---@field units rq.units
+---@field items rq.items
+---@field castle rq.castle
 ---@field quests rq.QuestsApi
----@field castle fun(): rq.Castle
 ---@field ain rq.ain
 ---@field dungeon rq.dungeon
 ---@field input rq.input
@@ -1930,49 +2062,75 @@ function scene.replace(name, fn) end
 ---@field config rq.config
 rq = {}
 
----Loader semver. A mod whose manifest loader is newer than this is skipped.
+---The loader version.
+---
+---Since: 0.2.0
 ---@type string
 rq.version = "1.14.1"
 
----Recruited units. Copy; writing it does not change the save.
----Right after boot it lists only the three default characters made before the save loads: wait for more than 10 units or use rq.saves.
----@return rq.Unit[]
-function rq.units() end
+rq.units = units
+rq.items = items
+rq.castle = castle
 
----Owned item instances (existence not 0, 6, or 9). Copy.
----@return rq.Item[]
-function rq.items() end
-
-
----Castle open flag, rooms, and units listed in the castle roster.
----@return rq.Castle
-function rq.castle() end
-
----Console (if terminal) + logs\rqmod.log (the logs folder beside mods, loader 1.1.0). Prefixed with the current mod folder/file.
----@param ... any
+---Writes a line to the console and to the log.
+---
+---The line goes to `logs\rqmod.log` (the `logs` folder beside `mods`) and, when `config.json` has
+---`"terminal": true`, to the console window. It starts with the name of the mod and file that
+---called it, such as `[loot-preview] Detected 2 items`. Arguments are turned into text as `tostring`
+---does and joined with tabs, as `print` does.
+---
+---Since: 0.2.0
+---Changed: 1.1.0 The log moved from `mods` to the `logs` folder.
+---@param ... any The values to write.
 function rq.log(...) end
 
----fn() once per Chipmunk/SACT Update. Draw with rq.hud.* here. Every mod may register one; they run in load order. Runs once per game update, which is not one per drawn frame: on a screen that does not redraw it can run thousands of times per second. Use rq.time_ms for anything that must last a real time.
----@param fn fun()
----@return fun() remove Removes this callback. Loader 0.23.0.
+---Calls `fn` once on every game update.
+---
+---Draw with `rq.hud.*` here, and check input or game state. Every mod may register callbacks; they
+---run in load order. An update is not a drawn frame: on a screen that does not redraw it can run
+---thousands of times per second, so use `rq.time_ms` for anything that must last a real time. An
+---error in `fn` is logged once for each new error text, not on every update.
+---
+---Since: 0.2.0
+---Changed: 0.3.0 Every mod keeps its own callback (before, the last mod replaced the others).
+---
+---```lua
+---rq.on_frame(function()
+---  rq.hud.text(10, 10, "Hello from my mod")
+---end)
+---```
+---@param fn fun() Runs on every update.
+---@return fun() remove Removes this callback.
 function rq.on_frame(fn) end
 
----Loader 1.13.0. fn(why) after a load ("load") or the title ("title"), when the game has started
----again, so a mod can clear its own flags. The same callbacks as rq.sprite.on_reset. On the title,
----every Lua call that waited in the game (a scene, a fight from rq.battle.start) has ended first
----with the error "rq: the game went to the title".
----@param fn fun(why: "load"|"title")
----@return fun() remove
+---Calls `fn` after a load or after going to the title, once the game runs again.
+---
+---Use it to clear a mod's own flags, such as "a scene is playing". These are the same callbacks as
+---`rq.sprite.on_reset`, and they run after every mod sprite is gone. On the title, every Lua call
+---that was waiting in the game (a scene, a fight from `rq.battle.start`) has already ended with the
+---error "rq: the game went to the title".
+---
+---Since: 1.13.0
+---@param fn fun(why: "load"|"title") `why` says which one happened.
+---@return fun() remove Removes this callback.
 function rq.on_reset(fn) end
 
----Loader 0.20.0. Milliseconds since the game started, in real time.
----@return integer
+---Returns the time since the game started, in real milliseconds.
+---
+---It keeps counting at real speed whatever `rq.speed` is set to.
+---
+---Since: 0.20.0
+---@return integer ms Milliseconds since the game started.
 function rq.time_ms() end
 
----Loader 0.20.0. Stack trace, of a coroutine if given. The sandbox has no debug library.
----@param co thread|string|nil
----@param msg? string
----@return string
+---Returns a stack trace, of the current code or of a coroutine.
+---
+---The sandbox has no `debug` library; this gives what `debug.traceback` would.
+---
+---Since: 0.20.0
+---@param co? thread|string The coroutine to trace, or the message when no coroutine is given.
+---@param msg? string A message put before the trace.
+---@return string trace The stack trace.
 function rq.traceback(co, msg) end
 
 rq.ain = ain
@@ -1993,28 +2151,82 @@ rq.battle = battle
 rq.skilllist = skilllist
 rq.debug = debug
 rq.agent = agent
+---Reads and changes who is in the party.
+---
+---The party has five ranks. Each holds a character id (the `id` of an entry in `rq.units()`) or 0
+---when it is empty.
+---
+---Since: 0.22.0
 ---@class rq.party
 local party = {}
 
----Loader 0.22.0. Character id on each of the five ranks, 0 for an empty one.
----@return integer[]
+---Returns the character id on each of the five ranks.
+---
+---Since: 0.22.0
+---
+---```lua
+---for rank, id in ipairs(rq.party.get()) do
+---  if id ~= 0 then rq.log(rank, id) end
+---end
+---```
+---@return integer[] ranks Five ids in rank order; 0 for an empty rank.
+---@see rq.party.set
 function party.get() end
 
----Loader 0.22.0. Replaces the party. Up to five ids in rank order; 0 or false leaves a rank empty. Raises an error during a battle, for a character not recruited, for one listed twice, or for more than five ranks, and then changes nothing. A screen that is already open does not redraw.
----@param ranks (integer|false)[]
+---Replaces the whole party.
+---
+---Raises an error, and changes nothing, during a battle, for a character that is not recruited,
+---for a character listed twice, or for more than five ranks. A screen that is already open, such
+---as the Party tab, does not redraw until it is opened again.
+---
+---Since: 0.22.0
+---
+---```lua
+---local ranks = rq.party.get()
+---ranks[1], ranks[2] = ranks[2], ranks[1]   -- swap the first two ranks
+---rq.party.set(ranks)
+---```
+---@param ranks (integer|false)[] Up to five character ids in rank order; 0 or false leaves a rank empty.
+---@see rq.party.get
 function party.set(ranks) end
 
 rq.party = party
 
+---Controls the random number generator the game and the loader share.
+---
+---Every roll of the game and of the loader, such as opening a chest or `rq.item` loot, comes from
+---this one generator. To force the result of one kind of check, a hook is more exact: see
+---`rq.battle.force_hit`.
+---
+---Since: 0.22.0
 ---@class rq.random
 local random = {}
 
----Loader 0.22.0. Starts the generator from n. The same seed gives the same numbers, but a fight does not replay the same way, because effects on screen use the same generator.
----@param n integer
+---Starts the generator from a seed.
+---
+---The same seed gives the same numbers, but a fight does not replay the same way, because effects
+---on screen draw from the same generator.
+---
+---Since: 0.22.0
+---@param n integer The seed.
+---@see rq.random.fix
 function random.seed(n) end
 
----Loader 0.22.0. Every roll gives this value until fix(nil). RAND(n) becomes value % n + 1. Blunt: fix(0) also fires every check written as RAND(5) == 1, so it does not guarantee a hit. Use it only for a short time, because a check that rolls until it gets a new number would never end.
----@param value integer|nil
+---Makes every roll give the same value, or goes back to random rolls.
+---
+---The game rolls with `RAND(n)`, which becomes `value % n + 1`: `fix(0)` makes every roll 1 and
+---`fix(99)` makes `RAND(100)` give 100. It is blunt: `fix(0)` also fires every check written as
+---`RAND(5) == 1`, good or bad, so it does not guarantee a hit. Use it only for a short time; a
+---check that rolls until it gets a new number would never end.
+---
+---Since: 0.22.0
+---
+---```lua
+---rq.random.fix(0)    -- every roll is 1 for now
+---rq.random.fix(nil)  -- random again
+---```
+---@param value integer|nil The value every roll uses, or nil for random rolls.
+---@see rq.battle.force_hit
 function random.fix(value) end
 
 rq.random = random
