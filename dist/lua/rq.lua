@@ -2723,124 +2723,424 @@ function quests.on_event_after(fn) end
 ---@return rq.NewThisRun
 function quests.new_this_run() end
 
+---Plays scenes with the game's own commands, so a mod can do anything a game scene does.
+---
+---The commands block until they end. Run them inside `rq.scene.play` (or `once`, `start`), from a
+---callback the game runs: a quest event, a hook, or `rq.on_frame` in town. From anywhere else, such
+---as every frame, use `rq.scene.start`. Not at the top level of a mod: the game is not running yet.
+---
+---`fn` gets the namespace itself as `s`, so `s.say(...)` and `rq.scene.say(...)` are the same. A CG
+---number from `rq.image.add` works in every layer and as a face; it is drawn at its own size from the
+---top-left, so draw a portrait on a full 1024×768 canvas with a transparent background. Times are in
+---milliseconds. `effect` is the game's transition number; 1 is the default.
+---
+---Each line of text has its own read flag, by mod and text, so the game's skip mode passes only lines
+---the player has read. Every line passes through the AIN function `message`, so a hook on it can read
+---or rewrite any line of the game (`h.args[3]`), as a translation would.
+---
+---When the player goes to the title during a scene (Config has Return to title), every Lua call that
+---waits in the game ends with the error "rq: the game went to the title", and `rq.on_reset("title")`
+---follows.
+---
+---Since: 0.18.0
+---Changed: 1.3.1 Each line has its own read flag (before, one read line marked every mod line read).
+---Changed: 1.13.0 Going to the title ends the scene with an error.
+---
+---```lua
+---rq.quests.on_event(function(ev)
+---  if ev.kind == "start" and ev.quest == 126 then
+---    rq.scene.once("my_mod_intro", function(s)
+---      s.set(0, 5240, 0, 0)  -- a background
+---      s.music(72)
+---      s.portrait(1020)
+---      s.say(2020, "First line.\nSecond line.")
+---      s.think(2020, "A thought.")
+---      s.narrate("Narration.")
+---      s.say(2020, "Pick one.", { wait = false })
+---      local pick = s.choice({ "Yes", "-", { id = 42, text = "No" } })
+---      s.clear_text()
+---      s.say(2020, pick == 42 and "Too bad." or "Good.")
+---    end)
+---  end
+---end)
+---```
 ---@class rq.scene
----Loader 0.18.0. Commands block until they end. Run them inside rq.scene.play.
----Loader 1.3.1: each line of text has its own read flag (by mod and text), so skip mode passes only lines already read.
 local scene = {}
 
----Any game command by its name: rq.scene.cmd["効果_絶頂"](...). Same rules as rq.ain.call.
+---Any game command by its name, called as `rq.ain.call` would.
+---
+---Since: 0.18.0
+---
+---```lua
+---rq.scene.cmd["地図点滅"](1, "", 0, 0)
+---```
 ---@type table<string, fun(...): any>
 scene.cmd = {}
 
+---How `rq.scene.say`, `think` and `narrate` show a line.
 ---@class rq.SceneTextOpts
----@field name? string name plate; default is the face's registered name
----@field face? boolean false hides the face
----@field page? boolean the game's E variant
----@field paper? boolean narrate only: the paper frame
----@field wait? boolean false shows the text without waiting for a click (use it before a choice)
+---@field name? string The name plate. Default: the face's registered name.
+---@field face? boolean false hides the face. Default true.
+---@field page? boolean Uses the game's E variant of the frame.
+---@field paper? boolean `narrate` only: the paper frame.
+---@field wait? boolean false shows the text without waiting for a click, as for a question above a choice. Default true.
 
----ADVON, fn(scene, ...), then clear text and ADVOFF. A Lua error is logged and the scene still closes.
----@param fn fun(s: rq.scene, ...): any
----@return any
+---Opens a scene, runs `fn(s, ...)`, then clears the text and closes it.
+---
+---An error in `fn` is logged and the scene still closes; then it returns nothing. Its end runs the
+---game's `ADVOFF`, which clears the scene layer, so inside a game scene (from a hook) that scene's
+---background and pictures go too; `rq.scene.start` waits for a game scene to end instead.
+---
+---Raises the error "rq: the game went to the title" again when the player went to the title.
+---
+---Since: 0.18.0
+---@param fn fun(s: rq.scene, ...): any The scene.
+---@param ... any Passed on to `fn`.
+---@return any ... What `fn` returns.
 function scene.play(fn, ...) end
----Play once per save. False if it was already seen.
----@param id string
----@param fn fun(s: rq.scene, ...)
----@return boolean played
-function scene.once(id, fn, ...) end
----Loader 1.14.0. Plays fn(s, ...) as rq.scene.play does, in a coroutine of its own, at the next
----frame, and returns at once. False, and nothing queued, while a mod scene plays or waits to, so it
----is safe from anywhere, every frame of rq.on_frame too. It waits while the System menu or Config
----is open, and while a scene of the game's own is on screen. An error that ends it is logged.
----@param fn fun(s: rq.scene, ...)
----@return boolean started
-function scene.start(fn, ...) end
----Loader 1.14.0. True while a mod scene plays (play, once or start), or start waits to play one.
----@return boolean
-function scene.active() end
----Read the game's event flag, or set it with a second argument. Game scene names work too.
----@param id string
----@param set? boolean
----@return boolean
-function scene.seen(id, set) end
----Character line. A newline in text is a line break.
----@param face integer face CG
----@param text string
----@param opts? rq.SceneTextOpts
-function scene.say(face, text, opts) end
----Inner thought.
----@param face integer
----@param text string
----@param opts? rq.SceneTextOpts
-function scene.think(face, text, opts) end
----Narration.
----@param text string
----@param opts? rq.SceneTextOpts
-function scene.narrate(text, opts) end
----Add text to the open frame without waiting.
----@param text string
-function scene.text(text) end
-function scene.br() end
----Wait for a click and clear the page.
-function scene.wait() end
----Show the text without waiting.
-function scene.show() end
-function scene.clear_text() end
----@param ms integer 0 instant, -1 the player's setting
-function scene.speed(ms) end
-function scene.begin() end
-function scene.finish() end
----@param cg integer
----@param effect? integer
----@param time? integer
-function scene.wallpaper(cg, effect, time) end
-function scene.mask_wallpaper(cg, effect, time) end
-function scene.background(cg, effect, time, name, flag) end
-function scene.background_in(cg, time, name, flag) end
-function scene.background_out(time) end
-function scene.portrait(cg, effect, time) end
-function scene.mini(cg, effect, time) end
-function scene.cg(cg, effect, time) end
----Show several layers at once. 0 leaves a layer empty.
-function scene.set(wallpaper, background, portrait, mini) end
-function scene.effect_set(effect, wallpaper, background, portrait, mini, event_cg) end
-function scene.black(effect, time) end
-function scene.white(effect, time) end
-function scene.flash(time) end
-function scene.shake(mode, flag) end
-function scene.shake_face(mode, flag) end
-function scene.shake_portrait(mode, flag) end
-function scene.music(no, effect, time) end
----A game sound number, for scenes. rq.sound.play also plays files and returns a handle.
-function scene.sound(no) end
-function scene.jingle(no, wait) end
-function scene.clear() end
-function scene.wait_click() end
----Name plate for a game face number (2000 and up). Custom faces pass opts.name instead.
-function scene.register_face(cg, name, tone) end
----@class rq.SceneChoice
----@field id? integer default is the position in the list
----@field text string
----@field r? integer
----@field g? integer
----@field b? integer
----@field comment? string
----@field sound? integer
 
----Blocks until the player picks. "-" in the list is a separator.
----@param items (string|rq.SceneChoice)[]
----@param opts? {x?: integer, y?: integer, cancel?: boolean}
----@return integer id
+---Plays a scene once per save.
+---
+---It marks `id` seen with `rq.scene.seen` before it plays.
+---
+---Since: 0.18.0
+---@param id string The event flag that remembers the scene.
+---@param fn fun(s: rq.scene, ...) The scene.
+---@param ... any Passed on to `fn`.
+---@return boolean played false when it was already seen.
+function scene.once(id, fn, ...) end
+
+---Plays a scene at the next frame, in a coroutine of its own, and returns at once.
+---
+---It returns false, and queues nothing, while a mod scene plays or waits to, so a mod can call it from
+---anywhere, also every frame. It waits while the System menu or Config is open, and while a scene of
+---the game's own is on screen. The scene draws over the current screen, takes the clicks, and leaves
+---the screen as it was. An error that ends it is logged.
+---
+---Raises an error when `fn` is not a function.
+---
+---Since: 1.14.0
+---
+---```lua
+---rq.on_frame(function()
+---  if want_talk then
+---    if rq.scene.start(function(s) s.say(2020, "Hello.") end) then want_talk = false end
+---  end
+---end)
+---```
+---@param fn fun(s: rq.scene, ...) The scene.
+---@param ... any Passed on to `fn`.
+---@return boolean started false when a mod scene plays or waits to.
+---@see rq.scene.active
+function scene.start(fn, ...) end
+
+---Returns whether a mod scene plays, or `rq.scene.start` waits to play one.
+---
+---Since: 1.14.0
+---@return boolean active true during `play`, `once` and `start`.
+function scene.active() end
+
+---Reads or sets one of the game's event flags.
+---
+---The game's own scene names work too.
+---
+---Since: 0.18.0
+---@param id string The flag's name.
+---@param set? boolean true or false writes the flag; leave it out to read.
+---@return boolean seen The flag.
+function scene.seen(id, set) end
+
+---Shows a character's line and waits for a click.
+---
+---A newline in `text` breaks the line.
+---
+---Since: 0.18.0
+---@param face integer The face CG number.
+---@param text string The line.
+---@param opts? rq.SceneTextOpts Name plate, frame and wait.
+function scene.say(face, text, opts) end
+
+---Shows a character's thought and waits for a click.
+---
+---Since: 0.18.0
+---@param face integer The face CG number.
+---@param text string The thought.
+---@param opts? rq.SceneTextOpts Name plate, frame and wait.
+function scene.think(face, text, opts) end
+
+---Shows narration and waits for a click.
+---
+---Since: 0.18.0
+---@param text string The narration.
+---@param opts? rq.SceneTextOpts Frame and wait.
+function scene.narrate(text, opts) end
+
+---Adds text to the open frame without waiting.
+---
+---With `br`, `wait`, `show`, `clear_text` and `speed` it builds a line step by step.
+---
+---Since: 0.18.0
+---@param text string The text.
+function scene.text(text) end
+
+---Breaks the line in the open frame (`R`).
+---
+---Since: 0.18.0
+function scene.br() end
+
+---Waits for a click, then clears the page (`A`).
+---
+---Since: 0.18.0
+function scene.wait() end
+
+---Shows the text in the frame without waiting (`B`).
+---
+---Since: 0.18.0
+function scene.show() end
+
+---Clears the message frame (`枠消去`).
+---
+---Since: 0.18.0
+function scene.clear_text() end
+
+---Sets how fast text appears (`字速度`).
+---
+---Since: 0.18.0
+---@param ms integer Time per character: 0 shows it at once, -1 uses the player's setting.
+function scene.speed(ms) end
+
+---Opens the scene mode (`ADVON`). `rq.scene.play` calls it for you.
+---
+---Since: 0.18.0
+function scene.begin() end
+
+---Clears the text and closes the scene mode (`枠消去`, `ADVOFF`). `rq.scene.play` calls it for you.
+---
+---Since: 0.18.0
+function scene.finish() end
+
+---Shows a wallpaper, the layer at the back (`壁紙表示`).
+---
+---Since: 0.18.0
+---@param cg integer The CG number.
+---@param effect? integer The transition. Default 1.
+---@param time? integer The transition time, in ms. Default 500.
+function scene.wallpaper(cg, effect, time) end
+
+---Shows a masked wallpaper (`マスク壁紙表示`).
+---
+---Since: 0.18.0
+---@param cg integer The CG number.
+---@param effect? integer The transition. Default 1.
+---@param time? integer The transition time, in ms. Default 500.
+function scene.mask_wallpaper(cg, effect, time) end
+
+---Shows a background (`背景表示`).
+---
+---Since: 0.18.0
+---@param cg integer The CG number.
+---@param effect? integer The transition. Default 1.
+---@param time? integer The transition time, in ms. Default 500.
+---@param name? string The game's `szName` argument. Default "".
+---@param flag? boolean The game's `bFlag` argument. Default false.
+function scene.background(cg, effect, time, name, flag) end
+
+---Brings a background in (`背景イン`).
+---
+---Since: 0.18.0
+---@param cg integer The CG number.
+---@param time? integer The transition time, in ms. Default 500.
+---@param name? string The game's `szName` argument. Default "".
+---@param flag? boolean The game's `bFlag` argument. Default false.
+function scene.background_in(cg, time, name, flag) end
+
+---Takes the background out (`背景アウト`).
+---
+---Since: 0.18.0
+---@param time? integer The transition time, in ms. Default 500.
+function scene.background_out(time) end
+
+---Shows a standing picture (`立ち絵表示`).
+---
+---Since: 0.18.0
+---@param cg integer The CG number.
+---@param effect? integer The transition. Default 1.
+---@param time? integer The transition time, in ms. Default 200.
+function scene.portrait(cg, effect, time) end
+
+---Shows a small event picture (`ミニイベント表示`).
+---
+---Since: 0.18.0
+---@param cg integer The CG number.
+---@param effect? integer The transition. Default 1.
+---@param time? integer The transition time, in ms. Default 200.
+function scene.mini(cg, effect, time) end
+
+---Shows an event CG over the screen (`イベントＣＧ表示`).
+---
+---Since: 0.18.0
+---@param cg integer The CG number.
+---@param effect? integer The transition. Default 1.
+---@param time? integer The transition time, in ms. Default 500.
+function scene.cg(cg, effect, time) end
+
+---Shows several layers at once (`セット表示`).
+---
+---Since: 0.18.0
+---@param wallpaper? integer The wallpaper CG; 0 leaves the layer empty. Default 0.
+---@param background? integer The background CG; 0 leaves it empty. Default 0.
+---@param portrait? integer The standing picture CG; 0 leaves it empty. Default 0.
+---@param mini? integer The small event picture CG; 0 leaves it empty. Default 0.
+function scene.set(wallpaper, background, portrait, mini) end
+
+---Shows several layers at once with one transition (`エフェクトセット表示`).
+---
+---Since: 0.18.0
+---@param effect? integer The transition. Default 1.
+---@param wallpaper? integer The wallpaper CG; 0 leaves the layer empty. Default 0.
+---@param background? integer The background CG. Default 0.
+---@param portrait? integer The standing picture CG. Default 0.
+---@param mini? integer The small event picture CG. Default 0.
+---@param event_cg? integer The event CG. Default 0.
+function scene.effect_set(effect, wallpaper, background, portrait, mini, event_cg) end
+
+---Fades the screen to black (`黒画面`).
+---
+---Since: 0.18.0
+---@param effect? integer The transition. Default 1.
+---@param time? integer The transition time, in ms. Default 500.
+function scene.black(effect, time) end
+
+---Fades the screen to white (`白画面`).
+---
+---Since: 0.18.0
+---@param effect? integer The transition. Default 1.
+---@param time? integer The transition time, in ms. Default 500.
+function scene.white(effect, time) end
+
+---Flashes the screen (`画面フラッシュ`).
+---
+---Since: 0.18.0
+---@param time? integer How long, in ms. Default 200.
+function scene.flash(time) end
+
+---Shakes the whole screen (`全画面揺れ`).
+---
+---Since: 0.18.0
+---@param mode? integer The game's shake mode (`nMode`). Default 1.
+---@param flag? boolean The game's `bFlag` argument. Default false.
+function scene.shake(mode, flag) end
+
+---Shakes the face in the message frame (`顔揺れ`).
+---
+---Since: 0.18.0
+---@param mode? integer The game's shake mode (`nMode`). Default 1.
+---@param flag? boolean The game's `bFlag` argument. Default false.
+function scene.shake_face(mode, flag) end
+
+---Shakes the standing picture (`立ち絵揺れ`).
+---
+---Since: 0.18.0
+---@param mode? integer The game's shake mode (`nMode`). Default 1.
+---@param flag? boolean The game's `bFlag` argument. Default false.
+function scene.shake_portrait(mode, flag) end
+
+---Plays a game music track (`音楽`).
+---
+---Since: 0.18.0
+---@param no integer The music number.
+---@param effect? integer The fade type; -1 is the game's default. Default -1.
+---@param time? integer The fade time; -1 is the game's default. Default -1.
+function scene.music(no, effect, time) end
+
+---Plays a game sound effect by number (`効果音`).
+---
+---`rq.sound.play` also plays files and returns a handle.
+---
+---Since: 0.18.0
+---@param no integer The sound number.
+function scene.sound(no) end
+
+---Plays a jingle (`Ｒ８ジングル`).
+---
+---Since: 0.18.0
+---@param no integer The sound number.
+---@param wait? boolean true waits for it to end. Default false.
+function scene.jingle(no, wait) end
+
+---Clears the scene's pictures (`画面消去`).
+---
+---Since: 0.18.0
+function scene.clear() end
+
+---Waits for a click (`キー待ち_クリック`).
+---
+---Since: 0.18.0
+---@return any result What the game's command returns.
+function scene.wait_click() end
+
+---Sets the name plate for one of the game's face numbers (`顔登録`).
+---
+---A mod's own face passes `opts.name` to `say` instead.
+---
+---Since: 0.18.0
+---@param cg integer The face CG number, 2000 and up.
+---@param name string The name on the plate.
+---@param tone? integer The game's tone value (`口調`). Default 1.
+function scene.register_face(cg, name, tone) end
+
+---One row of `rq.scene.choice`.
+---@class rq.SceneChoice
+---@field id? integer What `choice` returns for this row. Default: its place in the list.
+---@field text string The text.
+---@field r? integer Red, 0 to 255. Default: the game's color.
+---@field g? integer Green, 0 to 255. Default: the game's color.
+---@field b? integer Blue, 0 to 255. Default: the game's color.
+---@field comment? string The game's comment text for the row. Default "".
+---@field sound? integer A sound number for the row.
+
+---Shows a list of choices and waits until the player picks one.
+---
+---Since: 0.18.0
+---
+---```lua
+---local pick = s.choice({ "Yes", "-", { id = 42, text = "No" } })
+---```
+---@param items (string|rq.SceneChoice)[] The rows: text, `"-"` for a separator, or a table.
+---@param opts? {x?: integer, y?: integer, cancel?: boolean} `x`, `y`: where the list goes (y default 360). `cancel`: the game's cancel flag for the list. Default false.
+---@return integer id The picked row's id.
 function scene.choice(items, opts) end
----@param name string AIN function name, usually a game scene
----@param fn fun(h: rq.AinHookCtx)
+
+---Runs `fn` before a game scene or command.
+---
+---Game scenes are AIN functions named like `カオル／出会い`; find names with `rq.ain.find`.
+---
+---Since: 0.18.0
+---@param name string The AIN function's name.
+---@param fn fun(h: rq.AinHookCtx) Gets the call, as `rq.ain.hook` does.
+---@see rq.ain.hook
 function scene.before(name, fn) end
----@param name string
----@param fn fun(h: rq.AinHookCtx)
+
+---Runs `fn` after a game scene or command.
+---
+---Since: 0.18.0
+---@param name string The AIN function's name.
+---@param fn fun(h: rq.AinHookCtx) Gets the call, as `rq.ain.hook` does.
 function scene.after(name, fn) end
----The game's function does not run. What fn returns becomes its result.
----@param name string
----@param fn fun(h: rq.AinHookCtx): any
+
+---Replaces a game scene or command: the game's function does not run.
+---
+---What `fn` returns becomes the call's result.
+---
+---Since: 0.18.0
+---
+---```lua
+---rq.scene.replace("カオル／出会い", function(h)
+---  rq.scene.play(function(s) s.say(2020, "A new first meeting.") end)
+---end)
+---```
+---@param name string The AIN function's name.
+---@param fn fun(h: rq.AinHookCtx): any Returns the result.
 function scene.replace(name, fn) end
 
 ---Lists the recruited characters.
