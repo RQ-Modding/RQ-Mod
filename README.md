@@ -1,14 +1,43 @@
-xsystem4
-========
+# Rance Quest Modding xsysten4
 
-xsystem4 is an implementation of AliceSoft's System 4 game engine for unix-like
-operating systems.
+Rance Quest Modding is a personal project with the porpuse of allowing mods to be made for the game without the decopilation and compilation requirement, it does this by exposing a Lua layer with the methods necessary to make mods possible and by using the public open-soure cross-platform implementation of alicesoft engine: [xsystem4](https://github.com/nunuhara/xsystem4).
 
-Compatiblity
-------------
+> [!IMPORTANT]
+> This project should take no credits or merit for the engine, it's only possible because [xsystem4](https://github.com/nunuhara/xsystem4) is made by people who actually understand engine development and alicesoft's engine.
 
-See the [game compatibility table](game_compatibility.md) for a list of games
-that can be played on xsystem4.
+## How to install
+
+Download any of the latest released built at [Releases Page](https://github.com/moruzerinho6/RQ_modding_xsystem4/releases)
+
+Extract the file and place it inside your game folder, your game folder should look like this:
+
+```
+/Rance Quest Magnum
+├── Data
+├── DLL
+├── Face CG
+├── logs
+├── mods
+│   └── camera-zoom <- Mod Structure Example
+│       ├── init.lua
+│       ├── README.md
+│       └── mod.json
+├── xsystem4
+│   └── xsystem4.exe <- What you want to execute
+└── RanceQuest.exe
+```
+
+## Features and Changes
+
+The [xsystem4](https://github.com/nunuhara/xsystem4) engine is not complete, it still being updated weekly to properly support many the alicesoft games it wants to. While this project forks that **cross-platform** engine that **supports many alicesoft games**, this is not the case for RQMOD.
+
+**This project cares only for Rance Quest Magnum** and changes are made considering only that as the compatibility, my testing also only looks at Windows as a target.
+
+- Lua API allowing mods to be created and loaded at runtime.
+- Discord RPC integration (WIP, can be disabled at the game settings "Other 2")
+- Logs System
+- Debug Menu with F3 (Mods can expand it)
+- Mods Tab on the config screen.
 
 Building
 --------
@@ -122,22 +151,6 @@ If building from source, run:
 
 to install xsystem4 on your system.
 
-### Windows
-
-The recommended way to install on Windows is to copy the xsystem4 directory
-into the game directory. E.g. if Sengoku Rance is installed at
-`C:\Games\AliceSoft\Sengoku Rance`, then your filesystem should look something
-like this:
-
-    C:\
-        Games\
-            AliceSoft\
-                Sengoku Rance\
-                    System40.ini
-                    xsystem4\
-                        xsystem4.exe
-                        ...
-                    ...
 
 Running
 -------
