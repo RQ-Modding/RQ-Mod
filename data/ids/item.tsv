@@ -1,0 +1,304 @@
+1	Adventurer Outfit	armor
+2	Stealth Suit	armor
+3	Tarampi Suit	armor
+4	Miko Outfit	armor
+5	T-Shirt	armor
+6	Maid Outfit	armor
+7	Lia's Clothes	armor
+8	Leather Armor	armor
+9	Leather Armor XA	armor
+10	Sailor Uniform	armor
+11	Ninja Outfit	armor
+12	Resist Armor	armor
+13	High Grade Adventurer Outfit	armor
+14	Tough Leather Armor	armor
+15	Tough Leather Armor XB	armor
+16	Cultux	armor
+17	Quintessential Ninja	armor
+19	Composite Leather Armor	armor
+20	DR Leather Armor	armor
+21	Modified Composite Leather Armor	armor
+22	Sacred Tree Armor	armor
+24	Emperor's Armor	armor
+25	Light Armor	armor
+26	Light Armor XA	armor
+27	Oda Armor	armor
+30	Iron Armor	armor
+31	Iron Armor X	armor
+32	Crystal Armor	armor
+33	Warrior Armor	armor
+34	Leazas Red General Armor	armor
+36	Coarse Armor	armor
+37	Hell Setter	armor
+38	Heavy Armor	armor
+39	Bikini Armor	armor
+40	Champion	armor
+41	Modified Coarse Armor	armor
+42	Sengoku Rance Armor	armor
+43	Prelan Robe	armor
+46	Loose Robe	armor
+47	Split Robe	armor
+48	Holy Robe	armor
+50	High Grade Loose Robe	armor
+51	Magic Idiot	armor
+52	Magic Minister	armor
+53	Black Robe	armor
+54	Orgarhythm	armor
+55	White Belt Gi	armor
+56	Commander's Uniform	armor
+57	Strengthened Synthetic Clothes	armor
+58	Black Belt Gi	armor
+59	China Dress	armor
+61	Red Belt Gi	armor
+62	Killer Gi	armor
+63	Initiation Clothes	armor
+64	Ulaanbaatar	armor
+66	Dagger	weapon
+67	Accurate Dagger	weapon
+68	Club	weapon
+69	Omikuji Box	weapon
+70	Lia's Whip	weapon
+71	Shortsword	weapon
+72	Ninja Knife	weapon
+74	Two-handed Shield	weapon
+75	Rapier	weapon
+76	Modified Rapier	weapon
+77	Critical Knife	weapon
+78	Compound Rapier	weapon
+81	Villa Blade	weapon
+82	Cuckri	weapon
+83	Uruncel Blade	weapon
+84	Decapitation Blade	weapon
+85	Over Blade	weapon
+86	Longsword	weapon
+87	Lightning Sword	weapon
+88	Zombie Sword	weapon
+90	Buster Sword	weapon
+91	Modified Buster Sword	weapon
+92	Katana	weapon
+93	Iceberg Sword	weapon
+94	Paper Cutter	weapon
+95	Super Sword	weapon
+96	Hideo's Sword	weapon
+97	Persiom	weapon
+98	Ultra Sword	weapon
+99	Hero's Sword	weapon
+100	Chaos the Darksword	weapon
+101	Strongman Hammer	weapon
+102	Dewdrop Axe	weapon
+103	Priest's Mace	weapon
+104	Killer Hammer	weapon
+106	Hammer B	weapon
+107	Modified Hammer B	weapon
+108	Mollusc Crusher	weapon
+109	Pastor's Mace	weapon
+110	Pastor's Mace D	weapon
+111	Big Hammer	weapon
+112	Becky	weapon
+113	Bishop's Mace	weapon
+114	Comet	weapon
+115	10-Ton Hammer	weapon
+117	Warrior's Spear	weapon
+118	Poison Dango	weapon
+119	Flame Spear	weapon
+122	Spear	weapon
+123	Modified Spear	weapon
+124	Light Spear	weapon
+125	Naginata	weapon
+127	Halberd	weapon
+128	Anguirus	weapon
+129	Terror Spear	weapon
+130	Halberd S	weapon
+131	By Road	weapon
+133	Shortbow	weapon
+134	Elite Kalar Bow	weapon
+135	Ear-hunter Boomerang	weapon
+137	Longbow	weapon
+138	Modified Longbow	weapon
+139	Insect-killer Bow	weapon
+140	Ancient-hunter Bow	weapon
+142	Power Attack Bow	weapon
+143	Artisan's Bow	weapon
+144	Stronger	weapon
+145	Giga Attack Bow	weapon
+148	Glove	weapon
+149	Good Will Punch	weapon
+151	Knuckle	weapon
+152	Modified Knuckle	weapon
+153	Config	weapon
+155	Metal Glove	weapon
+156	Killfig	weapon
+157	Dragon Gloves	weapon
+158	Veteran Glove	weapon
+160	Haies Staff	weapon
+161	Magic Ice Stick	weapon
+163	Sylph Staff	weapon
+164	Shining LED Staff	weapon
+165	Queen's Staff	weapon
+166	Gaia Staff	weapon
+167	Boss's Staff	weapon
+168	Buddha	weapon
+169	Crystal Rod	weapon
+170	Arquebus	weapon
+171	Tulip 1	weapon
+172	Super Resistance Ring	item
+178	Puncher	weapon
+179	Stealth Device	item
+180	Harumaki	item
+181	Ibeprofun Box	item
+182	Ibeprofun EX Box	item
+183	Ibeprofun EX+ Box	item
+184	Epinephrend	item
+185	Magic Key	item
+186	Capture Rope	item
+187	Explosive Rounds	item
+188	Hanny Zippo	item
+189	Resistance Ring	item
+190	Resistance Ring	item
+191	Evasion Boots	item
+192	Evasion Boots	item
+193	Resilience Necklace	item
+194	Resilience Necklace	item
+195	Poison Mask	item
+196	Additional Armor	item
+197	Additional Armor	item
+198	Additional Armor	item
+199	Cardboard Armor	item
+200	Flame Charm	item
+201	Ice Charm	item
+202	Electric Charm	item
+203	Light Charm	item
+204	Dark Charm	item
+205	Accuracy Boots	item
+206	Learning Device	item
+207	Box of Cakes	none
+208	Angel Mirror	item
+209	Soul Shackle	item
+210	FastPass	item
+211	Pocketknife	item
+212	Pocket Hammer	item
+213	Bloomers	item
+214	Hanny Goods	item
+215	Mr. Hiroshi	item
+216	Marble	item
+217	Orochi's Scale	item
+218	Portrait~	item
+219	Crystal	item
+220	Scroll (Elenoa)	item
+221	Scroll (Mill)	item
+222	Scroll (Nozomi)	item
+223	Scroll (Karma)	item
+224	Scroll (Shitomone)	item
+225	Scroll (Wichita)	item
+226	Scroll (Sel)	item
+227	Can Can	item
+228	97 Chi-Ha	item
+229	Gecky	item
+230	Magisco	item
+231	Kraken	item
+232	Crab Girl	item
+233	Splish-Splash	item
+234	Frog Lady	item
+235	Maid Lady	item
+236	Zashiki-Warashi	item
+237	Lantyrn	item
+238	Tokko	item
+239	Majician	item
+240	Nekomatamata	item
+241	Valkyrie	item
+242	Captain Vanilla	item
+243	Ralga's Cat	item
+244	Battle Booklet	item
+247	Human Parts A	quest
+248	Human Parts B	quest
+249	Human Parts C	quest
+250	Human Parts D	quest
+251	Human Parts E	quest
+252	Forbidden Talent - V	special
+255	Lotion A	none
+256	Lotion B	none
+257	Lotion C	none
+258	Jewel	item
+259	Kugu Piece A	none
+260	Kugu Piece B	none
+261	Kugu Piece C	none
+262	Tama's Underwear	item
+263	Tama's Dress	item
+265	Mercenary Tama	item
+266	Mercenary Hag	item
+267	Reddish Feather	item
+268	Character Ticket	item
+269	Manga Meat Bone	special
+270	Manga Meat	special
+271	Rabbit Stew	special
+272	Wooden Bear	special
+273	Steel Bear	special
+274	Solid Gold Bear	special
+275	Shiitake	special
+276	Protective Marimo	special
+277	Protective God	special
+278	Well-Boned Fish	special
+279	Dora Cat's Bell	special
+280	Common Seahorse	special
+281	Stomachache Spirit	special
+282	Cowlick	special
+283	Love Pet	special
+284	Miss Stake	special
+285	Nimble Feather	special
+286	Dodgy Soup	special
+287	Ritchie Rod	special
+288	Piggyback Pal	special
+289	Moja Doll	special
+290	Inadequate Clock	special
+291	Quick, Strange Bug	special
+292	Rocket Engine	special
+293	Scratched-Up CD	special
+294	Totally Broken Radio	special
+295	Watch & Game	special
+296	Melting Ice	special
+297	Prizeless Snack	special
+298	Shockwave Alberto Belt	special
+299	Stretchy Noodles	special
+300	Canned Air	special
+301	Defiance Crown	special
+302	Broken Clock	special
+303	God's Plan	special
+304	Forbidden Talent	special
+305	Forbidden Talent - Weak	special
+306	Skill Again	special
+307	Gal Monster Tamer Handbook	special
+309	Alice Coin	special
+310	Rocky Chunk	special
+311	Grapes	quest
+312	Cow	quest
+313	Bug	quest
+314	Ninja Glue	quest
+315	Lyrica	quest
+316	Appraiser's Ink	quest
+317	Despair Key	quest
+318	Strong Capture Rope	item
+319	Modified Arquebus	weapon
+320	By Road	weapon
+321	Leazas Red General Armor	armor
+322	Poster Cylinder	item
+323	Health Up Set	special
+324	Attack Up Set	special
+325	Defense Up Set	special
+326	Magic Up Set	special
+327	Resistance Up Set	special
+328	Evasion Up Set	special
+329	Accuracy Up Set	special
+330	Speed Up Set	special
+331	Critical Up Set	special
+332	Stun Up Set	special
+333	Resilience Up Set	special
+334	Lizard-Away	quest
+335	Abnormal Bloomers	item
+336	White Nurse Outfit	armor
+337	Black Nurse Outfit	armor
+338	Blank Map	quest
+339	Prison Key	quest
+340	Accuracy Boots	item
+341	Pocket Hammer	item
+342	Hanny King's Crown	item
+343	Modified Learning Device	item

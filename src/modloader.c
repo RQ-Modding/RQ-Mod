@@ -1411,6 +1411,7 @@ static void open_rq(lua_State *L)
 	rq_sprite_hooks(L, lua_gettop(L));
 	rq_uikit_open(L, lua_gettop(L));
 	rq_config_open(L, lua_gettop(L));
+	rq_ids_open(L, lua_gettop(L));
 	guard_game_calls(L);
 	lua_setglobal(L, "rq");
 }

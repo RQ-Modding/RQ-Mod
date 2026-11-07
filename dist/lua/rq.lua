@@ -3987,6 +3987,102 @@ local castle = {}
 ---@return rq.Castle castle A copy of the castle's state.
 function castle.get() end
 
+---The game's numbers by name: characters, classes, items, quests, skills and states.
+---
+---Each kind is a table of constants, so `rq.ids.skill.FORTUNE_448` is 448 and `rq.ids.item.SKILL_AGAIN`
+---is 306. Editors complete them from `lua/rq_ids.lua`, with each entry's number and in-game name. A
+---key is the English name in upper snake case. A name the game gives to more than one number gets
+---the number as a suffix on each of them (`FORTUNE_158`, `FORTUNE_448`), and a key that would start
+---with a digit starts with `N_` (`N_10_TON_HAMMER`). Every entry is in the docs' data tables.
+---
+---The tables hold the base game only, not what mods define; use a mod's text id for those. Reading
+---a key that does not exist raises an error, so a typo stops the mod at once instead of passing
+---nil along; use `rq.ids.find` for a name that may not be there. Nothing in `rq.ids` can be
+---changed. It works at the top level of `init.lua`.
+---
+---| Kind | Numbers |
+---| --- | --- |
+---| `chara` | character numbers (`no`), not roster slots |
+---| `class` | class numbers, as in `rq.chara.get(iic).class` |
+---| `item` | item numbers, not instances |
+---| `quest` | quest numbers |
+---| `skill` | skill numbers |
+---| `state` | status values (`状態変化`): `NONE`, `POISON`, `STUN`, `DOWNED` |
+---
+---Since: 1.15.0
+---
+---```lua
+---local FORTUNE = rq.ids.skill.FORTUNE_448
+---local iic = rq.chara.find(rq.ids.chara.KAORU_QUINCY)
+---if rq.item.number(ii) == rq.ids.item.POISON_MASK then ... end
+---local no = rq.ids.find("skill", "Spear Knowledge")  -- from a config file or a player
+---```
+---@class rq.ids
+---@field chara rq.IdsChara Characters by name; each key is in the docs' Characters table (Game data).
+---@field class rq.IdsClass Classes by name; each key is in the docs' Classes table (Game data).
+---@field item rq.IdsItem Items by name; each key is in the docs' Items table (Game data).
+---@field quest rq.IdsQuest Quests by name; each key is in the docs' Quests table (Game data).
+---@field skill rq.IdsSkill Skills by name; each key is in the docs' Skills table (Game data).
+---@field state rq.IdsState States by name; each key is in the docs' States table (Game data).
+local ids = {}
+
+---Returns the number of the thing with this name.
+---
+---The name is compared without case, spaces or punctuation, and é matches e, so "spear knowledge"
+---finds Spear Knowledge. A key works too (`"FORTUNE_448"`). When the game uses the name for more
+---than one number, nothing is returned and the message lists the numbers; `rq.ids.find_all` gives
+---them all.
+---
+---Raises an error for an unknown kind or a name that is not a string.
+---
+---Since: 1.15.0
+---
+---```lua
+---local no, err = rq.ids.find("item", cfg.item)
+---if not no then rq.log(err) end  -- such as: more than one skill is named "Fortune": 158, 159, 160, 448
+---```
+---@param kind "chara"|"class"|"item"|"quest"|"skill"|"state" The kind.
+---@param name string The in-game English name, or a key.
+---@return integer|nil no The number, or nil when no entry or more than one has that name.
+---@return string? err Why there is no number.
+---@see rq.ids.find_all
+function ids.find(kind, name) end
+
+---Returns the numbers of every entry whose name contains a text.
+---
+---The text is compared as in `rq.ids.find`. An empty text gives every number of the kind.
+---
+---Raises an error for an unknown kind or a text that is not a string.
+---
+---Since: 1.15.0
+---
+---```lua
+---rq.ids.find_all("skill", "fortune")  -- {158, 159, 160, 293, 448, 585}: Fortune, Improve Fortune,
+---                                     -- 7 Misfortunes, 8 Pains
+---```
+---@param kind "chara"|"class"|"item"|"quest"|"skill"|"state" The kind.
+---@param text string What the name must contain.
+---@return integer[] numbers The numbers, smallest first; empty when none.
+---@see rq.ids.find
+function ids.find_all(kind, text) end
+
+---Returns the in-game name of a number.
+---
+---It is the base game's English name, as `rq.skill.get` and the like give it. Some names keep the
+---game's own code for é (`Tomato Pur･e`).
+---
+---Raises an error for an unknown kind.
+---
+---Since: 1.15.0
+---
+---```lua
+---rq.log("used " .. (rq.ids.name("skill", ctx.skill) or "a mod skill"))
+---```
+---@param kind "chara"|"class"|"item"|"quest"|"skill"|"state" The kind.
+---@param no integer The number.
+---@return string|nil name The name, or nil when the base game has none for that number.
+function ids.name(kind, no) end
+
 ---The global table every mod uses to reach the game.
 ---
 ---The engine builds `rq` before any mod runs. Mods load before the game starts, so at the top level
@@ -4010,7 +4106,7 @@ function castle.get() end
 ---end)
 ---```
 ---@class rq
----@field version string The loader version, such as "1.14.2". A mod whose `mod.json` asks for a newer `loader` is not loaded.
+---@field version string The loader version, such as "1.15.0". A mod whose `mod.json` asks for a newer `loader` is not loaded.
 ---@field game_dir string The game folder (where the AIN is).
 ---@field mods_dir string The `mods` folder, ending in a backslash.
 ---@field units rq.units
@@ -4039,13 +4135,14 @@ function castle.get() end
 ---@field sound rq.sound
 ---@field uikit rq.uikit
 ---@field config rq.config
+---@field ids rq.ids
 rq = {}
 
 ---The loader version.
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "1.14.2"
+rq.version = "1.15.0"
 
 rq.units = units
 rq.items = items
@@ -5011,3 +5108,4 @@ rq.quests = quests
 rq.scene = scene
 rq.image = image
 rq.item = item
+rq.ids = ids

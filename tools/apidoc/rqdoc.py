@@ -249,7 +249,7 @@ def link_types(typ, model, here):
     if not typ:
         return ""
     names = sorted(model["classes"].keys() | model["aliases"].keys(), key=len, reverse=True)
-    pat = re.compile(r"(?<![\w.])(" + "|".join(re.escape(n) for n in names) + r")(?![\w])") if names else None
+    pat = re.compile(r"(?<![\w.])(" + "|".join(re.escape(n) for n in names) + r")(?![\w.])") if names else None
     out, pos = [], 0
     for m in (pat.finditer(typ) if pat else []):
         if m.start() > pos:

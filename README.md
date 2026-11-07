@@ -66,7 +66,7 @@ When you report a problem, attach the crash `.log` (and the `.dmp` if it is smal
 
 Mods are Lua 5.4. A mod is a folder in `mods` with an `init.lua` and a `mod.json`.
 
-- API definitions for your editor (VS Code with the Lua extension): `lua/rq.lua`. The release includes a `.luarc.json` that points the Lua extension at it.
+- API definitions for your editor (VS Code with the Lua extension): `lua/rq.lua`, and the game's numbers by name for `rq.ids` in `lua/rq_ids.lua`. The release includes a `.luarc.json` that points the Lua extension at it.
 - Version history of the API: [CHANGELOG.md](CHANGELOG.md).
 - Full modding documentation: coming soon at the RQ Modding organization.
 
@@ -94,7 +94,10 @@ Movie playback with FFmpeg is optional; the [release workflow](.github/workflows
 | Path | What it is |
 | --- | --- |
 | `src/modloader*.c`, `src/lua/` | The mod loader and the `rq.*` API |
-| `dist/` | Files shipped into the game folder (`config.json`, `lua/rq.lua`, `.luarc.json`) |
+| `dist/` | Files shipped into the game folder (`config.json`, `lua/rq.lua`, `lua/rq_ids.lua`, `.luarc.json`) |
+| `data/ids/` | The game's names and numbers behind `rq.ids`, read from the game by `tools/ids/extract.lua` |
+| `tools/ids/` | `gen_ids.py` builds `src/lua/ids.lua`, `dist/lua/rq_ids.lua` and `data/ids/ids.json` from `data/ids` |
+| `tools/apidoc/` | The API reference generator and the docs coverage check |
 | `tools/rqmod-ctl/` | Command-line client for the agent pipe, used by test scripts |
 | `res/` | Icon and Windows resources |
 | `third_party/lua/` | Lua 5.4.7 |

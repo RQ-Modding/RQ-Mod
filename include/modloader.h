@@ -122,6 +122,8 @@ int rq_scene_syscall(int code);
 void rq_scene_on_return(int fno);
 void rq_scene_open(struct lua_State *L, int rq_index);
 void rq_uikit_open(struct lua_State *L, int rq_index);
+/* rq.ids: the game's numbers by name (modloader_ids.c, lua/ids.lua). */
+void rq_ids_open(struct lua_State *L, int rq_index);
 int rq_lua_battle_on_start(struct lua_State *L);
 int rq_lua_battle_on_end(struct lua_State *L);
 int rq_lua_battle_on_down(struct lua_State *L);
@@ -433,7 +435,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "1.14.2"
+#define RQ_VERSION "1.15.0"
 
 struct rq_qbattle_skill {
 	int id;
