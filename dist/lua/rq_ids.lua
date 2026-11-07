@@ -842,6 +842,70 @@
 ---@field DATA_LESS_GHOST_495 integer 495: Data-less Ghost (Lv 4, Guy Monster)
 ---@field ZASHIKI_WARASHI_5_KILLER integer 496: Zashiki-Warashi (5 Killer) (Lv 25, Gal Monster)
 
+---Music by name: music track numbers, as `rq.music.replace` and `rq.music.play` take them and `rq.music.current()` gives them.
+---
+---A key that is not here raises an error; `rq.ids.find` looks a name up.
+---@class rq.IdsMusic
+---@field INDOOR_CRAWL_R8 integer 1: Indoor Crawl/R8
+---@field OUTDOOR_CRAWL_R8 integer 2: Outdoor Crawl/R8
+---@field BOSS_CRAWL_R8 integer 3: Boss Crawl/R8
+---@field INFILTRATION_CRAWL_R8 integer 4: Infiltration Crawl/R8
+---@field FREE_FOR_ALL_CRAWL_R8 integer 5: Free-For-All Crawl/R8
+---@field MALGRID_R8 integer 6: Malgrid/R8
+---@field MYSTERY_CRAWL_R8 integer 7: Mystery Crawl/R8
+---@field TOWER_CRAWL_CLIMB_R8 integer 8: Tower Crawl, Climb/R8
+---@field TOWER_CRAWL_CLIMB_HIGHER_R8 integer 9: Tower Crawl, Climb Higher/R8
+---@field TOWER_CRAWL_CLIMB_EVER_HIGHER_R8 integer 10: Tower Crawl, Climb Ever Higher/R8
+---@field OUTDOOR_CRAWL_FOREST_R8 integer 11: Outdoor Crawl-Forest/R8
+---@field OUTDOOR_CRAWL_MOUNTAIN_R8 integer 12: Outdoor Crawl-Mountain/R8
+---@field INDOOR_CRAWL_MAGNUM integer 13: Indoor Crawl/Magnum
+---@field OUTDOOR_CRAWL_MAGNUM integer 14: Outdoor Crawl/Magnum
+---@field BATTLE_1_R8 integer 51: Battle 1/R8
+---@field BATTLE_2_R8 integer 52: Battle 2/R8
+---@field BOSS_BATTLE_R8 integer 53: Boss Battle/R8
+---@field FULL_BATTLE_R8 integer 54: Full Battle/R8
+---@field TRNSBEAT_R5D_R8 integer 55: TrnsBeat? (R5D)/R8
+---@field LUCKY_CAN_CAN_R8 integer 56: Lucky Can Can/R8
+---@field HANNY_R8 integer 57: Hanny/R8
+---@field BOSS_BOSS_BATTLE_R8 integer 58: Boss Boss Battle/R8
+---@field AM_BATTLE_MAGNUM integer 59: Am Battle/Magnum
+---@field BATTLE_MAGNUM integer 60: Battle/Magnum
+---@field EVERYDAY_CONVERSATION_R8 integer 71: Everyday Conversation/R8
+---@field CONVERSATION_WITH_GIRL_R8 integer 72: Conversation with Girl/R8
+---@field AN_EROTIC_MOOD_R8 integer 73: An Erotic Mood/R8
+---@field AN_ENERGETIC_RANCE_R8 integer 74: An Energetic Rance/R8
+---@field NO_GOOD_EVERYDAY_CONVERSATION_R8 integer 75: No Good Everyday Conversation/R8
+---@field TENSE_EVERYDAY_CONVERSATION_R8 integer 76: Tense! Everyday Conversation/R8
+---@field MEMORIES_OF_SILL_R8 integer 77: Memories of Sill/R8
+---@field WRONG_THEME_FOR_PASTEL_R8 integer 78: Wrong Theme for Pastel/R8
+---@field INSIDE_THE_CHURCH_R8 integer 79: Inside the Church/R8
+---@field TROUBLE_R8 integer 82: Trouble/R8
+---@field OVERWHELMED_AND_INTIMIDATED_R8 integer 83: Overwhelmed and Intimidated/R8
+---@field ALICES_MANSION_R8 integer 84: Alice's Mansion/R8
+---@field TRAGEDY_SOB_SOB_R8 integer 85: Tragedy Sob Sob/R8
+---@field HAPPY_EVERYDAY_CONVERSATION_R8 integer 86: Happy Everyday Conversation/R8
+---@field BRUTAL_MANS_DAILY_LIFE_R7_R8 integer 87: Brutal Man's Daily Life (R7)/R8
+---@field MARS_R7_R8 integer 88: Mars (R7)/R8
+---@field RANCE_CASTLE_R8 integer 89: Rance Castle/R8
+---@field RESET_R8 integer 90: Reset/R8
+---@field SOLEMN_R8 integer 91: Solemn/R8
+---@field ERO_RANCE_THEME_SAD_R8 integer 92: Ero (Rance Theme Sad)/R8
+---@field NORMAL_EVERYDAY_CONVERSATION_R8 integer 93: Normal Everyday Conversation/R8
+---@field MONTHLY_PAYMENT_PLAN_R8 integer 94: Monthly Payment Plan/R8
+---@field THE_CONTAMINATED_R8 integer 95: The Contaminated/R8
+---@field EPILOGUE_R8 integer 96: Epilogue/R8
+---@field MY_GLORY_R8 integer 97: My Glory/R8
+---@field SHEPHERDS_R8 integer 98: Shepherds/R8
+---@field OUTSIDE_THE_CHURCH_R8 integer 99: Outside the Church/R8
+---@field COPANDON_CIDADE_R8 integer 101: Copandon Cidade/R8
+---@field RESULTS_R8 integer 102: Results/R8
+---@field OPENING_R8 integer 103: Opening/R8
+---@field ENDING_R8 integer 104: Ending/R8
+---@field GO_TO_THE_BRUTAL_MAN_R5D_R8 integer 105: Go to the Brutal Man (R5D)/R8
+---@field COPANDON_CIDADE_MAGNUM integer 106: Copandon Cidade/Magnum
+---@field OPENING_MAGNUM integer 107: Opening/Magnum
+---@field NEW_FRIEND_THEME integer 108: New Friend Theme
+
 ---Quests by name: quest numbers, as in `rq.quests()` and `rq.quests.start`.
 ---
 ---A key that is not here raises an error; `rq.ids.find` looks a name up.

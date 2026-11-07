@@ -24,6 +24,10 @@
 #include "mixer.h"
 #include "xsystem4.h"
 
+#ifdef RQ_MODLOADER
+#include "modloader.h"
+#endif
+
 /*
  * Common audio interface for SACT2/KiwiSoundEngine.
  * This is just a wrapper over the generic audio interface in audio_mixer.c.
@@ -124,7 +128,14 @@ static int audio_prepare(struct id_pool *pool, int id, enum asset_type type, int
 {
 	if (id < 0)
 		return 0;
-	struct channel *ch = channel_open(type, no);
+	struct channel *ch = NULL;
+#ifdef RQ_MODLOADER
+	// rq.music: a mod's file in place of the track, when one is set.
+	if (type == ASSET_BGM)
+		ch = rq_music_open(id, no);
+#endif
+	if (!ch)
+		ch = channel_open(type, no);
 	struct channel *old = id_pool_set(pool, id, ch);
 	if (old)
 		channel_close(old);

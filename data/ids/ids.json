@@ -4871,6 +4871,367 @@
    ]
   },
   {
+   "kind": "music",
+   "title": "Music",
+   "what": "music track numbers, as `rq.music.replace` and `rq.music.play` take them and `rq.music.current()` gives them",
+   "entries": [
+    {
+     "no": 1,
+     "name": "Indoor Crawl/R8",
+     "detail": "",
+     "key": "INDOOR_CRAWL_R8"
+    },
+    {
+     "no": 2,
+     "name": "Outdoor Crawl/R8",
+     "detail": "",
+     "key": "OUTDOOR_CRAWL_R8"
+    },
+    {
+     "no": 3,
+     "name": "Boss Crawl/R8",
+     "detail": "",
+     "key": "BOSS_CRAWL_R8"
+    },
+    {
+     "no": 4,
+     "name": "Infiltration Crawl/R8",
+     "detail": "",
+     "key": "INFILTRATION_CRAWL_R8"
+    },
+    {
+     "no": 5,
+     "name": "Free-For-All Crawl/R8",
+     "detail": "",
+     "key": "FREE_FOR_ALL_CRAWL_R8"
+    },
+    {
+     "no": 6,
+     "name": "Malgrid/R8",
+     "detail": "",
+     "key": "MALGRID_R8"
+    },
+    {
+     "no": 7,
+     "name": "Mystery Crawl/R8",
+     "detail": "",
+     "key": "MYSTERY_CRAWL_R8"
+    },
+    {
+     "no": 8,
+     "name": "Tower Crawl, Climb/R8",
+     "detail": "",
+     "key": "TOWER_CRAWL_CLIMB_R8"
+    },
+    {
+     "no": 9,
+     "name": "Tower Crawl, Climb Higher/R8",
+     "detail": "",
+     "key": "TOWER_CRAWL_CLIMB_HIGHER_R8"
+    },
+    {
+     "no": 10,
+     "name": "Tower Crawl, Climb Ever Higher/R8",
+     "detail": "",
+     "key": "TOWER_CRAWL_CLIMB_EVER_HIGHER_R8"
+    },
+    {
+     "no": 11,
+     "name": "Outdoor Crawl-Forest/R8",
+     "detail": "",
+     "key": "OUTDOOR_CRAWL_FOREST_R8"
+    },
+    {
+     "no": 12,
+     "name": "Outdoor Crawl-Mountain/R8",
+     "detail": "",
+     "key": "OUTDOOR_CRAWL_MOUNTAIN_R8"
+    },
+    {
+     "no": 13,
+     "name": "Indoor Crawl/Magnum",
+     "detail": "",
+     "key": "INDOOR_CRAWL_MAGNUM"
+    },
+    {
+     "no": 14,
+     "name": "Outdoor Crawl/Magnum",
+     "detail": "",
+     "key": "OUTDOOR_CRAWL_MAGNUM"
+    },
+    {
+     "no": 51,
+     "name": "Battle 1/R8",
+     "detail": "",
+     "key": "BATTLE_1_R8"
+    },
+    {
+     "no": 52,
+     "name": "Battle 2/R8",
+     "detail": "",
+     "key": "BATTLE_2_R8"
+    },
+    {
+     "no": 53,
+     "name": "Boss Battle/R8",
+     "detail": "",
+     "key": "BOSS_BATTLE_R8"
+    },
+    {
+     "no": 54,
+     "name": "Full Battle/R8",
+     "detail": "",
+     "key": "FULL_BATTLE_R8"
+    },
+    {
+     "no": 55,
+     "name": "TrnsBeat? (R5D)/R8",
+     "detail": "",
+     "key": "TRNSBEAT_R5D_R8"
+    },
+    {
+     "no": 56,
+     "name": "Lucky Can Can/R8",
+     "detail": "",
+     "key": "LUCKY_CAN_CAN_R8"
+    },
+    {
+     "no": 57,
+     "name": "Hanny/R8",
+     "detail": "",
+     "key": "HANNY_R8"
+    },
+    {
+     "no": 58,
+     "name": "Boss Boss Battle/R8",
+     "detail": "",
+     "key": "BOSS_BOSS_BATTLE_R8"
+    },
+    {
+     "no": 59,
+     "name": "Am Battle/Magnum",
+     "detail": "",
+     "key": "AM_BATTLE_MAGNUM"
+    },
+    {
+     "no": 60,
+     "name": "Battle/Magnum",
+     "detail": "",
+     "key": "BATTLE_MAGNUM"
+    },
+    {
+     "no": 71,
+     "name": "Everyday Conversation/R8",
+     "detail": "",
+     "key": "EVERYDAY_CONVERSATION_R8"
+    },
+    {
+     "no": 72,
+     "name": "Conversation with Girl/R8",
+     "detail": "",
+     "key": "CONVERSATION_WITH_GIRL_R8"
+    },
+    {
+     "no": 73,
+     "name": "An Erotic Mood/R8",
+     "detail": "",
+     "key": "AN_EROTIC_MOOD_R8"
+    },
+    {
+     "no": 74,
+     "name": "An Energetic Rance/R8",
+     "detail": "",
+     "key": "AN_ENERGETIC_RANCE_R8"
+    },
+    {
+     "no": 75,
+     "name": "No Good Everyday Conversation/R8",
+     "detail": "",
+     "key": "NO_GOOD_EVERYDAY_CONVERSATION_R8"
+    },
+    {
+     "no": 76,
+     "name": "Tense! Everyday Conversation/R8",
+     "detail": "",
+     "key": "TENSE_EVERYDAY_CONVERSATION_R8"
+    },
+    {
+     "no": 77,
+     "name": "Memories of Sill/R8",
+     "detail": "",
+     "key": "MEMORIES_OF_SILL_R8"
+    },
+    {
+     "no": 78,
+     "name": "Wrong Theme for Pastel/R8",
+     "detail": "",
+     "key": "WRONG_THEME_FOR_PASTEL_R8"
+    },
+    {
+     "no": 79,
+     "name": "Inside the Church/R8",
+     "detail": "",
+     "key": "INSIDE_THE_CHURCH_R8"
+    },
+    {
+     "no": 82,
+     "name": "Trouble/R8",
+     "detail": "",
+     "key": "TROUBLE_R8"
+    },
+    {
+     "no": 83,
+     "name": "Overwhelmed and Intimidated/R8",
+     "detail": "",
+     "key": "OVERWHELMED_AND_INTIMIDATED_R8"
+    },
+    {
+     "no": 84,
+     "name": "Alice's Mansion/R8",
+     "detail": "",
+     "key": "ALICES_MANSION_R8"
+    },
+    {
+     "no": 85,
+     "name": "Tragedy Sob Sob/R8",
+     "detail": "",
+     "key": "TRAGEDY_SOB_SOB_R8"
+    },
+    {
+     "no": 86,
+     "name": "Happy Everyday Conversation/R8",
+     "detail": "",
+     "key": "HAPPY_EVERYDAY_CONVERSATION_R8"
+    },
+    {
+     "no": 87,
+     "name": "Brutal Man's Daily Life (R7)/R8",
+     "detail": "",
+     "key": "BRUTAL_MANS_DAILY_LIFE_R7_R8"
+    },
+    {
+     "no": 88,
+     "name": "Mars (R7)/R8",
+     "detail": "",
+     "key": "MARS_R7_R8"
+    },
+    {
+     "no": 89,
+     "name": "Rance Castle/R8",
+     "detail": "",
+     "key": "RANCE_CASTLE_R8"
+    },
+    {
+     "no": 90,
+     "name": "Reset/R8",
+     "detail": "",
+     "key": "RESET_R8"
+    },
+    {
+     "no": 91,
+     "name": "Solemn/R8",
+     "detail": "",
+     "key": "SOLEMN_R8"
+    },
+    {
+     "no": 92,
+     "name": "Ero (Rance Theme Sad)/R8",
+     "detail": "",
+     "key": "ERO_RANCE_THEME_SAD_R8"
+    },
+    {
+     "no": 93,
+     "name": "Normal Everyday Conversation/R8",
+     "detail": "",
+     "key": "NORMAL_EVERYDAY_CONVERSATION_R8"
+    },
+    {
+     "no": 94,
+     "name": "Monthly Payment Plan/R8",
+     "detail": "",
+     "key": "MONTHLY_PAYMENT_PLAN_R8"
+    },
+    {
+     "no": 95,
+     "name": "The Contaminated/R8",
+     "detail": "",
+     "key": "THE_CONTAMINATED_R8"
+    },
+    {
+     "no": 96,
+     "name": "Epilogue/R8",
+     "detail": "",
+     "key": "EPILOGUE_R8"
+    },
+    {
+     "no": 97,
+     "name": "My Glory/R8",
+     "detail": "",
+     "key": "MY_GLORY_R8"
+    },
+    {
+     "no": 98,
+     "name": "Shepherds/R8",
+     "detail": "",
+     "key": "SHEPHERDS_R8"
+    },
+    {
+     "no": 99,
+     "name": "Outside the Church/R8",
+     "detail": "",
+     "key": "OUTSIDE_THE_CHURCH_R8"
+    },
+    {
+     "no": 101,
+     "name": "Copandon Cidade/R8",
+     "detail": "",
+     "key": "COPANDON_CIDADE_R8"
+    },
+    {
+     "no": 102,
+     "name": "Results/R8",
+     "detail": "",
+     "key": "RESULTS_R8"
+    },
+    {
+     "no": 103,
+     "name": "Opening/R8",
+     "detail": "",
+     "key": "OPENING_R8"
+    },
+    {
+     "no": 104,
+     "name": "Ending/R8",
+     "detail": "",
+     "key": "ENDING_R8"
+    },
+    {
+     "no": 105,
+     "name": "Go to the Brutal Man (R5D)/R8",
+     "detail": "",
+     "key": "GO_TO_THE_BRUTAL_MAN_R5D_R8"
+    },
+    {
+     "no": 106,
+     "name": "Copandon Cidade/Magnum",
+     "detail": "",
+     "key": "COPANDON_CIDADE_MAGNUM"
+    },
+    {
+     "no": 107,
+     "name": "Opening/Magnum",
+     "detail": "",
+     "key": "OPENING_MAGNUM"
+    },
+    {
+     "no": 108,
+     "name": "New Friend Theme",
+     "detail": "",
+     "key": "NEW_FRIEND_THEME"
+    }
+   ]
+  },
+  {
    "kind": "quest",
    "title": "Quests",
    "what": "quest numbers, as in `rq.quests()` and `rq.quests.start`",

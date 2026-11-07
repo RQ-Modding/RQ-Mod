@@ -85,6 +85,16 @@ list("target", "対象文字列")        -- in Japanese in the English game; gen
 list("class", "職業文字列", 0)      -- checks gen_ids.py's fixed list
 list("state", "状態変化文字列")     -- the same; Japanese, and 0 has no name
 
+-- Music: the game's track names (音楽の名前), for the tracks it has. The numbers go up to 213.
+local tracks = {}
+for no = 1, 299 do
+  if rq.ain.call("音楽_あり", no) then
+    local s = rq.ain.call("音楽の名前", no)
+    if type(s) == "string" and not NONE[s] then tracks[#tracks + 1] = { no, s, "" } end
+  end
+end
+write("music", tracks)
+
 -- Monsters: each number loaded into slot 1, the scratch slot the game uses for the same thing
 -- (モンスター固有番号文字列), read, and cleared. A number with no monster leaves the name empty.
 local monsters = {}

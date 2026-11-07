@@ -108,6 +108,12 @@ static int digits_id(const char *name)
 	return (int)v;
 }
 
+/* rq.music: false until asset_manager_init opened this type's archives (mods load before). */
+bool asset_type_ready(enum asset_type type)
+{
+	return assets[type] != NULL;
+}
+
 bool asset_exists(enum asset_type type, int id)
 {
 	if (type == ASSET_CG && rq_image_has(id))

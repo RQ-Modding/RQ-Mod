@@ -63,6 +63,8 @@ struct channel *channel_open(enum asset_type type, int no);
 struct channel *channel_open_archive_data(struct archive_data *dfile,
 					  enum asset_type type, int metadata_no);
 struct channel *channel_open_file(const char *path);
+struct channel *channel_open_music_file(const char *path, int metadata_no, int loop_start,
+					int loop_end, int volume);
 void channel_close(struct channel *ch);
 int channel_play(struct channel *ch);
 int channel_stop(struct channel *ch);

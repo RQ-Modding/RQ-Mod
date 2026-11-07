@@ -39,6 +39,7 @@ const char *asset_strtype(enum asset_type type);
 void asset_manager_init(void);
 bool asset_manager_load_archive(enum asset_type type, const char *archive_name);
 bool asset_exists(enum asset_type type, int no);
+bool asset_type_ready(enum asset_type type);
 bool asset_exists_by_name(enum asset_type type, const char *name, int *id_out);
 struct archive_data *asset_get(enum asset_type type, int no);
 struct archive_data *asset_get_by_name(enum asset_type type, const char *name, int *id_out);

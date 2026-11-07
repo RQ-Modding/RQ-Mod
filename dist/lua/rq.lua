@@ -4213,6 +4213,7 @@ function castle.get() end
 ---| `item` | item numbers, not instances |
 ---| `item_kind` | item kinds (`種類詳細`), as in an item's `subtype`: `SWORD`, `SHORTSWORD`, `SPEAR`, `CLOTHING`, ... |
 ---| `monster` | monster numbers, as `rq.battle.start` takes them and `rq.battle.snap` gives them: `COCKROACH` is 358 |
+---| `music` | music track numbers, as `rq.music` takes them: `INDOOR_CRAWL_R8` is 1, `BATTLE_2_R8` 52 |
 ---| `quest` | quest numbers |
 ---| `race` | races (`種族`), as in `rq.chara.get(iic).race`: `HUMAN`, `HANNY`, ... |
 ---| `skill` | skill numbers |
@@ -4222,6 +4223,8 @@ function castle.get() end
 ---Since: 1.15.0
 ---
 ---Changed: 1.16.0 The kinds `chara_type`, `element`, `item_kind`, `monster`, `race` and `target`, and keys without the number for some repeated names.
+---
+---Changed: 2.4.0 The kind `music`.
 ---
 ---```lua
 ---local FORTUNE = rq.ids.skill.FORTUNE  -- 448, also FORTUNE_448
@@ -4238,6 +4241,7 @@ function castle.get() end
 ---@field item rq.IdsItem Items by name; each key is in the docs' Items table (Game data).
 ---@field item_kind rq.IdsItemKind Item kinds by name; each key is in the docs' Item kinds table (Game data). Since 1.16.0.
 ---@field monster rq.IdsMonster Monsters by name; each key is in the docs' Monsters table (Game data). Since 1.16.0.
+---@field music rq.IdsMusic Music tracks by name; each key is in the docs' Music table (Game data). Since 2.4.0.
 ---@field quest rq.IdsQuest Quests by name; each key is in the docs' Quests table (Game data).
 ---@field race rq.IdsRace Races by name; each key is in the docs' Races table (Game data). Since 1.16.0.
 ---@field skill rq.IdsSkill Skills by name; each key is in the docs' Skills table (Game data).
@@ -4259,11 +4263,13 @@ local ids = {}
 ---
 ---Changed: 1.16.0 Takes the kinds `chara_type`, `element`, `item_kind`, `monster`, `race` and `target`. A repeated name with a plain key gives that key's number.
 ---
+---Changed: 2.4.0 Takes the kind `music`.
+---
 ---```lua
 ---local no, err = rq.ids.find("item", cfg.item)
 ---if not no then rq.log(err) end  -- such as: more than one skill is named "Attack": 155, 386, ...
 ---```
----@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"monster"|"quest"|"race"|"skill"|"state"|"target" The kind.
+---@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"monster"|"music"|"quest"|"race"|"skill"|"state"|"target" The kind.
 ---@param name string The in-game English name, or a key.
 ---@return integer|nil no The number, or nil when no entry or more than one has that name.
 ---@return string? err Why there is no number.
@@ -4280,11 +4286,13 @@ function ids.find(kind, name) end
 ---
 ---Changed: 1.16.0 Takes the kinds `chara_type`, `element`, `item_kind`, `monster`, `race` and `target`.
 ---
+---Changed: 2.4.0 Takes the kind `music`.
+---
 ---```lua
 ---rq.ids.find_all("skill", "fortune")  -- {158, 159, 160, 293, 448, 585}: Fortune, Improve Fortune,
 ---                                     -- 7 Misfortunes, 8 Pains
 ---```
----@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"monster"|"quest"|"race"|"skill"|"state"|"target" The kind.
+---@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"monster"|"music"|"quest"|"race"|"skill"|"state"|"target" The kind.
 ---@param text string What the name must contain.
 ---@return integer[] numbers The numbers, smallest first; empty when none.
 ---@see rq.ids.find
@@ -4301,10 +4309,12 @@ function ids.find_all(kind, text) end
 ---
 ---Changed: 1.16.0 Takes the kinds `chara_type`, `element`, `item_kind`, `monster`, `race` and `target`.
 ---
+---Changed: 2.4.0 Takes the kind `music`.
+---
 ---```lua
 ---rq.log("used " .. (rq.ids.name("skill", ctx.skill) or "a mod skill"))
 ---```
----@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"monster"|"quest"|"race"|"skill"|"state"|"target" The kind.
+---@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"monster"|"music"|"quest"|"race"|"skill"|"state"|"target" The kind.
 ---@param no integer The number.
 ---@return string|nil name The name, or nil when the base game has none for that number.
 function ids.name(kind, no) end
@@ -4361,6 +4371,7 @@ function ids.name(kind, no) end
 ---@field mod rq.mod
 ---@field status rq.status
 ---@field sound rq.sound
+---@field music rq.music
 ---@field uikit rq.uikit
 ---@field config rq.config
 ---@field ids rq.ids
@@ -4370,7 +4381,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.3.0"
+rq.version = "2.4.0"
 
 rq.units = units
 rq.items = items
@@ -4860,7 +4871,7 @@ rq.status = status
 ---They play on the game's sound effect mixer, so Config's sound volume applies, and at real time:
 ---`rq.speed` does not change them. A file or Flash sound is read once and kept in memory, so a sound
 ---played on every hit reads the disk once. At most 32 mod sounds play at once; one more raises an
----error. Music is not covered: these play beside the game's music.
+---error. These play beside the game's music; `rq.music` puts a file in place of a music track.
 ---
 ---Since: 1.4.0
 ---
@@ -5608,6 +5619,196 @@ function sprite.on_reset(fn) end
 function sprite.scene() end
 
 rq.sound = sound
+
+---Music from a mod's own file, in place of one of the game's tracks.
+---
+---The game plays music by track number, and reads the number back: whether dungeon music plays,
+---what a save plays again on load, what the system bar goes back to. So a mod does not add new
+---numbers; it puts its file behind a game track's number (`replace`), everywhere the game plays
+---it, or for one time only (`on_play` with `ctx:file`). The game's own fades, crossfades and
+---Config's music volume apply to the file as to the game's tracks. `rq.ids.music` names the tracks.
+---
+---**Files** can be OGG (Vorbis or Opus), FLAC, WAV or MP3, mono or stereo, at any sample rate.
+---They stream from the disk while they play. A file loops forever, as the game's tracks do, unless
+---the game plays the track once (`音楽１回再生`). It loops between its loop points: `loop_start` /
+---`loop_end` in seconds, else `LOOPSTART` with `LOOPLENGTH` or `LOOPEND` tags in the file (in
+---samples, as many music packs carry them), else the whole file.
+---
+---**Two mods** that replace the same track: the later one in load order wins, and the log names
+---both. Each mod restores only its own.
+---
+---The game's looped ambient sounds (rain, wind) are music tracks too: `replace` changes them, and
+---`on_play` does not see them.
+---
+---Since: 2.4.0
+---
+---```lua
+----- A soundtrack pack: the everyday fight track and the indoor dungeon track.
+---rq.music.replace(rq.ids.music.BATTLE_2_R8, "music/battle.ogg", { name = "Battle (Remix)" })
+---rq.music.replace(rq.ids.music.INDOOR_CRAWL_R8, "music/indoor.ogg", { loop_start = 12.5 })
+---```
+---@class rq.music
+local music = {}
+
+---How `rq.music.replace` and `ctx:file` play a file.
+---
+---Since: 2.4.0
+---@class rq.MusicOpts
+---@field loop_start? number Where the loop goes back to after the end, in seconds. Default the file's `LOOPSTART` tag, else 0.
+---@field loop_end? number Where the loop ends, in seconds. Default the file's `LOOPLENGTH` or `LOOPEND` tag, else the file's end.
+---@field volume? integer The file's own volume, 0 to 100, on top of the game's music volume and fades. Default 100, as loud as the file is.
+---@field name? string `replace` only: the track's name in the extras' music room and in `rq.music.info`.
+
+---What `rq.music.info` tells about a track.
+---
+---Since: 2.4.0
+---@class rq.MusicInfo
+---@field no integer The track number.
+---@field name string The game's name for it (`音楽の名前`), or the mod's `name`; "" when it has none.
+---@field exists boolean Whether the game has this track.
+---@field file? string The mod's file, as the mod gave it; nil when the game's plays.
+---@field mod? string The id of the mod whose file it is.
+---@field volume? integer The file's volume, 0 to 100.
+---@field loop_start? number The file's loop start, in seconds.
+---@field loop_end? number The file's loop end, in seconds.
+---@field seconds? number The length, in seconds: the file's, else the game track's.
+
+---What `rq.music.current` gives: the track that plays now.
+---
+---Since: 2.4.0
+---@class rq.MusicNow
+---@field no integer The track number.
+---@field name string Its name, as in `rq.music.info`.
+---@field file? string The mod's file that plays; nil for the game's.
+---@field mod? string The id of the mod whose file plays.
+---@field pos number Where it plays, in seconds from the file's start.
+---@field seconds number The length of what plays, in seconds.
+
+---What `rq.music.on_play` gets: a track the game is about to play.
+---
+---Since: 2.4.0
+---@class rq.MusicPlayCtx
+---@field no integer The track the game asks for; `ctx:track` changes it for the callbacks after.
+---@field playing integer The track that plays now; 0 for none.
+---@field kind "fight"|"dungeon"|"other" "fight": a fight's track (`音楽_戦闘`). "dungeon": a dungeon map's (`迷宮音楽_再生`). "other": the town, scenes, events, the rest.
+---@field quest integer The quest in progress (`rq.quests.current()`); 0 for none.
+---@field loops integer 0 when it loops until changed, 1 when it plays once.
+local MusicPlayCtx = {}
+
+---Plays a mod file for this track this time only.
+---
+---The path is in the mod folder of the mod whose callback calls it. The file is checked as in
+---`replace`. When the track already plays with another file, it starts again with this one.
+---
+---Raises an error as `rq.music.replace` does.
+---
+---Since: 2.4.0
+---
+---```lua
+---rq.music.on_play(function(ctx)
+---  if ctx.kind == "dungeon" and ctx.quest == rq.ids.quest.MY_QUEST then
+---    ctx:file("music/my_dungeon.ogg")
+---  end
+---end)
+---```
+---@param path string A path inside the mod's folder.
+---@param opts? rq.MusicOpts Loop points and volume; `name` is not used.
+function MusicPlayCtx:file(path, opts) end
+
+---Plays another game track in place of this one.
+---
+---The game then counts that number as the one playing.
+---
+---Raises an error for a number the game has not.
+---
+---Since: 2.4.0
+---@param no integer The game track to play.
+function MusicPlayCtx:track(no) end
+
+---Plays a file wherever the game plays one of its tracks.
+---
+---It starts the next time the game starts the track, or when a mod plays it (`rq.music.play`). A
+---replacement made while the track plays starts the next time the game asks for that track.
+---
+---Raises an error for a number the game has not, a path out of the mod folder, a missing file, a
+---file that is not a sound with 1 or 2 channels, or an option of the wrong type or range. In
+---`init.lua` the game has not opened its music yet: the number is checked at the first frame, and a
+---wrong one is logged and dropped.
+---
+---Since: 2.4.0
+---
+---```lua
+---rq.music.replace(rq.ids.music.BATTLE_2_R8, "music/battle.ogg", { loop_start = 8.25, name = "Battle (Remix)" })
+---```
+---@param no integer The game's track number.
+---@param path string A path inside the mod's folder.
+---@param opts? rq.MusicOpts Loop points, volume, name.
+---@return rq.MusicInfo info What was set, with the loop points the file gave.
+---@see rq.music.restore
+function music.replace(no, path, opts) end
+
+---Undoes the calling mod's `rq.music.replace` on a track.
+---
+---It ends the next time the game starts the track. Another mod's replacement stays.
+---
+---Since: 2.4.0
+---@param no integer The track number.
+---@return boolean restored false when the mod had not replaced it.
+function music.restore(no) end
+
+---Returns what is known of a track: its name, and the mod's file when one replaces it.
+---
+---A game track's length opens the track, so call it now and then, not every frame.
+---
+---Since: 2.4.0
+---@param no integer The track number.
+---@return rq.MusicInfo info The track.
+function music.info(no) end
+
+---Returns the track that plays now.
+---
+---Since: 2.4.0
+---@return rq.MusicNow|nil now The track, or nil when no music plays.
+function music.current() end
+
+---Plays a game track, as the game does: with its crossfade, and a mod's file when one replaces it.
+---
+---When it already plays, nothing changes, unless `restart` is set or another file should play now.
+---
+---Raises an error for a number the game has not.
+---
+---Since: 2.4.0
+---@param no integer The track number.
+---@param opts? {restart?: boolean, once?: boolean} `restart`: from the start when it already plays. `once`: play it once, not in a loop.
+function music.play(no, opts) end
+
+---Stops the music, with the game's fade.
+---
+---Since: 2.4.0
+function music.stop() end
+
+---Calls `fn` before the game starts a track.
+---
+---Each time the game changes the music (`SYS_PlayBGM`), with the track it asks for. `ctx:file`
+---plays a file of the mod's this time only, and `ctx:track` another game track. Callbacks run in
+---load order, and the last `ctx:file` wins. When the track already plays and nothing changes, the
+---game goes on with it. An error in a callback is logged and the next still runs.
+---
+---Since: 2.4.0
+---
+---```lua
+----- Every boss fight of one quest gets the mod's theme.
+---rq.music.on_play(function(ctx)
+---  if ctx.kind == "fight" and ctx.no == rq.ids.music.BOSS_BATTLE_R8 and ctx.quest == 42 then
+---    ctx:file("music/boss42.ogg")
+---  end
+---end)
+---```
+---@param fn fun(ctx: rq.MusicPlayCtx) Gets the track.
+---@return fun() remove Removes this callback.
+function music.on_play(fn) end
+
+rq.music = music
 rq.uikit = uikit
 rq.config = config
 rq.sprite = sprite

@@ -124,6 +124,10 @@ int rq_scene_syscall(int code);
 void rq_scene_on_return(int fno);
 void rq_scene_open(struct lua_State *L, int rq_index);
 void rq_battle_lua_open(struct lua_State *L, int rq_index);
+/* rq.music (modloader_music.c, lua/music.lua, loader 2.4.0). */
+struct channel;
+struct channel *rq_music_open(int id, int no);
+void rq_music_open_lua(struct lua_State *L, int rq_index);
 void rq_uikit_open(struct lua_State *L, int rq_index);
 /* rq.ids: the game's numbers by name (modloader_ids.c, lua/ids.lua). */
 void rq_ids_open(struct lua_State *L, int rq_index);
@@ -438,7 +442,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.3.0"
+#define RQ_VERSION "2.4.0"
 
 struct rq_qbattle_skill {
 	int id;

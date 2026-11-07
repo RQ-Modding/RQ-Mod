@@ -300,17 +300,22 @@ if get_option('modloader')
         input: 'lua/status.lua',
         output: 'rq_status_lua.c',
         command: [py, meson.current_source_dir() / 'gen_lua_embed.py', '@INPUT@', '@OUTPUT@', 'rq_status_lua'])
+    rq_music_lua = custom_target(
+        'rq_music_lua_c',
+        input: 'lua/music.lua',
+        output: 'rq_music_lua.c',
+        command: [py, meson.current_source_dir() / 'gen_lua_embed.py', '@INPUT@', '@OUTPUT@', 'rq_music_lua'])
     xsystem4 += ['modloader.c', 'modloader_order.c', 'modloader_sandbox.c', 'modloader_query.c',
                  'modloader_agent.c', 'modloader_ui.c', 'modloader_path.c',
                  'modloader_dialog.c',
                  'modloader_loot.c',
-                 'modloader_hud.c', 'modloader_orb.c', 'modloader_skill.c', 'modloader_state.c', 'modloader_states.c', 'modloader_speed.c', 'modloader_sound.c',
+                 'modloader_hud.c', 'modloader_orb.c', 'modloader_skill.c', 'modloader_state.c', 'modloader_states.c', 'modloader_speed.c', 'modloader_sound.c', 'modloader_music.c',
                  'modloader_counter.c', 'modloader_battle.c',
                  'modloader_chara.c', 'modloader_shop.c',
                  'modloader_skilllist.c',
                  'modloader_debug.c', 'modloader_discord.c',
                  'modloader_saves.c', 'modloader_roster.c', 'modloader_crash.c', 'modloader_events.c', 'modloader_scene.c', 'modloader_anim.c', 'modloader_image.c', 'modloader_item.c',
-                 'modloader_uikit.c', 'modloader_config.c', 'modloader_sprite.c', 'modloader_unwind.c', 'modloader_ids.c', rq_stamp, rq_uikit, rq_config, rq_sprite, rq_scene, rq_ids, rq_battle_lua, rq_status_lua]
+                 'modloader_uikit.c', 'modloader_config.c', 'modloader_sprite.c', 'modloader_unwind.c', 'modloader_ids.c', rq_stamp, rq_uikit, rq_config, rq_sprite, rq_scene, rq_ids, rq_battle_lua, rq_status_lua, rq_music_lua]
     if host_machine.system() == 'windows'
         static_link_args += ['-lpsapi', '-lshell32', '-lole32']
     endif

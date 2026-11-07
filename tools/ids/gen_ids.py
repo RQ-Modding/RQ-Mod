@@ -36,6 +36,7 @@ KINDS = [
     ("item", "item.tsv", "Items", "item numbers, not instances: `rq.item.give(rq.ids.item.SKILL_AGAIN)` makes one"),
     ("item_kind", "item_kind.tsv", "Item kinds", "item kinds (`種類詳細`): the weapon or armor kind, as in an item's `subtype`"),
     ("monster", "monster.tsv", "Monsters", "monster numbers, as `rq.battle.start` takes them and `rq.battle.snap()` gives them (`enemies[i].no`)"),
+    ("music", "music.tsv", "Music", "music track numbers, as `rq.music.replace` and `rq.music.play` take them and `rq.music.current()` gives them"),
     ("quest", "quest.tsv", "Quests", "quest numbers, as in `rq.quests()` and `rq.quests.start`"),
     ("race", "race.tsv", "Races", "races (`種族`), as in `rq.chara.get(iic).race` and the damage hooks' `ctx.race`"),
     ("skill", "skill.tsv", "Skills", "skill numbers, as in `rq.skill.get`"),

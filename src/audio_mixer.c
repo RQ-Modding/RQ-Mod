@@ -82,6 +82,8 @@ struct channel {
 	uint_least32_t loop_end;
 	atomic_uint loop_count;
 	struct fade fade;
+	// rqmod: a mod file's own volume (rq.music), on top of the game's fades. 1 for the rest.
+	float scale;
 };
 
 struct mixer {
@@ -295,7 +297,7 @@ static int refill_stream(sts_mixer_sample_t *sample, void *data)
 	// set gain for fade
 	if (ch->fade.fading) {
 		float gain = cb_calc_fade(&ch->fade);
-		mixers[ch->mixer_no].mixer.voices[ch->voice].gain = gain;
+		mixers[ch->mixer_no].mixer.voices[ch->voice].gain = gain * ch->scale;
 		ch->volume = gain * 100.0;
 
 		ch->fade.elapsed += frames_read;
@@ -309,7 +311,7 @@ static int refill_stream(sts_mixer_sample_t *sample, void *data)
 		}
 	} else {
 		float gain = ch->volume / 100.0;
-		mixers[ch->mixer_no].mixer.voices[ch->voice].gain = gain;
+		mixers[ch->mixer_no].mixer.voices[ch->voice].gain = gain * ch->scale;
 	}
 
 	if (r == STS_STREAM_COMPLETE) {
@@ -601,6 +603,7 @@ static bool init_channel(struct channel *ch)
 	ch->loop_end = ch->info.frames;
 	ch->loop_count = 1;
 	ch->mixer_no = 0;
+	ch->scale = 1.0f;
 
 	ch->no = -1;
 	return true;
@@ -664,6 +667,29 @@ struct channel *channel_open_file(const char *path)
 	}
 	return ch;
 }
+
+#ifdef RQ_MODLOADER
+/* rq.music: a mod file in place of game track metadata_no. It takes the track's mixer from the
+ * .bgi, so Config's music volume applies, loops forever until the game sets a count, and loops
+ * between loop_start and loop_end (frames; 0 and 0 mean the whole file). */
+struct channel *channel_open_music_file(const char *path, int metadata_no, int loop_start,
+					int loop_end, int volume)
+{
+	struct channel *ch = channel_open_file(path);
+	if (!ch)
+		return NULL;
+	struct bgi *bgi = bgi_get(metadata_no);
+	ch->mixer_no = bgi ? clamp(0, nr_mixers - 1, bgi->channel) : 0;
+	ch->loop_count = 0;
+	if (loop_end > 0)
+		ch->loop_end = clamp(1, ch->info.frames, loop_end);
+	if (loop_start > 0 && (uint_least32_t)loop_start < ch->loop_end)
+		ch->loop_start = loop_start;
+	ch->scale = clamp(0.0f, 1.0f, (float)volume / 100.0f);
+	ch->no = metadata_no;
+	return ch;
+}
+#endif
 
 void channel_close(struct channel *ch)
 {
