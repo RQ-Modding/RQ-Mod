@@ -93,6 +93,8 @@ for no = 1, 999 do
   rq.ain.call("Ｃ敵登録", 1, no)
   local name = rq.ain.call("Ｃ名前", 1, "")
   if type(name) == "string" and name ~= "" then
+    -- 448 takes a party member's short name ("Rance CopyPaste"); keep the name it is registered with
+    if name:match(" CopyPaste$") then name = "CopyPaste" end
     local c = rq.chara.get(1) or {}
     monsters[#monsters + 1] = { no, name, string.format("%d,%d", c.level or 0, c.race or 0) }
   end

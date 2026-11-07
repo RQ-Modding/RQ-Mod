@@ -771,7 +771,7 @@ local DATA = {
     444, "ABNORMAL_RURONTA_444", "Abnormal Ruronta",
     445, "ABNORMAL_RURONTA_445", "Abnormal Ruronta",
     446, "ABNORMAL_UPPY", "Abnormal Uppy",
-    448, "RANCE_COPYPASTE", "Rance CopyPaste",
+    448, "COPYPASTE", "CopyPaste",
     449, "KING_SQUIDMAN_LOVE", "King Squidman (Love)",
     450, "CONTAMINATED_FIGHTER_WEAK", "Contaminated Fighter (Weak)",
     451, "TROLL", "Troll",

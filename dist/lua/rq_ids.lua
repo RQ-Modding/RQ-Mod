@@ -793,7 +793,7 @@
 ---@field ABNORMAL_RURONTA_444 integer 444: Abnormal Ruronta (Lv 0, Guy Monster)
 ---@field ABNORMAL_RURONTA_445 integer 445: Abnormal Ruronta (Lv 0, Guy Monster)
 ---@field ABNORMAL_UPPY integer 446: Abnormal Uppy (Lv 5, Insect)
----@field RANCE_COPYPASTE integer 448: Rance CopyPaste (Lv 0, Guy Monster)
+---@field COPYPASTE integer 448: CopyPaste (Lv 0, Guy Monster)
 ---@field KING_SQUIDMAN_LOVE integer 449: King Squidman (Love) (Lv 45, Guy Monster)
 ---@field CONTAMINATED_FIGHTER_WEAK integer 450: Contaminated Fighter (Weak) (Lv 20, Contaminated)
 ---@field TROLL integer 451: Troll (Lv 45, Guy Monster)

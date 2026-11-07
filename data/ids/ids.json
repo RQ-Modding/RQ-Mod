@@ -4582,9 +4582,9 @@
     },
     {
      "no": 448,
-     "name": "Rance CopyPaste",
+     "name": "CopyPaste",
      "detail": "Lv 0, Guy Monster",
-     "key": "RANCE_COPYPASTE"
+     "key": "COPYPASTE"
     },
     {
      "no": 449,
