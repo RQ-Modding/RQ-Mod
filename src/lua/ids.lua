@@ -1171,8 +1171,37 @@ local DATA = {
   },
 }
 
--- kind = { plain key = number }: one number of a repeated name (data/ids/preferred.tsv)
+-- kind = { key = number }: more keys for numbers of a repeated name (data/ids/preferred.tsv)
 local ALIAS = {
+  chara = {
+    ARMS_ARC = 7,
+    MARIS_AMARYLLIS = 34,
+    RICK_ADDISON = 93,
+  },
+  skill = {
+    FLAMETHROWER = 127,
+    CAPTURE = 166,
+    FIRE_BLAST = 169,
+    HELLFIRE_BLAST = 171,
+    ICE_ARROW = 174,
+    SIBERIA = 178,
+    EM_STORM = 184,
+    LIGHT = 187,
+    LIGHT_BOMB = 190,
+    DEATH_BOMB = 196,
+    BLACK_DESTRUCTION_BEAM = 198,
+    USE_IBEPROFUN = 206,
+    USE_IBEPROFUN_EX = 207,
+    USE_IBEPROFUN_EX_PLUS = 208,
+    STAMINA_BOOST = 276,
+    ATTACK_BOOST = 277,
+    MAGIC_BOOST = 278,
+    FORTUNE = 448,
+    CAPTURE_EX = 451,
+    STAMINA_BOOST_1 = 455,
+    ATTACK_BOOST_1 = 456,
+    MAGIC_BOOST_1 = 457,
+  },
 }
 
 local KINDS = "chara, chara_type, class, element, item, item_kind, quest, race, skill, state, target"
@@ -1185,6 +1214,7 @@ end
 
 local ids = {}
 local names = {}
+local extra = {}  -- kind = { folded preferred key = number }, for find
 
 for kind, list in pairs(DATA) do
   local t, byno = {}, {}
@@ -1193,7 +1223,11 @@ for kind, list in pairs(DATA) do
     byno[list[i]] = list[i + 2]
   end
   names[kind] = byno
-  for key, no in pairs(ALIAS[kind] or {}) do t[key] = no end
+  extra[kind] = {}
+  for key, no in pairs(ALIAS[kind] or {}) do
+    t[key] = no
+    extra[kind][fold(key)] = no
+  end
   ids[kind] = setmetatable(t, {
     __index = function(_, k)
       error("rq.ids." .. kind .. " has no " .. tostring(k) .. " (rq.ids.find looks a name up)", 2)
@@ -1217,7 +1251,11 @@ function ids.find(kind, name)
     if fold(list[i + 2]) == want then hits[#hits + 1] = list[i] end
     if fold(list[i + 1]) == want then by_key[#by_key + 1] = list[i] end
   end
+  -- A repeated name with a plain key gives that number; a key of its own is found as a key.
+  local named = extra[kind][want]
+  if #hits > 1 and named then return named end
   if #hits == 0 then hits = by_key end
+  if #hits == 0 and named then return named end
   if #hits == 1 then return hits[1] end
   if #hits == 0 then return nil, "no " .. kind .. " named " .. string.format("%q", name) end
   table.sort(hits)

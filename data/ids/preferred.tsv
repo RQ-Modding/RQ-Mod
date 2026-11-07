@@ -1,1 +1,28 @@
-kind	name	number	why
+# More keys for numbers of a repeated name, reviewed by Moru (2026-11-07). An empty key is the
+# plain key, the name's own (FORTUNE). A key here never moves once released.
+kind	name	number	key	why
+skill	Fortune	448		the skill a fortune teller learns; 158 to 160 are its outcomes
+skill	Flamethrower	127		the version with a description
+skill	Fire Blast	169		the version with a description
+skill	Hellfire Blast	171		the version with a description
+skill	Ice Arrow	174		the version with a description
+skill	Siberia	178		the version with a description
+skill	EM Storm	184		the version with a description
+skill	Light	187		the version with a description
+skill	Light Bomb	190		the version with a description
+skill	Death Bomb	196		the version with a description
+skill	Black Destruction Beam	198		the version with a description
+skill	Use Ibeprofun	206		uses an Ibeprofun
+skill	Use Ibeprofun	207	USE_IBEPROFUN_EX	uses an Ibeprofun EX
+skill	Use Ibeprofun	208	USE_IBEPROFUN_EX_PLUS	uses an Ibeprofun EX+
+skill	Capture	166		Capture Rope, 2 uses
+skill	Capture	451	CAPTURE_EX	Strong Capture Rope, 8 uses
+skill	Stamina Boost	276		the base version, from the skill shop
+skill	Stamina Boost	455	STAMINA_BOOST_1	the other version
+skill	Attack Boost	277		the base version, from the skill shop
+skill	Attack Boost	456	ATTACK_BOOST_1	the other version
+skill	Magic Boost	278		the base version, from the skill shop
+skill	Magic Boost	457	MAGIC_BOOST_1	the other version
+chara	Arms Arc	7		the one who joins the party
+chara	Maris Amaryllis	34		the one who joins the party
+chara	Rick Addison	93		the one who joins the party (Moru)

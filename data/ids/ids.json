@@ -39,7 +39,10 @@
      "no": 7,
      "name": "Arms Arc",
      "detail": "Fighter",
-     "key": "ARMS_ARC_7"
+     "key": "ARMS_ARC_7",
+     "aliases": [
+      "ARMS_ARC"
+     ]
     },
     {
      "no": 8,
@@ -201,7 +204,10 @@
      "no": 34,
      "name": "Maris Amaryllis",
      "detail": "Healer",
-     "key": "MARIS_AMARYLLIS_34"
+     "key": "MARIS_AMARYLLIS_34",
+     "aliases": [
+      "MARIS_AMARYLLIS"
+     ]
     },
     {
      "no": 35,
@@ -525,7 +531,10 @@
      "no": 93,
      "name": "Rick Addison",
      "detail": "Fighter",
-     "key": "RICK_ADDISON_93"
+     "key": "RICK_ADDISON_93",
+     "aliases": [
+      "RICK_ADDISON"
+     ]
     },
     {
      "no": 94,
@@ -4097,7 +4106,10 @@
      "no": 127,
      "name": "Flamethrower",
      "detail": "physical",
-     "key": "FLAMETHROWER_127"
+     "key": "FLAMETHROWER_127",
+     "aliases": [
+      "FLAMETHROWER"
+     ]
     },
     {
      "no": 128,
@@ -4319,7 +4331,10 @@
      "no": 166,
      "name": "Capture",
      "detail": "special",
-     "key": "CAPTURE_166"
+     "key": "CAPTURE_166",
+     "aliases": [
+      "CAPTURE"
+     ]
     },
     {
      "no": 167,
@@ -4337,7 +4352,10 @@
      "no": 169,
      "name": "Fire Blast",
      "detail": "magic",
-     "key": "FIRE_BLAST_169"
+     "key": "FIRE_BLAST_169",
+     "aliases": [
+      "FIRE_BLAST"
+     ]
     },
     {
      "no": 170,
@@ -4349,7 +4367,10 @@
      "no": 171,
      "name": "Hellfire Blast",
      "detail": "magic",
-     "key": "HELLFIRE_BLAST_171"
+     "key": "HELLFIRE_BLAST_171",
+     "aliases": [
+      "HELLFIRE_BLAST"
+     ]
     },
     {
      "no": 172,
@@ -4367,7 +4388,10 @@
      "no": 174,
      "name": "Ice Arrow",
      "detail": "magic",
-     "key": "ICE_ARROW_174"
+     "key": "ICE_ARROW_174",
+     "aliases": [
+      "ICE_ARROW"
+     ]
     },
     {
      "no": 175,
@@ -4391,7 +4415,10 @@
      "no": 178,
      "name": "Siberia",
      "detail": "magic",
-     "key": "SIBERIA_178"
+     "key": "SIBERIA_178",
+     "aliases": [
+      "SIBERIA"
+     ]
     },
     {
      "no": 179,
@@ -4427,7 +4454,10 @@
      "no": 184,
      "name": "EM Storm",
      "detail": "magic",
-     "key": "EM_STORM_184"
+     "key": "EM_STORM_184",
+     "aliases": [
+      "EM_STORM"
+     ]
     },
     {
      "no": 185,
@@ -4445,7 +4475,10 @@
      "no": 187,
      "name": "Light",
      "detail": "magic",
-     "key": "LIGHT_187"
+     "key": "LIGHT_187",
+     "aliases": [
+      "LIGHT"
+     ]
     },
     {
      "no": 188,
@@ -4463,7 +4496,10 @@
      "no": 190,
      "name": "Light Bomb",
      "detail": "magic",
-     "key": "LIGHT_BOMB_190"
+     "key": "LIGHT_BOMB_190",
+     "aliases": [
+      "LIGHT_BOMB"
+     ]
     },
     {
      "no": 191,
@@ -4499,7 +4535,10 @@
      "no": 196,
      "name": "Death Bomb",
      "detail": "magic",
-     "key": "DEATH_BOMB_196"
+     "key": "DEATH_BOMB_196",
+     "aliases": [
+      "DEATH_BOMB"
+     ]
     },
     {
      "no": 197,
@@ -4511,7 +4550,10 @@
      "no": 198,
      "name": "Black Destruction Beam",
      "detail": "magic",
-     "key": "BLACK_DESTRUCTION_BEAM_198"
+     "key": "BLACK_DESTRUCTION_BEAM_198",
+     "aliases": [
+      "BLACK_DESTRUCTION_BEAM"
+     ]
     },
     {
      "no": 199,
@@ -4559,19 +4601,28 @@
      "no": 206,
      "name": "Use Ibeprofun",
      "detail": "support",
-     "key": "USE_IBEPROFUN_206"
+     "key": "USE_IBEPROFUN_206",
+     "aliases": [
+      "USE_IBEPROFUN"
+     ]
     },
     {
      "no": 207,
      "name": "Use Ibeprofun",
      "detail": "support",
-     "key": "USE_IBEPROFUN_207"
+     "key": "USE_IBEPROFUN_207",
+     "aliases": [
+      "USE_IBEPROFUN_EX"
+     ]
     },
     {
      "no": 208,
      "name": "Use Ibeprofun",
      "detail": "support",
-     "key": "USE_IBEPROFUN_208"
+     "key": "USE_IBEPROFUN_208",
+     "aliases": [
+      "USE_IBEPROFUN_EX_PLUS"
+     ]
     },
     {
      "no": 209,
@@ -4973,19 +5024,28 @@
      "no": 276,
      "name": "Stamina Boost",
      "detail": "ability",
-     "key": "STAMINA_BOOST_276"
+     "key": "STAMINA_BOOST_276",
+     "aliases": [
+      "STAMINA_BOOST"
+     ]
     },
     {
      "no": 277,
      "name": "Attack Boost",
      "detail": "ability",
-     "key": "ATTACK_BOOST_277"
+     "key": "ATTACK_BOOST_277",
+     "aliases": [
+      "ATTACK_BOOST"
+     ]
     },
     {
      "no": 278,
      "name": "Magic Boost",
      "detail": "ability",
-     "key": "MAGIC_BOOST_278"
+     "key": "MAGIC_BOOST_278",
+     "aliases": [
+      "MAGIC_BOOST"
+     ]
     },
     {
      "no": 279,
@@ -6005,7 +6065,10 @@
      "no": 448,
      "name": "Fortune",
      "detail": "physical",
-     "key": "FORTUNE_448"
+     "key": "FORTUNE_448",
+     "aliases": [
+      "FORTUNE"
+     ]
     },
     {
      "no": 449,
@@ -6023,7 +6086,10 @@
      "no": 451,
      "name": "Capture",
      "detail": "special",
-     "key": "CAPTURE_451"
+     "key": "CAPTURE_451",
+     "aliases": [
+      "CAPTURE_EX"
+     ]
     },
     {
      "no": 452,
@@ -6047,19 +6113,28 @@
      "no": 455,
      "name": "Stamina Boost",
      "detail": "ability",
-     "key": "STAMINA_BOOST_455"
+     "key": "STAMINA_BOOST_455",
+     "aliases": [
+      "STAMINA_BOOST_1"
+     ]
     },
     {
      "no": 456,
      "name": "Attack Boost",
      "detail": "ability",
-     "key": "ATTACK_BOOST_456"
+     "key": "ATTACK_BOOST_456",
+     "aliases": [
+      "ATTACK_BOOST_1"
+     ]
     },
     {
      "no": 457,
      "name": "Magic Boost",
      "detail": "ability",
-     "key": "MAGIC_BOOST_457"
+     "key": "MAGIC_BOOST_457",
+     "aliases": [
+      "MAGIC_BOOST_1"
+     ]
     },
     {
      "no": 458,

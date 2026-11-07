@@ -12,6 +12,7 @@
 ---@field KATSUKO_UESUGI integer 5: Katsuko Uesugi (Fighter)
 ---@field TILDE_SHARP integer 6: Tilde Sharp (Fighter)
 ---@field ARMS_ARC_7 integer 7: Arms Arc (Fighter)
+---@field ARMS_ARC integer 7: Arms Arc (Fighter). The plain key; also `ARMS_ARC_7`.
 ---@field RICK_ADDISON_8 integer 8: Rick Addison (Fighter)
 ---@field TERU_MOURI integer 9: Teru Mouri (Guard)
 ---@field ELENOA_RAN integer 10: Elenoa Ran (Fighter)
@@ -39,6 +40,7 @@
 ---@field ZIMA_BAKASKO integer 32: Zima Bakasko (Gunner)
 ---@field CROOK_MOFUS integer 33: Crook Mofus (Healer)
 ---@field MARIS_AMARYLLIS_34 integer 34: Maris Amaryllis (Healer)
+---@field MARIS_AMARYLLIS integer 34: Maris Amaryllis (Healer). The plain key; also `MARIS_AMARYLLIS_34`.
 ---@field SEL_CURCHGOLF integer 35: Sel Curchgolf (Healer)
 ---@field NOAH_HAKOBUNE integer 36: Noah Hakobune (Healer)
 ---@field TORAKO_UESUGI integer 38: Torako Uesugi (Sorcerer)
@@ -93,6 +95,7 @@
 ---@field KOJIKA_YAMANAKA integer 91: Kojika Yamanaka (Fighter)
 ---@field DARK_RANCE integer 92: Dark Rance (Fighter)
 ---@field RICK_ADDISON_93 integer 93: Rick Addison (Fighter)
+---@field RICK_ADDISON integer 93: Rick Addison (Fighter). The plain key; also `RICK_ADDISON_93`.
 ---@field AM_YISAEL integer 94: Am Yisael (Healer)
 ---@field ARMS_ARC_112 integer 112: Arms Arc (Fighter)
 
@@ -719,6 +722,7 @@
 ---@field MIRAGE_SWORD integer 125: Mirage Sword (physical)
 ---@field FLAME_SLASH integer 126: Flame Slash (physical)
 ---@field FLAMETHROWER_127 integer 127: Flamethrower (physical)
+---@field FLAMETHROWER integer 127: Flamethrower (physical). The plain key; also `FLAMETHROWER_127`.
 ---@field FLAMETHROWER_2 integer 128: Flamethrower 2 (physical)
 ---@field FLAMETHROWER_ALL integer 129: Flamethrower/All (physical)
 ---@field FROSTBLOWER integer 130: Frostblower (physical)
@@ -756,38 +760,48 @@
 ---@field SELF_DESTRUCT_PREPARATION_2 integer 164: Self-Destruct Preparation 2 (support)
 ---@field SELF_DESTRUCT integer 165: Self-Destruct (physical)
 ---@field CAPTURE_166 integer 166: Capture (special)
+---@field CAPTURE integer 166: Capture (special). The plain key; also `CAPTURE_166`.
 ---@field EXPLOSIVE_ROUNDS integer 167: Explosive Rounds (physical)
 ---@field FLAME_ARROW integer 168: Flame Arrow (magic)
 ---@field FIRE_BLAST_169 integer 169: Fire Blast (magic)
+---@field FIRE_BLAST integer 169: Fire Blast (magic). The plain key; also `FIRE_BLAST_169`.
 ---@field FIRE_BLAST_170 integer 170: Fire Blast (magic)
 ---@field HELLFIRE_BLAST_171 integer 171: Hellfire Blast (magic)
+---@field HELLFIRE_BLAST integer 171: Hellfire Blast (magic). The plain key; also `HELLFIRE_BLAST_171`.
 ---@field HELLFIRE_BLAST_172 integer 172: Hellfire Blast (magic)
 ---@field FIRE_LASER integer 173: Fire Laser (magic)
 ---@field ICE_ARROW_174 integer 174: Ice Arrow (magic)
+---@field ICE_ARROW integer 174: Ice Arrow (magic). The plain key; also `ICE_ARROW_174`.
 ---@field ICE_ARROW_175 integer 175: Ice Arrow (magic)
 ---@field GLACIAL_STORM integer 176: Glacial Storm (magic)
 ---@field MOLLUSC_FREEZER integer 177: Mollusc Freezer (magic)
 ---@field SIBERIA_178 integer 178: Siberia (magic)
+---@field SIBERIA integer 178: Siberia (magic). The plain key; also `SIBERIA_178`.
 ---@field SIBERIA_179 integer 179: Siberia (magic)
 ---@field SNOW_LASER integer 180: Snow Laser (magic)
 ---@field THUNDERSTRIKE integer 181: Thunderstrike (magic)
 ---@field EM_FIELD integer 182: EM Field (magic)
 ---@field ELECTROSHOCK integer 183: Electroshock (magic)
 ---@field EM_STORM_184 integer 184: EM Storm (magic)
+---@field EM_STORM integer 184: EM Storm (magic). The plain key; also `EM_STORM_184`.
 ---@field EM_STORM_185 integer 185: EM Storm (magic)
 ---@field ZEUS_LIGHTNING integer 186: Zeus Lightning (magic)
 ---@field LIGHT_187 integer 187: Light (magic)
+---@field LIGHT integer 187: Light (magic). The plain key; also `LIGHT_187`.
 ---@field LIGHT_188 integer 188: Light (magic)
 ---@field A_CUTTER integer 189: A Cutter (magic)
 ---@field LIGHT_BOMB_190 integer 190: Light Bomb (magic)
+---@field LIGHT_BOMB integer 190: Light Bomb (magic). The plain key; also `LIGHT_BOMB_190`.
 ---@field LIGHT_BOMB_191 integer 191: Light Bomb (magic)
 ---@field BOOK_HEINES integer 192: Book Heines (magic)
 ---@field WHITE_DESTRUCTION_BEAM integer 193: White Destruction Beam (magic)
 ---@field DARKNESS integer 194: Darkness (magic)
 ---@field DEVIL_BEAM integer 195: Devil Beam (magic)
 ---@field DEATH_BOMB_196 integer 196: Death Bomb (magic)
+---@field DEATH_BOMB integer 196: Death Bomb (magic). The plain key; also `DEATH_BOMB_196`.
 ---@field DEATH_BOMB_197 integer 197: Death Bomb (magic)
 ---@field BLACK_DESTRUCTION_BEAM_198 integer 198: Black Destruction Beam (magic)
+---@field BLACK_DESTRUCTION_BEAM integer 198: Black Destruction Beam (magic). The plain key; also `BLACK_DESTRUCTION_BEAM_198`.
 ---@field BLACK_DESTRUCTION_BEAM_199 integer 199: Black Destruction Beam (magic)
 ---@field WEAKNESS_SEARCH integer 200: Weakness Search (special)
 ---@field WEAKENER integer 201: Weakener (special)
@@ -796,8 +810,11 @@
 ---@field STUKA integer 204: Stuka (magic)
 ---@field PURIFICATION integer 205: Purification (magic)
 ---@field USE_IBEPROFUN_206 integer 206: Use Ibeprofun (support)
+---@field USE_IBEPROFUN integer 206: Use Ibeprofun (support). The plain key; also `USE_IBEPROFUN_206`.
 ---@field USE_IBEPROFUN_207 integer 207: Use Ibeprofun (support)
+---@field USE_IBEPROFUN_EX integer 207: Use Ibeprofun (support). A key of its own; also `USE_IBEPROFUN_207`.
 ---@field USE_IBEPROFUN_208 integer 208: Use Ibeprofun (support)
+---@field USE_IBEPROFUN_EX_PLUS integer 208: Use Ibeprofun (support). A key of its own; also `USE_IBEPROFUN_208`.
 ---@field USE_EPINEPHREND integer 209: Use Epinephrend (support)
 ---@field USE_KEY integer 210: Use Key (ability)
 ---@field ESCAPE integer 211: Escape (support)
@@ -865,8 +882,11 @@
 ---@field PEPSI_SWORDPLAY integer 274: Pepsi Swordplay (ability)
 ---@field SOLO_FIGHTER integer 275: Solo Fighter (ability)
 ---@field STAMINA_BOOST_276 integer 276: Stamina Boost (ability)
+---@field STAMINA_BOOST integer 276: Stamina Boost (ability). The plain key; also `STAMINA_BOOST_276`.
 ---@field ATTACK_BOOST_277 integer 277: Attack Boost (ability)
+---@field ATTACK_BOOST integer 277: Attack Boost (ability). The plain key; also `ATTACK_BOOST_277`.
 ---@field MAGIC_BOOST_278 integer 278: Magic Boost (ability)
+---@field MAGIC_BOOST integer 278: Magic Boost (ability). The plain key; also `MAGIC_BOOST_278`.
 ---@field ACCURACY_BOOST integer 279: Accuracy Boost (ability)
 ---@field EVASION_BOOST integer 280: Evasion Boost (ability)
 ---@field CRITICAL_BOOST integer 281: Critical Boost (ability)
@@ -1037,15 +1057,20 @@
 ---@field ATTACK_446 integer 446: Attack (physical)
 ---@field ATTACK_10FAR_WHIP integer 447: Attack 10Far/Whip (physical)
 ---@field FORTUNE_448 integer 448: Fortune (physical)
+---@field FORTUNE integer 448: Fortune (physical). The plain key; also `FORTUNE_448`.
 ---@field PILFER integer 449: Pilfer (special)
 ---@field DRUG_RESISTANCE integer 450: Drug Resistance (ability)
 ---@field CAPTURE_451 integer 451: Capture (special)
+---@field CAPTURE_EX integer 451: Capture (special). A key of its own; also `CAPTURE_451`.
 ---@field MAGIC_INVULNERABILITY integer 452: Magic Invulnerability (ability)
 ---@field WILD_DANCE integer 453: Wild Dance (physical)
 ---@field QUICK_CASTING integer 454: Quick Casting (ability)
 ---@field STAMINA_BOOST_455 integer 455: Stamina Boost (ability)
+---@field STAMINA_BOOST_1 integer 455: Stamina Boost (ability). A key of its own; also `STAMINA_BOOST_455`.
 ---@field ATTACK_BOOST_456 integer 456: Attack Boost (ability)
+---@field ATTACK_BOOST_1 integer 456: Attack Boost (ability). A key of its own; also `ATTACK_BOOST_456`.
 ---@field MAGIC_BOOST_457 integer 457: Magic Boost (ability)
+---@field MAGIC_BOOST_1 integer 457: Magic Boost (ability). A key of its own; also `MAGIC_BOOST_457`.
 ---@field ROYAL_FLASH integer 458: Royal Flash (physical)
 ---@field BY_LA_WAY integer 459: By La Way (physical)
 ---@field WINDING_WHEEL_SWORD integer 460: Winding Wheel Sword (physical)

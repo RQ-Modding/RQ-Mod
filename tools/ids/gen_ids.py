@@ -7,8 +7,9 @@ data/ids/<kind>.tsv comes from the game (tools/ids/extract.lua, run by the works
 scripts/ids-extract.ps1): number, name, detail. Classes and states keep the fixed lists below, and
 their TSVs check them. The game names skill targets in Japanese only, so TARGET names them.
 
-data/ids/preferred.tsv gives a repeated name a plain key beside its numbered ones (FORTUNE beside
-FORTUNE_448): kind, name, number, why. Hand-made; a plain key never moves once released.
+data/ids/preferred.tsv gives numbers of a repeated name more keys beside their numbered ones:
+kind, name, number, key, why. An empty key is the plain key (FORTUNE beside FORTUNE_448); a key
+can also be its own (CAPTURE_EX, USE_IBEPROFUN_EX). Hand-made; such a key never moves once released.
 
 Keys are the English name in upper snake case: FORTUNE, KAORU_QUINCY, SKILL_AGAIN. A name the
 game uses for more than one number gives each of them its number as a suffix (FORTUNE_158,
@@ -85,7 +86,7 @@ def read_tsv(fname):
             line = line.rstrip("\r\n")
             if not line or line.startswith("#"):
                 continue
-            rows.append((line.split("\t") + ["", "", ""])[:4])
+            rows.append((line.split("\t") + ["", "", "", ""])[:5])
     return rows
 
 
@@ -93,7 +94,7 @@ def check_fixed(kind, names):
     """The game's own list must give the numbers and names of FIXED[kind] (0, None, is ours)."""
     if not os.path.exists(os.path.join(DATA, kind + ".tsv")):
         return
-    game = {int(no): names.get(name, name) for no, name, _, _ in read_tsv(kind + ".tsv")}
+    game = {int(no): names.get(name, name) for no, name, *_ in read_tsv(kind + ".tsv")}
     ours = {n: name for n, name in FIXED[kind] if n != 0}
     if game != ours:
         sys.exit("gen_ids: the game's %s list %r differs from FIXED %r" % (kind, game, ours))
@@ -104,7 +105,7 @@ def read_kind(kind, fname):
         check_fixed(kind, STATE_JA if kind == "state" else {})
         return [{"no": n, "name": name, "detail": ""} for n, name in FIXED[kind]]
     rows = []
-    for no, name, detail, _ in read_tsv(fname):
+    for no, name, detail, *_ in read_tsv(fname):
         if kind == "skill":
             detail = ACTION.get(detail, detail)
         elif kind == "chara":
@@ -119,11 +120,12 @@ def read_kind(kind, fname):
 
 
 def read_preferred():
-    out = {}
+    """[(kind, name, number, key)]; key is the plain key when the file leaves it empty."""
+    out = []
     if os.path.exists(os.path.join(DATA, "preferred.tsv")):
-        for kind, name, no, _ in read_tsv("preferred.tsv"):
+        for kind, name, no, key, _ in read_tsv("preferred.tsv"):
             if kind != "kind":  # the header
-                out[(kind, name)] = int(no)
+                out.append((kind, name, int(no), key or key_of(name)))
     return out
 
 
@@ -134,7 +136,8 @@ def with_keys(kind, rows, preferred):
     for key, members in groups.items():
         for r in members:
             r["key"] = key if len(members) == 1 else "%s_%d" % (key, r["no"])
-    for (pkind, name), no in preferred.items():
+    taken = {r["key"] for r in rows}
+    for pkind, name, no, key in preferred:
         if pkind != kind:
             continue
         members = groups.get(key_of(name), [])
@@ -143,7 +146,10 @@ def with_keys(kind, rows, preferred):
         hit = [r for r in members if r["no"] == no]
         if not hit:
             sys.exit("gen_ids: preferred.tsv: %s %r has no number %d" % (kind, name, no))
-        hit[0]["alias"] = key_of(name)
+        if key in taken or key != key_of(key):
+            sys.exit("gen_ids: preferred.tsv: %s key %s is taken or not upper snake case" % (kind, key))
+        taken.add(key)
+        hit[0].setdefault("aliases", []).append(key)
     return rows
 
 
@@ -155,7 +161,7 @@ def model():
     out = {"kinds": []}
     preferred = read_preferred()
     known = {k[0] for k in KINDS}
-    for pkind, _ in preferred:
+    for pkind, *_ in preferred:
         if pkind not in known:
             sys.exit("gen_ids: preferred.tsv: unknown kind %s" % pkind)
     for kind, fname, title, what in KINDS:
@@ -177,6 +183,7 @@ end
 
 local ids = {}
 local names = {}
+local extra = {}  -- kind = { folded preferred key = number }, for find
 
 for kind, list in pairs(DATA) do
   local t, byno = {}, {}
@@ -185,7 +192,11 @@ for kind, list in pairs(DATA) do
     byno[list[i]] = list[i + 2]
   end
   names[kind] = byno
-  for key, no in pairs(ALIAS[kind] or {}) do t[key] = no end
+  extra[kind] = {}
+  for key, no in pairs(ALIAS[kind] or {}) do
+    t[key] = no
+    extra[kind][fold(key)] = no
+  end
   ids[kind] = setmetatable(t, {
     __index = function(_, k)
       error("rq.ids." .. kind .. " has no " .. tostring(k) .. " (rq.ids.find looks a name up)", 2)
@@ -209,7 +220,11 @@ function ids.find(kind, name)
     if fold(list[i + 2]) == want then hits[#hits + 1] = list[i] end
     if fold(list[i + 1]) == want then by_key[#by_key + 1] = list[i] end
   end
+  -- A repeated name with a plain key gives that number; a key of its own is found as a key.
+  local named = extra[kind][want]
+  if #hits > 1 and named then return named end
   if #hits == 0 then hits = by_key end
+  if #hits == 0 and named then return named end
   if #hits == 1 then return hits[1] end
   if #hits == 0 then return nil, "no " .. kind .. " named " .. string.format("%q", name) end
   table.sort(hits)
@@ -249,12 +264,14 @@ def write_runtime(m):
             lines.append("    %d, %s, %s," % (r["no"], lua_str(r["key"]), lua_str(r["name"])))
         lines.append("  },")
     lines.append("}")
-    lines += ["", "-- kind = { plain key = number }: one number of a repeated name (data/ids/preferred.tsv)",
+    lines += ["", "-- kind = { key = number }: more keys for numbers of a repeated name (data/ids/preferred.tsv)",
               "local ALIAS = {"]
     for k in m["kinds"]:
-        al = [r for r in k["entries"] if r.get("alias")]
+        al = [(a, r["no"]) for r in k["entries"] for a in r.get("aliases", [])]
         if al:
-            lines.append("  %s = { %s }," % (k["kind"], ", ".join("%s = %d" % (r["alias"], r["no"]) for r in al)))
+            lines.append("  %s = {" % k["kind"])
+            lines += ["    %s = %d," % (a, no) for a, no in al]
+            lines.append("  },")
     lines += ["}", "", "local KINDS = %s" % lua_str(", ".join(k["kind"] for k in m["kinds"]))]
     return "\n".join(lines) + "\n" + RUNTIME
 
@@ -269,9 +286,10 @@ def write_meta(m):
         for r in k["entries"]:
             extra = " (%s)" % r["detail"] if r["detail"] else ""
             lines.append("---@field %s integer %d: %s%s" % (r["key"], r["no"], r["name"].replace("\n", " "), extra))
-            if r.get("alias"):
-                lines.append("---@field %s integer %d: %s%s. The plain key; also `%s`." % (
-                    r["alias"], r["no"], r["name"].replace("\n", " "), extra, r["key"]))
+            for a in r.get("aliases", []):
+                what = "The plain key" if a == key_of(r["name"]) else "A key of its own"
+                lines.append("---@field %s integer %d: %s%s. %s; also `%s`." % (
+                    a, r["no"], r["name"].replace("\n", " "), extra, what, r["key"]))
         lines.append("")
     return "\n".join(lines)
 
