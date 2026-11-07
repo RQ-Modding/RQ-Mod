@@ -1,4 +1,5 @@
--- rq.status: battle states made by mods, one registry every mod shares (loader 2.2.0).
+-- rq.status: battle states made by mods, one registry every mod shares (loader 2.2.0;
+-- lethal states 2.3.0).
 --
 -- Built only on public calls: rq.battle.on_turn / on_end / on_down / on_support, rq.combat
 -- on_physical / on_accuracy / on_magic, rq.battle.set_buff, and rq.ain.hook on two game
@@ -115,10 +116,16 @@ end
 
 local hooked, combat_hooked, magic_hooked = false, false, false
 
+-- A state's on_turn gets ctx with its own defaults for ctx:damage: lethal from the definition,
+-- the source as the killer. Once the bearer is down, the states after it do not tick.
 local function on_turn(ctx)
   actor = ctx.iic
   each_on(ctx.iic, function(s, def)
-    if def.on_turn then run(def, "on_turn", def.on_turn, s, ctx) end
+    if def.on_turn and not ctx.downed then
+      ctx._lethal, ctx._source = def.lethal, s.source
+      run(def, "on_turn", def.on_turn, s, ctx)
+      ctx._lethal, ctx._source = nil, nil
+    end
   end)
 end
 
@@ -253,6 +260,7 @@ function status.define(id, def)
     optional(def, f, "function", "rq.status.define")
   end
   optional(def, "icon", "table", "rq.status.define")
+  optional(def, "lethal", "boolean", "rq.status.define")
   optional(def, "tags", "table", "rq.status.define")
   optional(def, "cured_by", "table", "rq.status.define")
   local cured_by = def.cured_by or (kind == "bad" and { "all" } or {})
@@ -282,7 +290,7 @@ function status.define(id, def)
   defs[id] = {
     id = id, name = def.name or id, kind = kind, mod = mod or "?", turns = turns, stack = stack,
     cured = cured, cured_by = { table.unpack(cured_by) }, tags = tags, tag_list = { table.unpack(def.tags or {}) },
-    keep_on_down = def.keep_on_down == true, icon = icon, key = "st:" .. ndefs,
+    keep_on_down = def.keep_on_down == true, lethal = def.lethal == true, icon = icon, key = "st:" .. ndefs,
     on_turn = def.on_turn, on_add = def.on_add, on_remove = def.on_remove,
     physical = def.physical, magic = def.magic, accuracy = def.accuracy, text = def.text,
   }
@@ -296,6 +304,7 @@ function status.info(id)
   return {
     id = d.id, name = d.name, kind = d.kind, mod = d.mod, turns = d.turns, stack = d.stack,
     cured_by = { table.unpack(d.cured_by) }, tags = { table.unpack(d.tag_list) }, keep_on_down = d.keep_on_down,
+    lethal = d.lethal,
   }
 end
 

@@ -2566,7 +2566,10 @@ function combat.on_physical(fn) end
 
 ---Calls `fn` for each accuracy check, to add to the hit chance.
 ---
----The returned numbers of every callback add up; nil counts as 0.
+---The returned numbers of every callback add up; nil counts as 0. The game's own limits come after
+---them: the chance is at most 100; an ally's attack hits at least 20% of the time; an enemy's at
+---least 40% (20% or 60% by the target's class, more after the target dodged several times in a
+---row) and at most 80% to 100% by the target's evasion.
 ---
 ---Since: 0.2.0
 ---Changed: 0.13.0 Every mod's callback runs and the numbers add up (before, the last one won).
@@ -2959,23 +2962,47 @@ function battle.on_use(fn) end
 ---@field side "ally"|"enemy"|"summon" Whose turn it is.
 ---@field turn integer The fight's action count (`◆戦闘ターン`), which every actor's turn raises.
 ---@field passing boolean true when this turn passes: the turn a stun ends, or after `ctx:skip()`.
+---@field downed boolean true once a lethal `ctx:damage` brought the HP to 0 in this turn start. Since 2.3.0.
 local BattleTurnCtx = {}
 
 ---Takes HP at this turn start and shows it as the game's damage number.
 ---
----The HP stops at 1, as with the game's poison, so this never downs anyone. Damage from several
+---The HP stops at 1, as with the game's poison, unless `opts.lethal` is true. Damage from several
 ---callbacks, and the game's poison, show as one number.
 ---
----Raises an error for a number that is not whole or is below 0.
+---**Lethal.** With `lethal`, the HP may reach 0. Then the character goes down, as the game shows
+---a death: the enemy fades or the ally's card turns red, and `rq.battle.on_down` runs. The turn
+---passes (`ctx.downed` and `ctx.passing` are true), and later `ctx:damage` and `ctx:heal` calls in
+---this turn start do nothing. The dying character's skills that act at a death run: Hanny Zippo
+---brings it back at full HP once a fight, and Rich Enemy (438) doubles the gold. Kalar's curse
+---needs a killer: with a `source` that is in the fight and not down, the game's own death
+---handling (`死亡計算`) runs with that killer. When the action ends, the game checks for the end
+---of the fight, as after an attack: the last enemy's death wins it and the last ally's loses it.
+---A familiar never goes down this way: its damage stops at 1 HP. Skills that save a character
+---from a hit (Persevere) do not act, as with poison.
+---
+---Raises an error for a number that is not whole or is below 0, or an option of the wrong type.
 ---
 ---Since: 2.1.0
+---Changed: 2.3.0 `opts`, with `lethal` and `source`.
+---
+---```lua
+---rq.battle.on_turn(function(ctx)
+---  if doomed[ctx.iic] then
+---    ctx:damage(999999, { lethal = true, source = doomed[ctx.iic] })
+---    ctx:log(" " .. rq.chara.get(ctx.iic).short .. "'s time is up.")
+---  end
+---end)
+---```
 ---@param n integer The HP to take, 0 or more.
----@return integer taken The HP taken, after the 1 HP floor.
-function BattleTurnCtx:damage(n) end
+---@param opts? {lethal?: boolean, source?: integer} `lethal`: may bring the HP to 0, default false (in an `rq.status` state's `on_turn`, the definition's `lethal`). `source`: the killer's roster slot, default 0 (in a state's `on_turn`, the state's `source`).
+---@return integer taken The HP taken, after the 1 HP floor when not lethal.
+function BattleTurnCtx:damage(n, opts) end
 
 ---Gives HP at this turn start, with the game's regeneration effect and number.
 ---
----The HP stops at the most HP. A downed character gets nothing.
+---The HP stops at the most HP. A downed character gets nothing, nor one a lethal `ctx:damage`
+---downed in this turn start.
 ---
 ---Raises an error for a number that is not whole or is below 0.
 ---
@@ -3010,9 +3037,10 @@ function BattleTurnCtx:log(text) end
 ---and the next still runs.
 ---
 ---This is where a mod state does its work each turn: a burn's damage, a regeneration, a freeze
----that skips the turn.
+---that skips the turn. A lethal `ctx:damage` may down the character (see `BattleTurnCtx:damage`).
 ---
 ---Since: 2.1.0
+---Changed: 2.3.0 Lethal damage, and `ctx.downed`.
 ---
 ---```lua
 ---local burning = {}  -- iic -> turns left
@@ -4342,7 +4370,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.2.0"
+rq.version = "2.3.0"
 
 rq.units = units
 rq.items = items
@@ -4642,7 +4670,13 @@ rq.mod = mod
 ---left as its text, or its stacks when it has no turns. A character holds up to 8 buffs, the
 ---mods' own and the states' together.
 ---
+---**Lethal.** A state's damage stops at 1 HP, as poison's does, unless its definition has
+---`lethal = true`: then `ctx:damage` in its `on_turn` may down the bearer, with the state's
+---`source` as the killer (see `BattleTurnCtx:damage`). Once the bearer is down, the states after
+---it do not tick that turn.
+---
 ---Since: 2.2.0
+---Changed: 2.3.0 `lethal`.
 ---
 ---```lua
 ---local BURN_ICON = rq.image.add("burn", "burn.png", { fit = "contain", w = 56, h = 56 })
@@ -4677,6 +4711,7 @@ local status = {}
 ---@field cured_by? (string|integer)[] What cures it: "all" (Status Restore, Encourage, Self-Healing), "poison" (First Aid), or support skill numbers. Default `{ "all" }` for a bad state, `{}` for a good one.
 ---@field tags? string[] Names for families of states, for `rq.status.cure(iic, { tag = ... })`.
 ---@field keep_on_down? boolean Stays when the bearer goes down, until the fight ends. Default false.
+---@field lethal? boolean Its `on_turn` damage may bring the HP to 0 and down the bearer, with `source` as the killer; `ctx:damage(n, { lethal = false })` still stops at 1. Default false, as poison. Since 2.3.0.
 ---@field icon? rq.BuffDef The buff on the card; its `text` is set by `rq.status`.
 ---@field text? fun(s: rq.StatusInstance): string The icon's text, at most 15 bytes. Default the turns left, else the stacks when more than 1.
 ---@field on_turn? fun(s: rq.StatusInstance, ctx: rq.BattleTurnCtx) Runs at each of the bearer's turn starts, as `rq.battle.on_turn`: damage, heal, skip, log.
@@ -4715,6 +4750,7 @@ local status = {}
 ---@field cured_by (string|integer)[] What cures it.
 ---@field tags string[] Its tags.
 ---@field keep_on_down boolean Whether it stays when the bearer goes down.
+---@field lethal boolean Whether its damage may down the bearer. Since 2.3.0.
 
 ---Defines a state that every mod can then add.
 ---
