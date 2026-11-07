@@ -44,6 +44,8 @@ void rq_crash_note_call(int fno, int struct_page);
 void rq_crash_crumb(const char *what, int a, int b);
 void rq_crash_vm_error(const char *msg);
 void rq_crash_test(void);
+/* Samples the game thread's stack (from another thread) into logs\rqmod-where-*.txt. */
+int rq_crash_where(char *out, size_t n);
 void rq_crash_rotate_logs(const char *dir);
 void rq_crash_install(void);
 bool rq_mods_swallow_msgbox(const char *title, const char *msg);
@@ -435,7 +437,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "1.16.1"
+#define RQ_VERSION "2.0.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -478,7 +480,19 @@ float rq_random_float(void);
 int rq_query_facts(char **json_out);
 void rq_query_bind(struct lua_State *L);
 void rq_sandbox_install(struct lua_State *L);
-void rq_sandbox_add_mod(const char *dir);
+struct rq_mod_node;
+/* Registers a mod folder (with its id and dependencies) and makes the mod's own global
+ * table. Returns its index, or -1. */
+int rq_sandbox_add_mod(struct lua_State *L, const char *dir, const struct rq_mod_node *node);
+/* After the mod's init.lua: ok with its return value on top of the stack (popped). */
+void rq_sandbox_mod_done(struct lua_State *L, int mod, int ok);
+/* Snapshots rq and the standard tables; with mod >= 0, first logs what that mod's init.lua
+ * added, changed or removed in them since the last snapshot. */
+void rq_sandbox_watch(struct lua_State *L, int mod);
+/* rq.mod.get, id and list, in the rq table at rq_idx. */
+void rq_sandbox_open(struct lua_State *L, int rq_idx);
+/* Gives the function at fidx mod's global table as its _ENV. */
+void rq_sandbox_set_env(struct lua_State *L, int fidx, int mod);
 
 /* hll/MsgSkip.c: a read flag of its own for one line of mod text. */
 int rq_msgskip_number(const char *mod, const char *text);

@@ -4165,6 +4165,7 @@ function ids.name(kind, no) end
 ---@field image rq.image
 ---@field item rq.item
 ---@field speed rq.speed
+---@field mod rq.mod
 ---@field sound rq.sound
 ---@field uikit rq.uikit
 ---@field config rq.config
@@ -4175,7 +4176,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "1.16.1"
+rq.version = "2.0.0"
 
 rq.units = units
 rq.items = items
@@ -4379,6 +4380,76 @@ function speed.set(factor) end
 function speed.get() end
 
 rq.speed = speed
+
+---Finds out about other mods, and reaches what they share.
+---
+---Every mod has its own global variables and its own `require` cache: a global set in one mod
+---is not seen by another, and two mods that each have a `util.lua` each get their own. A mod
+---shares only what its `init.lua` returns. A mod that lists that mod's id in `dependencies` in
+---`mod.json` gets it with `require("<id>")`; any mod can get it with `rq.mod.get`.
+---
+---What is shared is the same value, not a copy, so a library mod can keep state in it. The
+---library's own modules, globals and files stay its own, also when another mod calls its
+---functions.
+---
+---Since: 2.0.0
+---
+---```lua
+----- mods/ui-lib/init.lua (mod.json: "id": "ui-lib")
+---local M = {}
+---function M.title(text) rq.log("title: " .. text) end
+---return M
+---
+----- mods/my-mod/init.lua (mod.json: "dependencies": ["ui-lib"])
+---local ui = require("ui-lib")
+---ui.title("Hello")
+---```
+---@class rq.mod
+local mod = {}
+
+---Returns what a loaded mod's `init.lua` returned.
+---
+---For optional support of another mod, without listing it in `dependencies`. A mod's value is
+---there once its `init.lua` has finished, so during your own `init.lua` you see only the mods
+---loaded before yours: list the other mod in `loadAfter` to be sure, or call this later (in a
+---callback). To need a mod, list it in `dependencies` and use `require("<id>")` instead.
+---
+---Since: 2.0.0
+---
+---```lua
+----- mod.json: "loadAfter": ["ui-lib"], so ui-lib loads first when it is installed
+---local ui = rq.mod.get("ui-lib")    -- nil when ui-lib is not installed
+---if ui then ui.title("Hello") end
+---```
+---@param id string The mod's `id` in its `mod.json`.
+---@return any value What its `init.lua` returned; `nil` when that mod is not loaded, did not finish loading, or returned nothing.
+---@see rq.mod.list
+function mod.get(id) end
+
+---Returns the id of the mod whose code calls it.
+---
+---It is the `id` in that mod's `mod.json`. When a mod calls a function of another mod, the code
+---running is the other mod's, so that mod's id is returned.
+---
+---Since: 2.0.0
+---@return string|nil id The calling mod's id; `nil` outside any mod's code.
+function mod.id() end
+
+---Returns the ids of the mods that finished loading, in load order.
+---
+---A mod whose `init.lua` raised an error is not in the list, nor is one that is still loading
+---(your own mod, during its `init.lua`).
+---
+---Since: 2.0.0
+---
+---```lua
+---for _, id in ipairs(rq.mod.list()) do rq.log(id) end
+---```
+---@return string[] ids The mods' `id`s, in the order they loaded.
+---@see rq.mod.get
+function mod.list() end
+
+rq.mod = mod
 
 ---Plays sounds: a game sound number, a file in the mod folder, or a sound inside a game Flash file.
 ---

@@ -385,6 +385,93 @@ static LONG WINAPI crash_filter(EXCEPTION_POINTERS *ep)
 	return EXCEPTION_EXECUTE_HANDLER;
 }
 
+/* For a game that hangs: `rqmod-ctl where`, from the pipe thread. The game thread is
+ * suspended a few times for a moment and its native stack walked (unwind tables, so
+ * no symbols file is needed for the walk itself). Nothing is allocated or written
+ * while it is suspended, since it may hold the heap lock. Then the stacks, the AIN
+ * call stack and the rings go to logs\rqmod-where-<time>.txt. */
+#define WHERE_SAMPLES 5
+#define WHERE_FRAMES 40
+
+static int walk_thread(HANDLE th, uint64_t *pcs, int max)
+{
+	CONTEXT c;
+	int n = 0;
+
+	memset(&c, 0, sizeof c);
+	c.ContextFlags = CONTEXT_FULL;
+	if (!GetThreadContext(th, &c))
+		return 0;
+#if defined(__x86_64__) || defined(_M_X64)
+	while (n < max && c.Rip) {
+		DWORD64 base = 0, frame = 0;
+		PVOID hdata = NULL;
+		PRUNTIME_FUNCTION fe;
+
+		pcs[n++] = c.Rip;
+		fe = RtlLookupFunctionEntry(c.Rip, &base, NULL);
+		if (!fe) {
+			/* a leaf function: the return address is on top of the stack */
+			c.Rip = *(DWORD64 *)(uintptr_t)c.Rsp;
+			c.Rsp += 8;
+		} else {
+			RtlVirtualUnwind(UNW_FLAG_NHANDLER, base, c.Rip, fe, &c, &hdata, &frame, NULL);
+		}
+	}
+#endif
+	return n;
+}
+
+int rq_crash_where(char *out, size_t outn)
+{
+	static uint64_t pcs[WHERE_SAMPLES][WHERE_FRAMES];
+	int np[WHERE_SAMPLES], s, i;
+	char path[RQ_PATH_MAX];
+	HANDLE th;
+	SYSTEMTIME t;
+	FILE *f;
+
+	if (!g_main_thread || !g_crash_dir[0])
+		return 0;
+	th = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
+			FALSE, g_main_thread);
+	if (!th)
+		return 0;
+	for (s = 0; s < WHERE_SAMPLES; s++) {
+		np[s] = 0;
+		if (s)
+			Sleep(200);
+		if (SuspendThread(th) == (DWORD)-1)
+			continue;
+		np[s] = walk_thread(th, pcs[s], WHERE_FRAMES);
+		ResumeThread(th);
+	}
+	CloseHandle(th);
+
+	GetLocalTime(&t);
+	snprintf(path, sizeof path, "%s\\rqmod-where-%04d%02d%02d-%02d%02d%02d.txt", g_crash_dir,
+		 (int)t.wYear, (int)t.wMonth, (int)t.wDay, (int)t.wHour, (int)t.wMinute,
+		 (int)t.wSecond);
+	f = fopen(path, "w");
+	if (!f)
+		return 0;
+	write_header(f, "where the game thread is (rqmod-ctl where)");
+	for (s = 0; s < WHERE_SAMPLES; s++) {
+		fprintf(f, "Game thread, sample %d of %d, 200 ms apart (innermost first):\n",
+			s + 1, WHERE_SAMPLES);
+		for (i = 0; i < np[s]; i++) {
+			fprintf(f, "  #%d ", i);
+			describe_addr(f, pcs[s][i]);
+			fprintf(f, "\n");
+		}
+	}
+	write_ain_stack(f);
+	write_rings(f);
+	fclose(f);
+	snprintf(out, outn, "%s", path);
+	return 1;
+}
+
 #else /* !_WIN32 */
 
 static void write_report(const char *why, void *ep)

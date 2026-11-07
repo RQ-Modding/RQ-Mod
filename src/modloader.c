@@ -1413,6 +1413,7 @@ static void open_rq(lua_State *L)
 	rq_sprite_hooks(L, lua_gettop(L));
 	rq_uikit_open(L, lua_gettop(L));
 	rq_config_open(L, lua_gettop(L));
+	rq_sandbox_open(L, lua_gettop(L));
 	rq_ids_open(L, lua_gettop(L));
 	guard_game_calls(L);
 	lua_setglobal(L, "rq");
@@ -1571,7 +1572,7 @@ int rq_mods_json(char **json_out)
 	return 1;
 }
 
-static int load_one_lua(lua_State *L, const char *path, const char *name, const char *note_path)
+static int load_one_lua(lua_State *L, const char *path, const char *name, const char *note_path, int env)
 {
 	int err;
 	if (name && name[0])
@@ -1580,13 +1581,18 @@ static int load_one_lua(lua_State *L, const char *path, const char *name, const 
 	if (err != LUA_OK) {
 		rq_log("load error %s: %s", path, lua_tostring(L, -1));
 		lua_pop(L, 1);
+		rq_sandbox_mod_done(L, env, 0);
 		return 0;
 	}
-	if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+	rq_sandbox_set_env(L, -1, env);
+	/* What init.lua returns is what the mod shares (require of its id, rq.mod.get). */
+	if (lua_pcall(L, 0, 1, 0) != LUA_OK) {
 		rq_log("run error %s: %s", path, lua_tostring(L, -1));
 		lua_pop(L, 1);
+		rq_sandbox_mod_done(L, env, 0);
 		return 0;
 	}
+	rq_sandbox_mod_done(L, env, 1);
 	rq_log("Loaded mod file %s", path);
 	if (name && note_path)
 		note_loaded_mod(name, note_path);
@@ -1717,6 +1723,7 @@ static int load_mods(lua_State *L)
 	struct rq_mod_disk mods[RQ_ORDER_MAX];
 	struct rq_mod_node nodes[RQ_ORDER_MAX];
 	int order[RQ_ORDER_MAX];
+	int envs[RQ_ORDER_MAX];
 	int n = 0, i, norder, loaded = 0;
 
 	/* Folders with mod.json only. loadorder.txt is not read. */
@@ -1769,12 +1776,19 @@ static int load_mods(lua_State *L)
 		snprintf(mods[i].node.why_id, sizeof mods[i].node.why_id, "%s", nodes[i].why_id);
 	}
 	log_skips(mods, n);
+	/* Every mod first, so require and rq.mod know the ids of mods that load later. */
 	for (i = 0; i < norder; i++) {
 		struct rq_mod_disk *m = &mods[order[i]];
-		rq_sandbox_add_mod(m->dir);
+		envs[i] = rq_sandbox_add_mod(L, m->dir, &m->node);
+	}
+	/* rq and the standard tables are shared: log what each init.lua changed in them. */
+	rq_sandbox_watch(L, -1);
+	for (i = 0; i < norder; i++) {
+		struct rq_mod_disk *m = &mods[order[i]];
 		rq_log("Loading %s priority %d", m->node.id, m->node.priority);
-		if (load_one_lua(L, m->init, m->node.id, m->dir))
+		if (load_one_lua(L, m->init, m->node.id, m->dir, envs[i]))
 			loaded++;
+		rq_sandbox_watch(L, envs[i]);
 	}
 	return loaded;
 }

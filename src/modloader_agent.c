@@ -196,6 +196,20 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 		rq_crash_test(); /* only does anything with env RQ_DEBUG_CRASH */
 		return 1;
 	}
+	if (!_stricmp(cmd, "where")) {
+		char path[RQ_PATH_MAX];
+		if (!rq_crash_where(path, sizeof path)) {
+			if (err)
+				snprintf(err, errsz, "where: no game thread or logs folder");
+			return 0;
+		}
+		if (extra) {
+			*extra = malloc(strlen(path) + 2);
+			if (*extra)
+				sprintf(*extra, "%s\n", path);
+		}
+		return 1;
+	}
 	if (!_stricmp(cmd, "ungrab")) {
 		mouse_release_agent();
 		return 1;
