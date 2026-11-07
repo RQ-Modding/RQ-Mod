@@ -4,3 +4,6 @@ build
 .dir-locals.el
 /subprojects/cglm
 /subprojects/.wraplock
+
+# Output of tools/apidoc/rqdoc.py json when run from here
+/api.json
