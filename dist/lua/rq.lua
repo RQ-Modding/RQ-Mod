@@ -2595,6 +2595,40 @@ function combat.on_accuracy(fn) end
 ---@return fun() remove Removes this callback.
 function combat.on_crit(fn) end
 
+---What `rq.combat.on_magic` gets for one spell.
+---
+---Since: 2.1.0
+---@class rq.MagicCtx
+---@field attacker integer The attacker's roster slot.
+---@field defender integer The defender's roster slot.
+---@field skill integer The skill number.
+---@field damage integer The final damage the game worked out, before any percent.
+---@field magic integer The attacker's magic.
+---@field race integer The defender's race (`rq.ids.race`); 8 is a hanny.
+---@field defender_type integer The defender's type (`Ｃタイプ`); 22 is humanoid.
+
+---Calls `fn` for each magic hit, to change its final damage by a percent.
+---
+---`fn` returns a percent of the final damage (100 is unchanged, 50 half, 0 none) or nil to keep it.
+---The percents of every callback multiply, and the damage is rounded down. It runs after the game's
+---last damage step (`最終ダメージ計算`), so the barrier, immunities and the game's magic resistance
+---are already in `damage`; a spell that does 0 is not reported. The battle forecast is not changed.
+---It is the magic twin of the final percent of `rq.combat.on_physical`.
+---
+---Raises an error, logged, for a return that is not a whole number of 0 or more.
+---
+---Since: 2.1.0
+---
+---```lua
+---rq.combat.on_magic(function(ctx)
+---  if weakened[ctx.attacker] then return 70 end  -- a weakened caster does 70%
+---end)
+---```
+---@param fn fun(ctx: rq.MagicCtx): integer|nil Returns the percent, or nil.
+---@return fun() remove Removes this callback.
+---@see rq.combat.on_physical
+function combat.on_magic(fn) end
+
 ---What `rq.counter.on_guard_counter` gets.
 ---@class rq.CounterGuardCtx
 ---@field guarded boolean Ally Guard redirected this hit (the game's `FA[77]` is 1).
@@ -2915,6 +2949,137 @@ function battle.on_switch(fn) end
 ---@param fn fun(ev: rq.BattleUseEvent) Gets the action.
 ---@return fun() remove Removes this callback.
 function battle.on_use(fn) end
+
+---What `rq.battle.on_turn` gets: the character whose turn starts, and what can change it.
+---
+---Since: 2.1.0
+---@class rq.BattleTurnCtx
+---@field iic integer The character's roster slot.
+---@field unit integer Its battle number: 1 to 5 allies, 11 to 15 enemies.
+---@field side "ally"|"enemy"|"summon" Whose turn it is.
+---@field turn integer The fight's action count (`◆戦闘ターン`), which every actor's turn raises.
+---@field passing boolean true when this turn passes: the turn a stun ends, or after `ctx:skip()`.
+local BattleTurnCtx = {}
+
+---Takes HP at this turn start and shows it as the game's damage number.
+---
+---The HP stops at 1, as with the game's poison, so this never downs anyone. Damage from several
+---callbacks, and the game's poison, show as one number.
+---
+---Raises an error for a number that is not whole or is below 0.
+---
+---Since: 2.1.0
+---@param n integer The HP to take, 0 or more.
+---@return integer taken The HP taken, after the 1 HP floor.
+function BattleTurnCtx:damage(n) end
+
+---Gives HP at this turn start, with the game's regeneration effect and number.
+---
+---The HP stops at the most HP. A downed character gets nothing.
+---
+---Raises an error for a number that is not whole or is below 0.
+---
+---Since: 2.1.0
+---@param n integer The HP to give, 0 or more.
+---@return integer healed The HP given, after the cap.
+function BattleTurnCtx:heal(n) end
+
+---Makes this turn pass, as a stun does: the character uses no skill.
+---
+---Since: 2.1.0
+function BattleTurnCtx:skip() end
+
+---Adds text to the battle log line of this turn start.
+---
+---The line is empty on most turns, so write a whole sentence, starting with a space as the game's
+---lines do. Text from several callbacks goes on one line, in the order they ran.
+---
+---Raises an error for a value that is not a string.
+---
+---Since: 2.1.0
+---@param text string The text to add.
+function BattleTurnCtx:log(text) end
+
+---Calls `fn` at the start of every turn in a fight, for allies, enemies and familiars.
+---
+---It runs after the game's own start of a turn (`Ｔ行動開始`): the stun has ended, the poison and
+---regeneration have been done, and nothing is shown yet. Damage and healing from `ctx` then show
+---with the game's own number and effect, as poison and regeneration do. It also runs on the turn a
+---stun ends, and for a petrified Kaloria, with `ctx.passing` true. A familiar's turn has no card,
+---so its damage and healing are not shown. Callbacks run in load order; an error in one is logged
+---and the next still runs.
+---
+---This is where a mod state does its work each turn: a burn's damage, a regeneration, a freeze
+---that skips the turn.
+---
+---Since: 2.1.0
+---
+---```lua
+---local burning = {}  -- iic -> turns left
+---rq.battle.on_turn(function(ctx)
+---  local left = burning[ctx.iic]
+---  if not left then return end
+---  local hp_max = rq.chara.get(ctx.iic).hp_max
+---  ctx:damage(math.max(1, hp_max // 20))
+---  ctx:log(" " .. rq.chara.get(ctx.iic).short .. " is burning.")
+---  burning[ctx.iic] = left > 1 and left - 1 or nil
+---end)
+---```
+---@param fn fun(ctx: rq.BattleTurnCtx) Gets the turn.
+---@return fun() remove Removes this callback.
+---@see rq.battle.on_hit
+function battle.on_turn(fn) end
+
+---What `rq.battle.on_hit` gets for one hit.
+---
+---Since: 2.1.0
+---@class rq.BattleHitCtx
+---@field attacker integer The attacker's roster slot.
+---@field defender integer The defender's roster slot.
+---@field skill integer The skill number.
+---@field kind "physical"|"magic" The kind of attack.
+---@field damage integer The HP the hit took; 0 for a miss, a barrier or an immune target.
+---@field missed boolean The hit missed (`◆攻撃外れた`).
+---@field crit boolean The hit was a critical.
+---@field downed boolean The defender is down after the hit.
+---@field counter boolean The hit is a counter.
+local BattleHitCtx = {}
+
+---Adds text to this hit's battle log line, after the game's own (" X took 120 damage. (Stun)").
+---
+---Start it with a space, as the game's suffixes do: `" (Burn)"`.
+---
+---Raises an error for a value that is not a string.
+---
+---Since: 2.1.0
+---@param text string The text to add.
+function BattleHitCtx:log(text) end
+
+---Calls `fn` after each physical or magic attack on a target, with its result.
+---
+---It runs once per target and per hit: each hit of a multi-hit skill, each target of a skill on
+---many, and a counter, for allies, enemies and familiars. A miss is reported too, with `missed`
+---true. The damage is already taken from the HP, and the hit is not shown yet. The turn a skill
+---only starts to charge is not a hit and is not reported. Special and support skills are not
+---attacks; use `rq.battle.on_support` or `rq.battle.on_use` for them.
+---
+---This is where a hit gives a mod state.
+---
+---Since: 2.1.0
+---
+---```lua
+---rq.battle.on_hit(function(ctx)
+---  if ctx.skill == FIRE_SLASH and not ctx.missed and not ctx.downed and math.random(100) <= 40 then
+---    burning[ctx.defender] = 3
+---    ctx:log(" (Burn)")
+---  end
+---end)
+---```
+---@param fn fun(ctx: rq.BattleHitCtx) Gets the hit.
+---@return fun() remove Removes this callback.
+---@see rq.battle.on_turn
+---@see rq.battle.on_use
+function battle.on_hit(fn) end
 
 ---Installs the hooks the flame, the buffs and the marks need.
 ---
@@ -4176,7 +4341,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.0.0"
+rq.version = "2.1.0"
 
 rq.units = units
 rq.items = items

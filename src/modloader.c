@@ -1410,6 +1410,7 @@ static void open_rq(lua_State *L)
 	rq_sprite_open(L, lua_gettop(L));
 	rq_query_bind(L);
 	rq_scene_open(L, lua_gettop(L));
+	rq_battle_lua_open(L, lua_gettop(L));
 	rq_sprite_hooks(L, lua_gettop(L));
 	rq_uikit_open(L, lua_gettop(L));
 	rq_config_open(L, lua_gettop(L));

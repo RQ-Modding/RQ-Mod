@@ -2106,4 +2106,23 @@ int rq_lua_battle_buffs(lua_State *L)
 	return 1;
 }
 
+/* rq.battle.on_turn, on_hit and rq.combat.on_magic: Lua over rq.ain.hook (lua/battle.lua,
+ * loader 2.1.0). Runs after rq_scene_open, which puts the removable rq.ain.hook in place. */
+extern const char rq_battle_lua[];
+extern const unsigned rq_battle_lua_len;
+
+void rq_battle_lua_open(lua_State *L, int rq_index)
+{
+	if (luaL_loadbuffer(L, rq_battle_lua, rq_battle_lua_len, "=battle") != LUA_OK) {
+		rq_log("battle.lua: %s", lua_tostring(L, -1));
+		lua_pop(L, 1);
+		return;
+	}
+	lua_pushvalue(L, rq_index);
+	if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+		rq_log("battle.lua: %s", lua_tostring(L, -1));
+		lua_pop(L, 1);
+	}
+}
+
 #endif /* RQ_MODLOADER */
