@@ -462,9 +462,14 @@ int rq_ui_wants_frame(void)
 	return atomic_load(&g_wants) > 0 || g_lua_shot_wanted;
 }
 
+static void service_cgdump(void);
+
+/* cgdump is served here too (2.5.0): a screen that draws no frame, such as the
+ * disclaimer, still runs updates, and the pipe would wait until its timeout. */
 void rq_ui_on_update(void)
 {
 	g_lua_built = 0;
+	service_cgdump();
 }
 
 static void clean_copy(char *dst, int n, const char *src)

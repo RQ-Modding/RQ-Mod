@@ -556,7 +556,13 @@ function hud.rect(x, y, w, h, r, g, b, a) end
 ---@field align? "left"|"center"|"right" Where the text sits in the box `w` wide. Default "left". Since 1.6.0.
 ---@field valign? "top"|"center"|"bottom" Where the text sits in the box `h` high. Default "top". Since 1.6.0.
 ---@field edge? boolean false leaves out the dark edge, as on Config's tabs. Default true. Since 1.7.0.
----@field bold? boolean The heavier weight the game's own Config labels look like. Default false. Since 1.8.0.
+---@field bold? boolean The heavier weight the game's own Config labels look like. Default false. Since 1.8.0. With `font = "game"`: the game's bold.
+---@field font? "hud"|"game" "game" draws in the game's own font, as its buttons and lists do: no dark edge, and `edge` does not count. Default "hud". Since 2.5.0.
+---@field face? 256|257|258 With `font = "game"`: the game's font number. 258 is on most buttons, lists and the castle; 256 on item names; 257 on big marks. Default 258. Since 2.5.0.
+---@field outline? integer[]|{r: integer, g: integer, b: integer, w?: integer} With `font = "game"`: an outline in this color, `w` pixels wide (1 to 4, default 1), as the castle's room names. Since 2.5.0.
+---@field shadow? integer[]|{x?: integer, y?: integer, r: integer, g: integer, b: integer} With `font = "game"`: a copy of the text in this color, `x` and `y` pixels away (default 1 and 1), drawn under it. Since 2.5.0.
+---@field space? integer With `font = "game"`: the game's fixed spacing in pixels, for Japanese letters (`SetFixedWidthSpacing`). Default -4. Since 2.5.0.
+---@field spacing? number With `font = "game"`: the game's letter spacing for English letters, 0 to 4 (`SetSpacing`); the game's lists use 0.95. Default 1. Since 2.5.0.
 
 ---Draws a line of UTF-8 text.
 ---
@@ -565,13 +571,25 @@ function hud.rect(x, y, w, h, r, g, b, a) end
 ---can draw show. With `w` and `align` the text is placed in the box `w` wide from `x`, and with `h`
 ---and `valign` in the box `h` high from `y`; text wider than the box goes past it on both sides.
 ---
----Raises an error for an unknown `align` or `valign`.
+---With `font = "game"` the game draws the text in its own font, letter by letter with its own
+---spacing, as its buttons, lists and the castle do; `valign = "center"` then centers it as the game
+---centers its button labels. The game draws each different text once; it is kept for the next
+---updates. Up to 512 different texts draw on one update; past that, the rest draw nothing and the
+---log says so once. It needs the game running: before the title it draws nothing.
+---
+---Raises an error for an unknown `align`, `valign` or `font`, a `face` other than 256 to 258, a
+---`size` outside 6 to 96 with the game's font, or a bad `outline`, `shadow` or `spacing`.
 ---
 ---Since: 0.2.0
 ---Changed: 1.8.0 The font is VL PGothic with letters at their own width (before, VL Gothic with half-width Latin letters).
+---Changed: 2.5.0 Added `font = "game"` with `face`, `outline`, `shadow`, `space` and `spacing`.
 ---
 ---```lua
 ---rq.hud.text(0, 40, "Centered", { size = 20, w = 1024, align = "center" })
+------ A room name as Rance Castle writes it, on the game's button.
+---rq.hud.cg(100, 200, 11153, { src = { 0, 0, 206, 30 } })
+---rq.hud.text(100, 200, "My Room", { font = "game", size = 24, r = 25, g = 25, b = 25,
+---  outline = { 144, 144, 136 }, spacing = 0.95, w = 206, h = 30, align = "center", valign = "center" })
 ---```
 ---@param x integer Left edge, or of the box with `style.w`, in game pixels.
 ---@param y integer Top edge, or of the box with `style.h`, in game pixels.
@@ -582,12 +600,16 @@ function hud.text(x, y, str, style) end
 
 ---Returns how wide `rq.hud.text` draws a text.
 ---
----Only `size` and `bold` of a style count.
+---Only `size` and `bold` of a style count, and with `font = "game"` also `face`, `outline`,
+---`shadow`, `space` and `spacing`. With `font = "game"` it also gives the height of the line the game
+---draws, which `valign` centers.
 ---
 ---Since: 0.2.0
+---Changed: 2.5.0 Takes `font = "game"`, and then also gives the height.
 ---@param str string The text.
 ---@param size_or_style? number|rq.HudTextStyle A font size, or a style. Default size 16.
 ---@return integer px Width in pixels; 0 for an empty text.
+---@return integer|nil h With `font = "game"`: the height in pixels. nil for the HUD font.
 function hud.text_width(str, size_or_style) end
 
 ---Breaks a text into lines that fit a width.
@@ -650,14 +672,48 @@ function hud.cg_size(cg_no) end
 ---Shows what is drawn next only inside a box, as for a list that scrolls.
 ---
 ---The clip lasts until `rq.hud.clip()` with no arguments. A new clip replaces the box; it does not
----narrow it. Every frame starts with no clip.
+---narrow it (`rq.hud.clip_push` does). Every frame starts with no clip.
 ---
 ---Since: 1.6.0
+---Changed: 2.5.0 The box is the one `clip_push` narrows and `clip_pop` goes back to.
 ---@param x? integer Left edge, in game pixels. Leave all four out to end the clip.
 ---@param y? integer Top edge, in game pixels.
 ---@param w? integer Width, in pixels.
 ---@param h? integer Height, in pixels.
+---@see rq.hud.clip_push
 function hud.clip(x, y, w, h) end
+
+---Narrows the clip to a box inside the clip before it.
+---
+---What is drawn next shows only where the box and every clip pushed before it overlap, as for a list
+---that scrolls inside a page that is clipped too. `rq.hud.clip_pop` goes back to the clip before.
+---`rq.hud.clip(x, y, w, h)` starts over with its box, and `rq.hud.clip()` ends every clip. Every
+---frame starts with no clip.
+---
+---Raises an error past 16 clips inside one another.
+---
+---Since: 2.5.0
+---
+---```lua
+---rq.hud.clip_push(100, 100, 400, 300)   -- the page
+---rq.hud.clip_push(120, 140, 360, 200)   -- a list on it: only the overlap shows
+---draw_rows()
+---rq.hud.clip_pop()                      -- back to the page
+---rq.hud.clip_pop()                      -- no clip
+---```
+---@param x integer Left edge, in game pixels.
+---@param y integer Top edge, in game pixels.
+---@param w integer Width, in pixels.
+---@param h integer Height, in pixels.
+---@see rq.hud.clip_pop
+function hud.clip_push(x, y, w, h) end
+
+---Goes back to the clip before the last `rq.hud.clip_push`.
+---
+---After the first push, it ends the clip. With nothing pushed it does nothing.
+---
+---Since: 2.5.0
+function hud.clip_pop() end
 
 ---Returns whether the mouse is inside a box on this update.
 ---
@@ -2187,6 +2243,12 @@ function image.info(cg) end
 ---@field valign? "top"|"center"|"bottom" Text placement in `h`.
 ---@field edge? boolean false leaves out the text's dark edge.
 ---@field bold? boolean Bold text.
+---@field font? "hud"|"game" "game": the text in the game's own font, as `rq.hud.text` draws it; `face`, `outline`, `shadow`, `space` and `spacing` work as there, `color` gives the color. Since 2.5.0.
+---@field face? 256|257|258 With `font = "game"`: the game's font number. Default 258. Since 2.5.0.
+---@field outline? integer[]|{r: integer, g: integer, b: integer, w?: integer} With `font = "game"`: an outline. Since 2.5.0.
+---@field shadow? integer[]|{x?: integer, y?: integer, r: integer, g: integer, b: integer} With `font = "game"`: a shadow under the text. Since 2.5.0.
+---@field space? integer With `font = "game"`: the game's fixed spacing. Default -4. Since 2.5.0.
+---@field spacing? number With `font = "game"`: the game's letter spacing. Default 1. Since 2.5.0.
 
 ---Makes a CG from parts of other CGs, fills and text.
 ---
@@ -2195,10 +2257,15 @@ function image.info(cg) end
 ---CG's own, else the first layer's extent. Other CGs are read as they are when it is built, mod images
 ---included. Calling it again with the same key or number rebuilds it.
 ---
+---A text layer with `font = "game"` is drawn by the game when `compose` is called, or, before the
+---game runs (in `init.lua`), when the CG is first built.
+---
 ---Raises an error for no layers or more than 256, a layer without `cg`, `text` or `fill`, an unknown
----`mode`, or a size it cannot work out (then give `opts.w` and `opts.h`, 1 to 4096).
+---`mode`, or a size it cannot work out (then give `opts.w` and `opts.h`, 1 to 4096), and for a text
+---layer's style as `rq.hud.text` does.
 ---
 ---Since: 1.8.0
+---Changed: 2.5.0 Text layers take `font = "game"`.
 ---
 ---```lua
 ---local TAB = rq.image.compose("mymod:tab", {
@@ -4381,7 +4448,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.4.0"
+rq.version = "2.5.0"
 
 rq.units = units
 rq.items = items
@@ -5151,11 +5218,12 @@ function uikit.panel(opts, fn) end
 
 ---Draws rows on a dark block that scroll by the wheel.
 ---
----A bar shows when the rows do not fit. A list's clip replaces a clip of your own.
+---A bar shows when the rows do not fit. The list stays inside a clip of your own (`rq.hud.clip_push`).
 ---
 ---Raises an error without `w` and `h`.
 ---
 ---Since: 1.7.0
+---Changed: 2.5.0 Stays inside a clip of your own; before, its clip replaced yours.
 ---@param items (string|{text: string, disabled?: boolean})[] The rows.
 ---@param index? integer The chosen row; nil for none.
 ---@param opts rq.UiPlace|{row_h?: integer, block?: boolean} `w` and `h` are needed. `row_h` (default 30), `block = false` leaves out the dark block.

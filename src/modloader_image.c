@@ -65,6 +65,11 @@ struct layer {
 	char *text;
 	float size;
 	int align, valign, edge, bold; /* LAYER_TEXT: align 0 start, 1 center, 2 end in the box w x h */
+	/* LAYER_TEXT in the game's font (2.5.0): drawn by the game when compose is called. */
+	unsigned char *gpix, *spix;
+	int game, shadow, sr, sg, sb;
+	int gw, gh, sw2, sh2, dx, dy;
+	struct rq_gametext gt;
 };
 
 static struct img g_img[IMG_MAX];
@@ -73,8 +78,11 @@ static int g_nimg;
 static void free_layers(struct img *m)
 {
 	int i;
-	for (i = 0; i < m->nlayers; i++)
+	for (i = 0; i < m->nlayers; i++) {
 		free(m->layers[i].text);
+		free(m->layers[i].gpix);
+		free(m->layers[i].spix);
+	}
 	free(m->layers);
 	m->layers = NULL;
 	m->nlayers = 0;
@@ -355,11 +363,63 @@ static void draw_fill_layer(struct cg *dst, const struct layer *l)
 	}
 }
 
+static void blit_rgba(struct cg *dst, const unsigned char *t, int tw, int th, int ox, int oy,
+		      const struct layer *l)
+{
+	int x, y;
+	for (y = 0; y < th; y++) {
+		if (oy + y < 0 || oy + y >= dst->metrics.h)
+			continue;
+		for (x = 0; x < tw; x++) {
+			if (ox + x < 0 || ox + x >= dst->metrics.w)
+				continue;
+			put((unsigned char *)dst->pixels + ((size_t)(oy + y) * dst->metrics.w + ox + x) * 4,
+			    t + ((size_t)y * tw + x) * 4, l->alpha, l->copy);
+		}
+	}
+}
+
+/* Draws the layer's text with the game, now if it is running, else when the CG is built. */
+static void render_game_text(struct layer *l)
+{
+	if (l->gpix || !rq_gametext_available())
+		return;
+	l->gpix = rq_gametext_rgba(l->text, &l->gt, &l->gw, &l->gh);
+	if (l->shadow) {
+		struct rq_gametext g2 = l->gt;
+		g2.r = g2.er = l->sr;
+		g2.g = g2.eg = l->sg;
+		g2.b = g2.eb = l->sb;
+		l->spix = rq_gametext_rgba(l->text, &g2, &l->sw2, &l->sh2);
+	}
+}
+
+static void draw_game_text_layer(struct cg *dst, const struct layer *l)
+{
+	int ox = l->x, oy = l->y;
+	render_game_text((struct layer *)l);
+	if (!l->gpix)
+		return;
+	if (l->w > 0 && l->align)
+		ox += l->align == 1 ? (l->w - l->gw + 1) / 2 : l->w - l->gw;
+	if (l->h > 0 && l->valign)
+		oy += l->valign == 1 ? rq_gametext_center_y(&l->gt, l->h, l->gh) : l->h - l->gh;
+	if (l->spix)
+		blit_rgba(dst, l->spix, l->sw2, l->sh2, ox + l->dx, oy + l->dy, l);
+	blit_rgba(dst, l->gpix, l->gw, l->gh, ox, oy, l);
+}
+
 static void draw_text_layer(struct cg *dst, const struct layer *l)
 {
 	int tw, th, text_w, x, y, ox = l->x, oy = l->y;
-	unsigned char *t = rq_hud_text_rgba(l->text, l->size, l->r, l->g, l->b, l->edge, l->bold,
-					    &tw, &th, &text_w);
+	unsigned char *t;
+
+	if (l->game) {
+		draw_game_text_layer(dst, l);
+		return;
+	}
+	t = rq_hud_text_rgba(l->text, l->size, l->r, l->g, l->b, l->edge, l->bold,
+			     &tw, &th, &text_w);
 
 	if (!t)
 		return;
@@ -800,6 +860,22 @@ static void parse_layer(lua_State *L, int t, struct layer *l)
 		lua_getfield(L, t, "bold");
 		l->bold = lua_toboolean(L, -1);
 		lua_pop(L, 1);
+		{
+			int has_shadow, dx = 0, dy = 0, sr = 0, sg = 0, sb = 0;
+			if (rq_hud_game_style(L, t, &l->gt, &has_shadow, &dx, &dy, &sr, &sg, &sb)) {
+				l->gt.r = l->r;
+				l->gt.g = l->g;
+				l->gt.b = l->b;
+				l->game = 1;
+				l->shadow = has_shadow;
+				l->sr = sr;
+				l->sg = sg;
+				l->sb = sb;
+				l->dx = dx;
+				l->dy = dy;
+				render_game_text(l);
+			}
+		}
 		return;
 	}
 	lua_pop(L, 1);

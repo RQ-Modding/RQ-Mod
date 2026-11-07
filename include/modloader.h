@@ -87,6 +87,24 @@ int rq_lua_image_restore(struct lua_State *L);
 int rq_lua_image_info(struct lua_State *L);
 int rq_lua_image_compose(struct lua_State *L);
 /* Text in the HUD font as straight-alpha RGBA (modloader_hud.c). Main thread. */
+/* Text in the game's own font (modloader_gametext.c, 2.5.0). */
+struct rq_gametext {
+	int face, size, r, g, b, weight;
+	int edge, er, eg, eb;  /* edge: outline width in pixels, 0 for none */
+	int space;             /* the game's fixed spacing (SetFixedWidthSpacing) */
+	float spacing;         /* the game's letter spacing (SetSpacing) */
+};
+struct texture;
+int rq_gametext_available(void);
+struct texture *rq_gametext_texture(const char *utf8, const struct rq_gametext *st);
+int rq_gametext_measure(const char *utf8, const struct rq_gametext *st, int *w, int *h);
+unsigned char *rq_gametext_rgba(const char *utf8, const struct rq_gametext *st, int *w, int *h);
+int rq_gametext_center_y(const struct rq_gametext *st, int box_h, int line_h);
+void rq_gametext_after_draw(void);
+struct lua_State;
+/* Reads a text style's font = "game" fields (modloader_hud.c); 0 for the HUD font. */
+int rq_hud_game_style(struct lua_State *L, int idx, struct rq_gametext *gt, int *has_shadow,
+		      int *dx, int *dy, int *sr, int *sg, int *sb);
 unsigned char *rq_hud_text_rgba(const char *utf8, float size, int r, int g, int b, int edge,
 				int bold, int *w, int *h, int *text_w);
 int rq_lua_image_add_gif(struct lua_State *L);
@@ -362,6 +380,8 @@ int rq_lua_hud_cg(struct lua_State *L);
 int rq_lua_hud_cg_size(struct lua_State *L);
 int rq_lua_input_scroll(struct lua_State *L);
 int rq_lua_hud_clip(struct lua_State *L);
+int rq_lua_hud_clip_push(struct lua_State *L);
+int rq_lua_hud_clip_pop(struct lua_State *L);
 int rq_lua_hud_hit(struct lua_State *L);
 int rq_lua_hud_clicked(struct lua_State *L);
 int rq_lua_hud_block(struct lua_State *L);
@@ -442,7 +462,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.4.0"
+#define RQ_VERSION "2.5.0"
 
 struct rq_qbattle_skill {
 	int id;

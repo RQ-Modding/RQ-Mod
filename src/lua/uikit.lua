@@ -568,7 +568,7 @@ function ui.list(items, index, o)
   end
   local changed = false
   local cw = w - 2 * inner - (max_top > 0 and 8 or 0)
-  hud.clip(x + inner, y + inner, cw, view)
+  hud.clip_push(x + inner, y + inner, cw, view)
   for i, it in ipairs(items) do
     local ry = y + inner + (i - 1) * rh - st.top
     if ry + rh > y and ry < y + h then
@@ -593,7 +593,7 @@ function ui.list(items, index, o)
       end
     end
   end
-  hud.clip()
+  hud.clip_pop()
   if max_top > 0 then
     local bar_h = math.max(20, math.floor(view * view / total))
     local bar_y = y + inner + math.floor((view - bar_h) * st.top / max_top)

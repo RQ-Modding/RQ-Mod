@@ -41,7 +41,8 @@ enum hud_kind {
 	HUD_RECT = 1,
 	HUD_CG,
 	HUD_TEXT,
-	HUD_CLIP
+	HUD_CLIP,
+	HUD_GTEXT
 };
 
 /* Text alignment inside the box bw, bh (HUD_TEXT). */
@@ -58,7 +59,25 @@ struct hud_cmd {
 	int sx, sy, sw, sh;
 	/* HUD_TEXT: the box the text is aligned in, and no dark edge. */
 	int bw, bh, align, valign, no_edge, bold;
+	/* HUD_GTEXT: the line the game drew, its shadow and the shadow's offset. */
+	Texture *tex, *shadow;
+	int dx, dy;
+	struct rq_gametext gt;
 };
+
+/* The clips pushed on this update (rq.hud.clip_push), each already narrowed to the one under it. */
+#define HUD_MAX_CLIP 16
+static struct { int x, y, w, h; } g_clip[HUD_MAX_CLIP];
+static int g_nclip;
+
+static int game_style(lua_State *L, int idx, struct rq_gametext *gt, int *has_shadow,
+		      int *dx, int *dy, int *sr, int *sg, int *sb);
+
+int rq_hud_game_style(lua_State *L, int idx, struct rq_gametext *gt, int *has_shadow,
+		      int *dx, int *dy, int *sr, int *sg, int *sb)
+{
+	return game_style(L, idx, gt, has_shadow, dx, dy, sr, sg, sb);
+}
 
 /* sprite.f.glsl: the texture times multiply_color, alpha times blend_rate. */
 static struct hud_shader {
@@ -387,6 +406,7 @@ unsigned char *rq_hud_text_rgba(const char *utf8, float size, int r, int g, int 
 static void clear_cmds(void)
 {
 	int i;
+	g_nclip = 0;
 	for (i = 0; i < g_ncmd; i++)
 		free(g_cmd[i].text);
 	g_ncmd = 0;
@@ -878,6 +898,16 @@ int rq_lua_hud_text_width(lua_State *L)
 	struct text_style ts;
 	char *sjis;
 	if (lua_istable(L, 2)) {
+		struct rq_gametext gt;
+		int has_shadow, dx = 0, dy = 0, sr, sg, sb;
+		if (game_style(L, 2, &gt, &has_shadow, &dx, &dy, &sr, &sg, &sb)) {
+			int tw = 0, th = 0;
+			if (utf && *utf)
+				rq_gametext_measure(utf, &gt, &tw, &th);
+			lua_pushinteger(L, tw ? tw + (dx > 0 ? dx : -dx) * has_shadow : 0);
+			lua_pushinteger(L, th ? th + (dy > 0 ? dy : -dy) * has_shadow : 0);
+			return 2;
+		}
 		lua_getfield(L, 2, "size");
 		if (lua_isnumber(L, -1))
 			size = (float)lua_tonumber(L, -1);
@@ -1021,10 +1051,163 @@ static int int_field(lua_State *L, int t, const char *key, int idx, int def)
 	return v;
 }
 
+static int color_part(lua_State *L, int t, const char *key, int idx, int def)
+{
+	int v = def;
+	lua_getfield(L, t, key);
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		lua_rawgeti(L, t, idx);
+	}
+	if (!lua_isnil(L, -1))
+		v = (int)luaL_checkinteger(L, -1);
+	lua_pop(L, 1);
+	return v < 0 ? 0 : v > 255 ? 255 : v;
+}
+
+/* Whether the style at idx asks for the game's font; fills gt from it. Raises an
+ * error for a bad face or font. sx, sy, shadow color: the shadow, when it has one. */
+static int game_style(lua_State *L, int idx, struct rq_gametext *gt, int *has_shadow,
+		      int *dx, int *dy, int *sr, int *sg, int *sb)
+{
+	const char *font;
+	int t = lua_absindex(L, idx);
+	*has_shadow = 0;
+	if (!lua_istable(L, t))
+		return 0;
+	lua_getfield(L, t, "font");
+	font = lua_isnil(L, -1) ? "hud" : luaL_checkstring(L, -1);
+	lua_pop(L, 1);
+	if (!strcmp(font, "hud"))
+		return 0;
+	if (strcmp(font, "game"))
+		return luaL_error(L, "font must be \"hud\" or \"game\", not %s", font);
+	memset(gt, 0, sizeof *gt);
+	gt->face = 258;
+	gt->size = 16;
+	gt->r = gt->g = gt->b = 255;
+	gt->space = -4;
+	gt->spacing = 1.0f;
+	lua_getfield(L, t, "face");
+	if (!lua_isnil(L, -1))
+		gt->face = (int)luaL_checkinteger(L, -1);
+	lua_pop(L, 1);
+	if (gt->face < 256 || gt->face > 258)
+		return luaL_error(L, "face must be 256, 257 or 258, not %d", gt->face);
+	lua_getfield(L, t, "size");
+	if (lua_isnumber(L, -1))
+		gt->size = (int)(lua_tonumber(L, -1) + 0.5);
+	lua_pop(L, 1);
+	if (gt->size < 6 || gt->size > 96)
+		return luaL_error(L, "size must be 6 to 96 with the game's font, not %d", gt->size);
+	gt->r = color_part(L, t, "r", 0, 255);
+	gt->g = color_part(L, t, "g", 0, 255);
+	gt->b = color_part(L, t, "b", 0, 255);
+	lua_getfield(L, t, "bold");
+	gt->weight = lua_toboolean(L, -1) ? 40 : 0;
+	lua_pop(L, 1);
+	lua_getfield(L, t, "space");
+	if (!lua_isnil(L, -1))
+		gt->space = (int)luaL_checkinteger(L, -1);
+	lua_pop(L, 1);
+	lua_getfield(L, t, "spacing");
+	if (!lua_isnil(L, -1))
+		gt->spacing = (float)luaL_checknumber(L, -1);
+	lua_pop(L, 1);
+	if (gt->spacing < 0.0f || gt->spacing > 4.0f)
+		return luaL_error(L, "spacing must be 0 to 4");
+	lua_getfield(L, t, "outline");
+	if (lua_istable(L, -1)) {
+		int o = lua_gettop(L);
+		gt->er = color_part(L, o, "r", 1, 0);
+		gt->eg = color_part(L, o, "g", 2, 0);
+		gt->eb = color_part(L, o, "b", 3, 0);
+		lua_getfield(L, o, "w");
+		gt->edge = lua_isnil(L, -1) ? 1 : (int)luaL_checkinteger(L, -1);
+		lua_pop(L, 1);
+		if (gt->edge < 1 || gt->edge > 4)
+			return luaL_error(L, "outline.w must be 1 to 4");
+	} else if (!lua_isnil(L, -1)) {
+		return luaL_error(L, "outline must be a table {r, g, b, w = 1}");
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, t, "shadow");
+	if (lua_istable(L, -1)) {
+		int o = lua_gettop(L);
+		lua_getfield(L, o, "x");
+		*dx = lua_isnil(L, -1) ? 1 : (int)luaL_checkinteger(L, -1);
+		lua_pop(L, 1);
+		lua_getfield(L, o, "y");
+		*dy = lua_isnil(L, -1) ? 1 : (int)luaL_checkinteger(L, -1);
+		lua_pop(L, 1);
+		*sr = color_part(L, o, "r", 1, 0);
+		*sg = color_part(L, o, "g", 2, 0);
+		*sb = color_part(L, o, "b", 3, 0);
+		*has_shadow = 1;
+	} else if (!lua_isnil(L, -1)) {
+		return luaL_error(L, "shadow must be a table {x = 1, y = 1, r, g, b}");
+	}
+	lua_pop(L, 1);
+	return 1;
+}
+
 int rq_lua_hud_text(lua_State *L)
 {
-	struct hud_cmd *c = push_cmd(HUD_TEXT);
+	struct hud_cmd *c;
 	const char *s;
+	struct rq_gametext gt;
+	int has_shadow, dx = 0, dy = 0, sr = 0, sg = 0, sb = 0;
+
+	if (game_style(L, 4, &gt, &has_shadow, &dx, &dy, &sr, &sg, &sb)) {
+		int x = (int)luaL_checkinteger(L, 1), y = (int)luaL_checkinteger(L, 2);
+		Texture *tex, *sh = NULL;
+		s = luaL_checkstring(L, 3);
+		tex = rq_gametext_texture(s, &gt);
+		if (!tex)
+			return 0;
+		if (has_shadow) {
+			struct rq_gametext g2 = gt;
+			g2.r = sr;
+			g2.g = sg;
+			g2.b = sb;
+			g2.er = sr;
+			g2.eg = sg;
+			g2.eb = sb;
+			sh = rq_gametext_texture(s, &g2);
+		}
+		c = push_cmd(HUD_GTEXT);
+		if (!c)
+			return 0;
+		c->x = x;
+		c->y = y;
+		c->tex = tex;
+		c->shadow = sh;
+		c->dx = dx;
+		c->dy = dy;
+		c->gt = gt;
+		c->r = c->g = c->b = 255;
+		c->a = 255;
+		lua_getfield(L, 4, "a");
+		if (lua_isinteger(L, -1))
+			c->a = (int)lua_tointeger(L, -1);
+		lua_getfield(L, 4, "w");
+		if (lua_isinteger(L, -1))
+			c->bw = (int)lua_tointeger(L, -1);
+		lua_getfield(L, 4, "h");
+		if (lua_isinteger(L, -1))
+			c->bh = (int)lua_tointeger(L, -1);
+		lua_getfield(L, 4, "align");
+		c->align = align_at(L, -1, "left", "right");
+		lua_getfield(L, 4, "valign");
+		c->valign = align_at(L, -1, "top", "bottom");
+		lua_settop(L, 4);
+		if (c->a < 0)
+			c->a = 0;
+		if (c->a > 255)
+			c->a = 255;
+		return 0;
+	}
+	c = push_cmd(HUD_TEXT);
 	if (!c)
 		return 0;
 	c->x = (int)luaL_checkinteger(L, 1);
@@ -1170,6 +1353,74 @@ int rq_lua_hud_clip(lua_State *L)
 	c->h = h < 0 ? 0 : h;
 	/* A clip of nothing still clips: cg tells it from "off". */
 	c->cg = on;
+	/* A clip set with hud.clip is the one clip_push narrows and clip_pop goes back to. */
+	g_nclip = 0;
+	if (on) {
+		g_clip[0].x = c->x;
+		g_clip[0].y = c->y;
+		g_clip[0].w = c->w;
+		g_clip[0].h = c->h;
+		g_nclip = 1;
+	}
+	return 0;
+}
+
+static void emit_clip(int on, int x, int y, int w, int h)
+{
+	struct hud_cmd *c = push_cmd(HUD_CLIP);
+	if (!c)
+		return;
+	c->x = x;
+	c->y = y;
+	c->w = w < 0 ? 0 : w;
+	c->h = h < 0 ? 0 : h;
+	c->cg = on;
+}
+
+/* rq.hud.clip_push(x, y, w, h): narrows the clip to this box inside the one before. */
+int rq_lua_hud_clip_push(lua_State *L)
+{
+	int x = (int)luaL_checkinteger(L, 1);
+	int y = (int)luaL_checkinteger(L, 2);
+	int w = (int)luaL_checkinteger(L, 3);
+	int h = (int)luaL_checkinteger(L, 4);
+	if (g_nclip >= HUD_MAX_CLIP)
+		return luaL_error(L, "hud.clip_push: more than %d clips inside one another", HUD_MAX_CLIP);
+	if (w < 0)
+		w = 0;
+	if (h < 0)
+		h = 0;
+	if (g_nclip > 0) {
+		int x1 = g_clip[g_nclip - 1].x, y1 = g_clip[g_nclip - 1].y;
+		int x2 = x1 + g_clip[g_nclip - 1].w, y2 = y1 + g_clip[g_nclip - 1].h;
+		int nx1 = x > x1 ? x : x1, ny1 = y > y1 ? y : y1;
+		int nx2 = x + w < x2 ? x + w : x2, ny2 = y + h < y2 ? y + h : y2;
+		x = nx1;
+		y = ny1;
+		w = nx2 > nx1 ? nx2 - nx1 : 0;
+		h = ny2 > ny1 ? ny2 - ny1 : 0;
+	}
+	g_clip[g_nclip].x = x;
+	g_clip[g_nclip].y = y;
+	g_clip[g_nclip].w = w;
+	g_clip[g_nclip].h = h;
+	g_nclip++;
+	emit_clip(1, x, y, w, h);
+	return 0;
+}
+
+/* rq.hud.clip_pop(): back to the clip before the last clip_push; none after the first. */
+int rq_lua_hud_clip_pop(lua_State *L)
+{
+	(void)L;
+	if (g_nclip <= 0)
+		return 0;
+	g_nclip--;
+	if (g_nclip > 0)
+		emit_clip(1, g_clip[g_nclip - 1].x, g_clip[g_nclip - 1].y,
+			  g_clip[g_nclip - 1].w, g_clip[g_nclip - 1].h);
+	else
+		emit_clip(0, 0, 0, 0, 0);
 	return 0;
 }
 
@@ -1346,6 +1597,24 @@ void rq_hud_draw(void)
 				sh = src->h - sy;
 			draw_part(src, sx, sy, sw, sh, c->x, c->y,
 				  c->w > 0 ? c->w : sw, c->h > 0 ? c->h : sh, c);
+		} else if (c->kind == HUD_GTEXT && c->tex) {
+			int x = c->x, y = c->y, tw = c->tex->w, th = c->tex->h;
+			struct hud_cmd white = *c;
+			if (c->a <= 0)
+				continue;
+			white.r = white.g = white.b = 255;
+			if (c->align == ALIGN_CENTER)
+				x += (c->bw - tw + 1) / 2;
+			else if (c->align == ALIGN_END)
+				x += c->bw - tw;
+			if (c->valign == ALIGN_CENTER)
+				y += rq_gametext_center_y(&c->gt, c->bh, th);
+			else if (c->valign == ALIGN_END)
+				y += c->bh - th;
+			if (c->shadow)
+				draw_part(c->shadow, 0, 0, c->shadow->w, c->shadow->h,
+					  x + c->dx, y + c->dy, c->shadow->w, c->shadow->h, &white);
+			draw_part(c->tex, 0, 0, tw, th, x, y, tw, th, &white);
 		} else if (c->kind == HUD_TEXT && c->text) {
 			Texture t;
 			Rectangle r;
@@ -1397,6 +1666,7 @@ void rq_hud_draw(void)
 	}
 	if (clipped)
 		glDisable(GL_SCISSOR_TEST);
+	rq_gametext_after_draw();
 }
 
 void rq_hud_bind_lua(lua_State *L)

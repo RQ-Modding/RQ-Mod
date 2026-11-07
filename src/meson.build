@@ -309,7 +309,7 @@ if get_option('modloader')
                  'modloader_agent.c', 'modloader_ui.c', 'modloader_path.c',
                  'modloader_dialog.c',
                  'modloader_loot.c',
-                 'modloader_hud.c', 'modloader_orb.c', 'modloader_skill.c', 'modloader_state.c', 'modloader_states.c', 'modloader_speed.c', 'modloader_sound.c', 'modloader_music.c',
+                 'modloader_hud.c', 'modloader_orb.c', 'modloader_skill.c', 'modloader_state.c', 'modloader_states.c', 'modloader_speed.c', 'modloader_sound.c', 'modloader_music.c', 'modloader_gametext.c',
                  'modloader_counter.c', 'modloader_battle.c',
                  'modloader_chara.c', 'modloader_shop.c',
                  'modloader_skilllist.c',
