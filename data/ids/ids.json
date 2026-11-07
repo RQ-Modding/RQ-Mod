@@ -542,6 +542,49 @@
    ]
   },
   {
+   "kind": "chara_type",
+   "title": "Character types",
+   "what": "character type values (`タイプ`), as in `rq.chara.get(iic).type`",
+   "entries": [
+    {
+     "no": 16,
+     "name": "Flying",
+     "detail": "",
+     "key": "FLYING"
+    },
+    {
+     "no": 17,
+     "name": "Breakable",
+     "detail": "",
+     "key": "BREAKABLE"
+    },
+    {
+     "no": 19,
+     "name": "Mollusc",
+     "detail": "",
+     "key": "MOLLUSC"
+    },
+    {
+     "no": 20,
+     "name": "Spirit",
+     "detail": "",
+     "key": "SPIRIT"
+    },
+    {
+     "no": 21,
+     "name": "Zombie",
+     "detail": "",
+     "key": "ZOMBIE"
+    },
+    {
+     "no": 22,
+     "name": "Humanoid",
+     "detail": "",
+     "key": "HUMANOID"
+    }
+   ]
+  },
+  {
    "kind": "class",
    "title": "Classes",
    "what": "class numbers, as in `rq.chara.get(iic).class`",
@@ -593,6 +636,49 @@
      "name": "Civilian",
      "detail": "",
      "key": "CIVILIAN"
+    }
+   ]
+  },
+  {
+   "kind": "element",
+   "title": "Elements",
+   "what": "element numbers (`属性`), as in a skill's `element` and `rq.chara.get(iic).weak_element`",
+   "entries": [
+    {
+     "no": 0,
+     "name": "Nothing",
+     "detail": "",
+     "key": "NOTHING"
+    },
+    {
+     "no": 1,
+     "name": "Light",
+     "detail": "",
+     "key": "LIGHT"
+    },
+    {
+     "no": 2,
+     "name": "Darkness",
+     "detail": "",
+     "key": "DARKNESS"
+    },
+    {
+     "no": 3,
+     "name": "Electric",
+     "detail": "",
+     "key": "ELECTRIC"
+    },
+    {
+     "no": 4,
+     "name": "Ice",
+     "detail": "",
+     "key": "ICE"
+    },
+    {
+     "no": 5,
+     "name": "Fire",
+     "detail": "",
+     "key": "FIRE"
     }
    ]
   },
@@ -2428,6 +2514,115 @@
    ]
   },
   {
+   "kind": "item_kind",
+   "title": "Item kinds",
+   "what": "item kinds (`種類詳細`): the weapon or armor kind, as in an item's `subtype`",
+   "entries": [
+    {
+     "no": 2,
+     "name": "Sword",
+     "detail": "",
+     "key": "SWORD"
+    },
+    {
+     "no": 3,
+     "name": "Shortsword",
+     "detail": "",
+     "key": "SHORTSWORD"
+    },
+    {
+     "no": 4,
+     "name": "Hammer",
+     "detail": "",
+     "key": "HAMMER"
+    },
+    {
+     "no": 5,
+     "name": "Bow",
+     "detail": "",
+     "key": "BOW"
+    },
+    {
+     "no": 6,
+     "name": "Firearm",
+     "detail": "",
+     "key": "FIREARM"
+    },
+    {
+     "no": 7,
+     "name": "Spear",
+     "detail": "",
+     "key": "SPEAR"
+    },
+    {
+     "no": 8,
+     "name": "Staff",
+     "detail": "",
+     "key": "STAFF"
+    },
+    {
+     "no": 9,
+     "name": "Glove",
+     "detail": "",
+     "key": "GLOVE"
+    },
+    {
+     "no": 10,
+     "name": "Blunt Weapon",
+     "detail": "",
+     "key": "BLUNT_WEAPON"
+    },
+    {
+     "no": 12,
+     "name": "Clothing",
+     "detail": "",
+     "key": "CLOTHING"
+    },
+    {
+     "no": 13,
+     "name": "Leather",
+     "detail": "",
+     "key": "LEATHER"
+    },
+    {
+     "no": 14,
+     "name": "Steel",
+     "detail": "",
+     "key": "STEEL"
+    },
+    {
+     "no": 15,
+     "name": "Cloth",
+     "detail": "",
+     "key": "CLOTH"
+    },
+    {
+     "no": 16,
+     "name": "Gi",
+     "detail": "",
+     "key": "GI"
+    },
+    {
+     "no": 18,
+     "name": "Scroll",
+     "detail": "",
+     "key": "SCROLL"
+    },
+    {
+     "no": 19,
+     "name": "Flag",
+     "detail": "",
+     "key": "FLAG"
+    },
+    {
+     "no": 20,
+     "name": "Familiar",
+     "detail": "",
+     "key": "FAMILIAR"
+    }
+   ]
+  },
+  {
    "kind": "quest",
    "title": "Quests",
    "what": "quest numbers, as in `rq.quests()` and `rq.quests.start`",
@@ -3625,6 +3820,109 @@
      "name": "She's Here Too",
      "detail": "",
      "key": "SHES_HERE_TOO"
+    }
+   ]
+  },
+  {
+   "kind": "race",
+   "title": "Races",
+   "what": "races (`種族`), as in `rq.chara.get(iic).race` and the damage hooks' `ctx.race`",
+   "entries": [
+    {
+     "no": 2,
+     "name": "Human",
+     "detail": "",
+     "key": "HUMAN"
+    },
+    {
+     "no": 3,
+     "name": "Gal Monster",
+     "detail": "",
+     "key": "GAL_MONSTER"
+    },
+    {
+     "no": 4,
+     "name": "Guy Monster",
+     "detail": "",
+     "key": "GUY_MONSTER_4"
+    },
+    {
+     "no": 5,
+     "name": "Guy Monster",
+     "detail": "",
+     "key": "GUY_MONSTER_5"
+    },
+    {
+     "no": 6,
+     "name": "Insect",
+     "detail": "",
+     "key": "INSECT"
+    },
+    {
+     "no": 7,
+     "name": "Plant",
+     "detail": "",
+     "key": "PLANT"
+    },
+    {
+     "no": 8,
+     "name": "Hanny",
+     "detail": "",
+     "key": "HANNY"
+    },
+    {
+     "no": 9,
+     "name": "Fiend",
+     "detail": "",
+     "key": "FIEND"
+    },
+    {
+     "no": 10,
+     "name": "Holy Shroud Warlord",
+     "detail": "",
+     "key": "HOLY_SHROUD_WARLORD"
+    },
+    {
+     "no": 11,
+     "name": "Ancient",
+     "detail": "",
+     "key": "ANCIENT"
+    },
+    {
+     "no": 12,
+     "name": "Construct",
+     "detail": "",
+     "key": "CONSTRUCT"
+    },
+    {
+     "no": 13,
+     "name": "Kalar",
+     "detail": "",
+     "key": "KALAR"
+    },
+    {
+     "no": 14,
+     "name": "Angel",
+     "detail": "",
+     "key": "ANGEL"
+    },
+    {
+     "no": 15,
+     "name": "Devil",
+     "detail": "",
+     "key": "DEVIL"
+    },
+    {
+     "no": 24,
+     "name": "Contaminated",
+     "detail": "",
+     "key": "CONTAMINATED"
+    },
+    {
+     "no": 60,
+     "name": "Familiar",
+     "detail": "",
+     "key": "FAMILIAR"
     }
    ]
   },
@@ -6579,6 +6877,61 @@
      "name": "Downed",
      "detail": "",
      "key": "DOWNED"
+    }
+   ]
+  },
+  {
+   "kind": "target",
+   "title": "Skill targets",
+   "what": "skill target codes (`対象`), as in a skill's `target`",
+   "entries": [
+    {
+     "no": 1,
+     "name": "Melee",
+     "detail": "近距離",
+     "key": "MELEE"
+    },
+    {
+     "no": 2,
+     "name": "Ranged",
+     "detail": "遠距離",
+     "key": "RANGED"
+    },
+    {
+     "no": 3,
+     "name": "All Enemies",
+     "detail": "全体",
+     "key": "ALL_ENEMIES"
+    },
+    {
+     "no": 4,
+     "name": "Row",
+     "detail": "横一列",
+     "key": "ROW"
+    },
+    {
+     "no": 10,
+     "name": "Self",
+     "detail": "自分",
+     "key": "SELF"
+    },
+    {
+     "no": 11,
+     "name": "Ally",
+     "detail": "味方",
+     "key": "ALLY"
+    },
+    {
+     "no": 12,
+     "name": "All Allies",
+     "detail": "味方全体",
+     "key": "ALL_ALLIES"
+    },
+    {
+     "no": 20,
+     "name": "Random Target",
+     "detail": "ランダムターゲット",
+     "key": "RANDOM_TARGET"
     }
    ]
   }

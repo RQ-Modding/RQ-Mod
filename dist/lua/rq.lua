@@ -999,7 +999,7 @@ function orb.full_heal(iic) end
 ---@field name string The name.
 ---@field kinou integer The function code (`機能`).
 ---@field bairitsu integer The multiplier (`倍率`).
----@field target integer The target code (`対象`).
+---@field target integer The target code (`対象`); names in `rq.ids.target`.
 ---@field koudou integer The action kind (`行動種類`): 1 physical, 2 magic, 3 special, 4 support, 0 ability.
 ---@field kouka integer The effect code (`効果`).
 ---@field desc1 string The raw description (`説明文１`); it may still hold `$`.
@@ -1055,7 +1055,7 @@ function skill.get(id) end
 ---@field name? string The name.
 ---@field flavor? string The battle-log verb (`Ｓ表示文`).
 ---@field desc? string The hover text; `$` is a line break.
----@field target? integer 1 melee (front row), 2 ranged, 3 all enemies, 4 needs two or more front-row enemies.
+---@field target? integer 1 melee (front row), 2 ranged, 3 all enemies, 4 needs two or more front-row enemies (`rq.ids.target`).
 ---@field bairitsu? integer The multiplier (`倍率`).
 ---@field flat? integer Added damage (`付与ダメージ`).
 ---@field kinou? integer The function code (`機能`).
@@ -1103,10 +1103,10 @@ function skill.define(spec) end
 ---@field type? integer `タイプ`: 10 active, 30 knowledge.
 ---@field action? integer `行動種類`, the action kind.
 ---@field panel? integer `パネル色`, the panel color.
----@field target? integer `対象`, the target code.
+---@field target? integer `対象`, the target code (`rq.ids.target`).
 ---@field bairitsu? integer `倍率`, the multiplier.
 ---@field cap? integer `ダメージ上限`, the damage cap.
----@field element? integer `属性`, the element.
+---@field element? integer `属性`, the element (`rq.ids.element`).
 ---@field flat? integer `付与ダメージ`, added damage.
 ---@field no_first_turn? integer `初ターン使用禁止技`: not on the first turn.
 ---@field once_per_battle? integer `同一戦闘一度のみ技`: once per fight.
@@ -1781,7 +1781,7 @@ function chara.max_uses(iic, skillId) end
 ---@field level? integer The level. `define` only.
 ---@field level_max? integer The highest level. `define` only.
 ---@field slots? integer Skill rows the character can equip. The hotbar has 6 positions.
----@field type? integer The game's type value (`タイプ`). Also `race`, `model`, `boss` and any other `rq.CharaState` name.
+---@field type? integer The game's type value (`タイプ`, `rq.ids.chara_type`). Also `race`, `model`, `boss` and any other `rq.CharaState` name.
 ---@field init? rq.CharaInit Bonuses each recalculation adds.
 ---@field skills? rq.CharaSkillGrant[] Skills learned when the character is created. `define` only.
 ---@field weapon? integer|string An item number or text id, created and equipped when the character is created, before `on_create`. An item of the wrong kind is logged and not given. Since 0.15.0.
@@ -1956,14 +1956,14 @@ function chara.edit(who, patch) end
 ---@field thunder_res integer Thunder resistance.
 ---@field light_res integer Light resistance.
 ---@field dark_res integer Dark resistance.
----@field weak_element integer The weak element.
+---@field weak_element integer The weak element (`rq.ids.element`).
 ---@field weapon integer The equipped weapon's item instance.
 ---@field armor integer The equipped armor's item instance.
 ---@field item integer The held item's instance.
 ---@field special integer The option slot's item instance.
 ---@field skill_points integer Free skill points.
----@field race integer The race.
----@field type integer The type value.
+---@field race integer The race (`rq.ids.race`).
+---@field type integer The type value (`rq.ids.chara_type`).
 ---@field model integer The 3D model.
 ---@field boss integer Non-zero for a boss.
 ---@field weakness_known boolean The player knows the weakness.
@@ -2257,7 +2257,7 @@ function image.gif_info(key) end
 ---@field id string The text id, such as "mymod:binoculars". It becomes a stable number from 1000 up.
 ---@field name string The name.
 ---@field type? "weapon"|"armor"|"item"|"special"|"quest"|"none" The slot: weapon (1), armor (11), item (17), special (21), quest (22), none (23, cannot be equipped). Default "item".
----@field subtype? integer The detailed kind (`種類詳細`); a familiar is 20.
+---@field subtype? integer The detailed kind (`種類詳細`, `rq.ids.item_kind`); a familiar is 20.
 ---@field rank? integer The kind rank (`種類ランク`). Default 10.
 ---@field icon? integer|string A game CG number or a file in the mod's folder (shown at 100×100, proportions kept). Default: a grey question mark (since 0.15.0).
 ---@field price? integer The price.
@@ -2499,7 +2499,7 @@ store.global = {}
 ---@field skill integer The skill number.
 ---@field attack integer The attack before defense, as the callback before left it.
 ---@field magic integer The attacker's magic.
----@field race integer The defender's race; 8 is a hanny.
+---@field race integer The defender's race (`rq.ids.race`); 8 is a hanny.
 ---@field defender_type integer The defender's type (`Ｃタイプ`); 22 is humanoid.
 
 ---What `rq.combat.on_accuracy` gets for one accuracy check.
@@ -3987,13 +3987,16 @@ local castle = {}
 ---@return rq.Castle castle A copy of the castle's state.
 function castle.get() end
 
----The game's numbers by name: characters, classes, items, quests, skills and states.
+---The game's numbers by name: characters, items, quests, skills, and the small lists the game names
+---(classes, states, races, character types, elements, item kinds, skill targets).
 ---
 ---Each kind is a table of constants, so `rq.ids.skill.FORTUNE_448` is 448 and `rq.ids.item.SKILL_AGAIN`
 ---is 306. Editors complete them from `lua/rq_ids.lua`, with each entry's number and in-game name. A
 ---key is the English name in upper snake case. A name the game gives to more than one number gets
 ---the number as a suffix on each of them (`FORTUNE_158`, `FORTUNE_448`), and a key that would start
----with a digit starts with `N_` (`N_10_TON_HAMMER`). Every entry is in the docs' data tables.
+---with a digit starts with `N_` (`N_10_TON_HAMMER`). A few repeated names also have a plain key for
+---the number players know, beside the numbered keys; the docs' data tables mark them. Every entry is
+---in the docs' data tables.
 ---
 ---The tables hold the base game only, not what mods define; use a mod's text id for those. Reading
 ---a key that does not exist raises an error, so a typo stops the mod at once instead of passing
@@ -4003,27 +4006,40 @@ function castle.get() end
 ---| Kind | Numbers |
 ---| --- | --- |
 ---| `chara` | character numbers (`no`), not roster slots |
+---| `chara_type` | character type values (`タイプ`), as in `rq.chara.get(iic).type`: `HUMANOID` is 22 |
 ---| `class` | class numbers, as in `rq.chara.get(iic).class` |
+---| `element` | elements (`属性`): `NOTHING`, `LIGHT`, `DARKNESS`, `ELECTRIC`, `ICE`, `FIRE` |
 ---| `item` | item numbers, not instances |
+---| `item_kind` | item kinds (`種類詳細`), as in an item's `subtype`: `SWORD`, `SHORTSWORD`, `SPEAR`, `CLOTHING`, ... |
 ---| `quest` | quest numbers |
+---| `race` | races (`種族`), as in `rq.chara.get(iic).race`: `HUMAN`, `HANNY`, ... |
 ---| `skill` | skill numbers |
 ---| `state` | status values (`状態変化`): `NONE`, `POISON`, `STUN`, `DOWNED` |
+---| `target` | skill target codes (`対象`): `MELEE`, `RANGED`, `ALL_ENEMIES`, `ROW`, `SELF`, `ALLY`, `ALL_ALLIES`, `RANDOM_TARGET` |
 ---
 ---Since: 1.15.0
+---
+---Changed: 1.16.0 The kinds `chara_type`, `element`, `item_kind`, `race` and `target`, and plain keys for repeated names.
 ---
 ---```lua
 ---local FORTUNE = rq.ids.skill.FORTUNE_448
 ---local iic = rq.chara.find(rq.ids.chara.KAORU_QUINCY)
 ---if rq.item.number(ii) == rq.ids.item.POISON_MASK then ... end
+---if ctx.race == rq.ids.race.HANNY then return nil, 50 end
 ---local no = rq.ids.find("skill", "Spear Knowledge")  -- from a config file or a player
 ---```
 ---@class rq.ids
 ---@field chara rq.IdsChara Characters by name; each key is in the docs' Characters table (Game data).
+---@field chara_type rq.IdsCharaType Character types by name; each key is in the docs' Character types table (Game data). Since 1.16.0.
 ---@field class rq.IdsClass Classes by name; each key is in the docs' Classes table (Game data).
+---@field element rq.IdsElement Elements by name; each key is in the docs' Elements table (Game data). Since 1.16.0.
 ---@field item rq.IdsItem Items by name; each key is in the docs' Items table (Game data).
+---@field item_kind rq.IdsItemKind Item kinds by name; each key is in the docs' Item kinds table (Game data). Since 1.16.0.
 ---@field quest rq.IdsQuest Quests by name; each key is in the docs' Quests table (Game data).
+---@field race rq.IdsRace Races by name; each key is in the docs' Races table (Game data). Since 1.16.0.
 ---@field skill rq.IdsSkill Skills by name; each key is in the docs' Skills table (Game data).
 ---@field state rq.IdsState States by name; each key is in the docs' States table (Game data).
+---@field target rq.IdsTarget Skill targets by name; each key is in the docs' Skill targets table (Game data). Since 1.16.0.
 local ids = {}
 
 ---Returns the number of the thing with this name.
@@ -4037,11 +4053,13 @@ local ids = {}
 ---
 ---Since: 1.15.0
 ---
+---Changed: 1.16.0 Takes the kinds `chara_type`, `element`, `item_kind`, `race` and `target`.
+---
 ---```lua
 ---local no, err = rq.ids.find("item", cfg.item)
 ---if not no then rq.log(err) end  -- such as: more than one skill is named "Fortune": 158, 159, 160, 448
 ---```
----@param kind "chara"|"class"|"item"|"quest"|"skill"|"state" The kind.
+---@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"quest"|"race"|"skill"|"state"|"target" The kind.
 ---@param name string The in-game English name, or a key.
 ---@return integer|nil no The number, or nil when no entry or more than one has that name.
 ---@return string? err Why there is no number.
@@ -4056,11 +4074,13 @@ function ids.find(kind, name) end
 ---
 ---Since: 1.15.0
 ---
+---Changed: 1.16.0 Takes the kinds `chara_type`, `element`, `item_kind`, `race` and `target`.
+---
 ---```lua
 ---rq.ids.find_all("skill", "fortune")  -- {158, 159, 160, 293, 448, 585}: Fortune, Improve Fortune,
 ---                                     -- 7 Misfortunes, 8 Pains
 ---```
----@param kind "chara"|"class"|"item"|"quest"|"skill"|"state" The kind.
+---@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"quest"|"race"|"skill"|"state"|"target" The kind.
 ---@param text string What the name must contain.
 ---@return integer[] numbers The numbers, smallest first; empty when none.
 ---@see rq.ids.find
@@ -4075,10 +4095,12 @@ function ids.find_all(kind, text) end
 ---
 ---Since: 1.15.0
 ---
+---Changed: 1.16.0 Takes the kinds `chara_type`, `element`, `item_kind`, `race` and `target`.
+---
 ---```lua
 ---rq.log("used " .. (rq.ids.name("skill", ctx.skill) or "a mod skill"))
 ---```
----@param kind "chara"|"class"|"item"|"quest"|"skill"|"state" The kind.
+---@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"quest"|"race"|"skill"|"state"|"target" The kind.
 ---@param no integer The number.
 ---@return string|nil name The name, or nil when the base game has none for that number.
 function ids.name(kind, no) end
@@ -4106,7 +4128,7 @@ function ids.name(kind, no) end
 ---end)
 ---```
 ---@class rq
----@field version string The loader version, such as "1.15.0". A mod whose `mod.json` asks for a newer `loader` is not loaded.
+---@field version string The loader version, such as "1.16.0". A mod whose `mod.json` asks for a newer `loader` is not loaded.
 ---@field game_dir string The game folder (where the AIN is).
 ---@field mods_dir string The `mods` folder, ending in a backslash.
 ---@field units rq.units
@@ -4142,7 +4164,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "1.15.0"
+rq.version = "1.16.0"
 
 rq.units = units
 rq.items = items

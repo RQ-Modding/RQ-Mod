@@ -45,6 +45,10 @@ jobs:
             mingw-w64-x86_64-libsndfile
             mingw-w64-x86_64-glew
 
+      # rq.ids: the module, the annotations and ids.json must be what data/ids gives.
+      - name: Check rq.ids
+        run: python tools/ids/gen_ids.py --check
+
       - name: Cache FFmpeg
         id: cache-ffmpeg
         uses: actions/cache@v4

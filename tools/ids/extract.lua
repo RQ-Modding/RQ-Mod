@@ -3,6 +3,8 @@
 -- Test Lab job with no other mod installed, so nothing a mod defined is read as the game's:
 --   scripts\ids-extract.ps1
 -- Each line: number, name, then one detail column (skill: action kind; item: slot name; chara: class).
+-- The small lists (element, race, chara_type, item_kind, target, class, state) come from the
+-- game's own name functions, called for 0 to 99.
 -- Only names and numbers leave the game: no descriptions or other text.
 local t = _G.t
 local out = {}
@@ -61,6 +63,26 @@ for no = 1, 999 do
 end
 write("chara", charas)
 out[#out + 1] = "chara NoName " .. skipped
+
+-- Small lists: the game's name function for each number, with what it gives for "no name" left out.
+local NONE = { [""] = true, ["___"] = true, ["?"] = true, ["？"] = true, ["＊＊＊"] = true, ["-----"] = true }
+local function list(kind, fn, ...)
+  local rows = {}
+  for no = 0, 99 do
+    local s = rq.ain.call(fn, no, ...)
+    if type(s) == "string" and not NONE[s] and not s:match("^Type Details") then
+      rows[#rows + 1] = { no, s, "" }
+    end
+  end
+  write(kind, rows)
+end
+list("element", "属性文字列")
+list("race", "種族文字列")
+list("chara_type", "タイプ文字列")
+list("item_kind", "Ｉ種類詳細／文字列")
+list("target", "対象文字列")        -- in Japanese in the English game; gen_ids.py names them
+list("class", "職業文字列", 0)      -- checks gen_ids.py's fixed list
+list("state", "状態変化文字列")     -- the same; Japanese, and 0 has no name
 
 -- Quests: the game's quest list.
 local quests = {}

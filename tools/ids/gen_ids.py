@@ -4,7 +4,11 @@
   gen_ids.py --check   exit 1 when one of them is not what the data gives (for CI)
 
 data/ids/<kind>.tsv comes from the game (tools/ids/extract.lua, run by the workspace's
-scripts/ids-extract.ps1): number, name, detail. The small lists (states, classes) are here.
+scripts/ids-extract.ps1): number, name, detail. Classes and states keep the fixed lists below, and
+their TSVs check them. The game names skill targets in Japanese only, so TARGET names them.
+
+data/ids/preferred.tsv gives a repeated name a plain key beside its numbered ones (FORTUNE beside
+FORTUNE_448): kind, name, number, why. Hand-made; a plain key never moves once released.
 
 Keys are the English name in upper snake case: FORTUNE, KAORU_QUINCY, SKILL_AGAIN. A name the
 game uses for more than one number gives each of them its number as a suffix (FORTUNE_158,
@@ -25,12 +29,24 @@ OUT_JSON = os.path.join(DATA, "ids.json")
 # kind, file or fixed rows, what the docs call it, what the number is
 KINDS = [
     ("chara", "chara.tsv", "Characters", "character numbers (`no`), not roster slots: `rq.chara.find(rq.ids.chara.KAORU_QUINCY)` gives the slot"),
+    ("chara_type", "chara_type.tsv", "Character types", "character type values (`タイプ`), as in `rq.chara.get(iic).type`"),
     ("class", None, "Classes", "class numbers, as in `rq.chara.get(iic).class`"),
+    ("element", "element.tsv", "Elements", "element numbers (`属性`), as in a skill's `element` and `rq.chara.get(iic).weak_element`"),
     ("item", "item.tsv", "Items", "item numbers, not instances: `rq.item.give(rq.ids.item.SKILL_AGAIN)` makes one"),
+    ("item_kind", "item_kind.tsv", "Item kinds", "item kinds (`種類詳細`): the weapon or armor kind, as in an item's `subtype`"),
     ("quest", "quest.tsv", "Quests", "quest numbers, as in `rq.quests()` and `rq.quests.start`"),
+    ("race", "race.tsv", "Races", "races (`種族`), as in `rq.chara.get(iic).race` and the damage hooks' `ctx.race`"),
     ("skill", "skill.tsv", "Skills", "skill numbers, as in `rq.skill.get`"),
     ("state", None, "States", "status values (`状態変化`), as in `rq.chara.get(iic).status`"),
+    ("target", "target.tsv", "Skill targets", "skill target codes (`対象`), as in a skill's `target`"),
 ]
+
+# The game's names for skill targets (対象文字列) are Japanese in the English game too.
+TARGET = {"近距離": "Melee", "遠距離": "Ranged", "全体": "All Enemies", "横一列": "Row",
+          "自分": "Self", "味方": "Ally", "味方全体": "All Allies", "ランダムターゲット": "Random Target"}
+
+# The game's names for states (状態変化文字列), to check FIXED["state"].
+STATE_JA = {"毒": "Poison", "ぴより": "Stun", "瀕死": "Downed"}
 
 FIXED = {
     # modloader_query.c job_name: the game's class numbers
@@ -62,40 +78,89 @@ def key_of(name):
     return s
 
 
-def read_kind(kind, fname):
-    if fname is None:
-        return [{"no": n, "name": name, "detail": ""} for n, name in FIXED[kind]]
+def read_tsv(fname):
     rows = []
     with open(os.path.join(DATA, fname), encoding="utf-8") as f:
         for line in f:
             line = line.rstrip("\r\n")
-            if not line:
+            if not line or line.startswith("#"):
                 continue
-            no, name, detail = (line.split("\t") + ["", ""])[:3]
-            if kind == "skill":
-                detail = ACTION.get(detail, detail)
-            elif kind == "chara":
-                detail = CLASS.get(detail, detail)
-            rows.append({"no": int(no), "name": name, "detail": detail})
+            rows.append((line.split("\t") + ["", "", ""])[:4])
+    return rows
+
+
+def check_fixed(kind, names):
+    """The game's own list must give the numbers and names of FIXED[kind] (0, None, is ours)."""
+    if not os.path.exists(os.path.join(DATA, kind + ".tsv")):
+        return
+    game = {int(no): names.get(name, name) for no, name, _, _ in read_tsv(kind + ".tsv")}
+    ours = {n: name for n, name in FIXED[kind] if n != 0}
+    if game != ours:
+        sys.exit("gen_ids: the game's %s list %r differs from FIXED %r" % (kind, game, ours))
+
+
+def read_kind(kind, fname):
+    if fname is None:
+        check_fixed(kind, STATE_JA if kind == "state" else {})
+        return [{"no": n, "name": name, "detail": ""} for n, name in FIXED[kind]]
+    rows = []
+    for no, name, detail, _ in read_tsv(fname):
+        if kind == "skill":
+            detail = ACTION.get(detail, detail)
+        elif kind == "chara":
+            detail = CLASS.get(detail, detail)
+        elif kind == "target":
+            if name not in TARGET:
+                sys.exit("gen_ids: no English name for skill target %s %s (add it to TARGET)" % (no, name))
+            name, detail = TARGET[name], name
+        rows.append({"no": int(no), "name": name, "detail": detail})
     rows.sort(key=lambda r: r["no"])
     return rows
 
 
-def with_keys(rows):
+def read_preferred():
+    out = {}
+    if os.path.exists(os.path.join(DATA, "preferred.tsv")):
+        for kind, name, no, _ in read_tsv("preferred.tsv"):
+            if kind != "kind":  # the header
+                out[(kind, name)] = int(no)
+    return out
+
+
+def with_keys(kind, rows, preferred):
     groups = {}
     for r in rows:
         groups.setdefault(key_of(r["name"]), []).append(r)
     for key, members in groups.items():
         for r in members:
             r["key"] = key if len(members) == 1 else "%s_%d" % (key, r["no"])
+    for (pkind, name), no in preferred.items():
+        if pkind != kind:
+            continue
+        members = groups.get(key_of(name), [])
+        if len(members) < 2:
+            sys.exit("gen_ids: preferred.tsv: %s %r is not a repeated name" % (kind, name))
+        hit = [r for r in members if r["no"] == no]
+        if not hit:
+            sys.exit("gen_ids: preferred.tsv: %s %r has no number %d" % (kind, name, no))
+        hit[0]["alias"] = key_of(name)
     return rows
+
+
+def class_name(kind):
+    return "rq.Ids" + "".join(p.capitalize() for p in kind.split("_"))
 
 
 def model():
     out = {"kinds": []}
+    preferred = read_preferred()
+    known = {k[0] for k in KINDS}
+    for pkind, _ in preferred:
+        if pkind not in known:
+            sys.exit("gen_ids: preferred.tsv: unknown kind %s" % pkind)
     for kind, fname, title, what in KINDS:
         out["kinds"].append({"kind": kind, "title": title, "what": what,
-                             "entries": with_keys(read_kind(kind, fname))})
+                             "entries": with_keys(kind, read_kind(kind, fname), preferred)})
     return out
 
 
@@ -120,6 +185,7 @@ for kind, list in pairs(DATA) do
     byno[list[i]] = list[i + 2]
   end
   names[kind] = byno
+  for key, no in pairs(ALIAS[kind] or {}) do t[key] = no end
   ids[kind] = setmetatable(t, {
     __index = function(_, k)
       error("rq.ids." .. kind .. " has no " .. tostring(k) .. " (rq.ids.find looks a name up)", 2)
@@ -130,7 +196,7 @@ end
 
 local function kind_of(kind)
   if type(kind) ~= "string" or not DATA[kind] then
-    error("rq.ids: unknown kind " .. tostring(kind) .. " (chara, class, item, quest, skill, state)", 3)
+    error("rq.ids: unknown kind " .. tostring(kind) .. " (" .. KINDS .. ")", 3)
   end
   return DATA[kind]
 end
@@ -174,7 +240,7 @@ rq.ids = setmetatable(ids, {
 
 
 def write_runtime(m):
-    lines = ["-- rq.ids (loader 1.15.0): the game's numbers by name.",
+    lines = ["-- rq.ids (since loader 1.15.0): the game's numbers by name.",
              "-- Generated by tools/ids/gen_ids.py from data/ids. Do not edit.",
              "local rq = ...", "", "-- kind = { number, key, name, ... }", "local DATA = {"]
     for k in m["kinds"]:
@@ -183,19 +249,29 @@ def write_runtime(m):
             lines.append("    %d, %s, %s," % (r["no"], lua_str(r["key"]), lua_str(r["name"])))
         lines.append("  },")
     lines.append("}")
+    lines += ["", "-- kind = { plain key = number }: one number of a repeated name (data/ids/preferred.tsv)",
+              "local ALIAS = {"]
+    for k in m["kinds"]:
+        al = [r for r in k["entries"] if r.get("alias")]
+        if al:
+            lines.append("  %s = { %s }," % (k["kind"], ", ".join("%s = %d" % (r["alias"], r["no"]) for r in al)))
+    lines += ["}", "", "local KINDS = %s" % lua_str(", ".join(k["kind"] for k in m["kinds"]))]
     return "\n".join(lines) + "\n" + RUNTIME
 
 
 def write_meta(m):
-    lines = ["---@meta", "-- The game's numbers by name, for `rq.ids` (loader 1.15.0).",
+    lines = ["---@meta", "-- The game's numbers by name, for `rq.ids` (since loader 1.15.0).",
              "-- Generated by tools/ids/gen_ids.py from data/ids. Do not edit.", ""]
     for k in m["kinds"]:
         lines += ["---%s by name: %s." % (k["title"], k["what"]), "---",
                   "---A key that is not here raises an error; `rq.ids.find` looks a name up.",
-                  "---@class rq.Ids%s" % k["kind"].capitalize()]
+                  "---@class %s" % class_name(k["kind"])]
         for r in k["entries"]:
             extra = " (%s)" % r["detail"] if r["detail"] else ""
             lines.append("---@field %s integer %d: %s%s" % (r["key"], r["no"], r["name"].replace("\n", " "), extra))
+            if r.get("alias"):
+                lines.append("---@field %s integer %d: %s%s. The plain key; also `%s`." % (
+                    r["alias"], r["no"], r["name"].replace("\n", " "), extra, r["key"]))
         lines.append("")
     return "\n".join(lines)
 
