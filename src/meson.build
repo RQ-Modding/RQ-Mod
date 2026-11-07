@@ -295,6 +295,11 @@ if get_option('modloader')
         input: 'lua/battle.lua',
         output: 'rq_battle_lua.c',
         command: [py, meson.current_source_dir() / 'gen_lua_embed.py', '@INPUT@', '@OUTPUT@', 'rq_battle_lua'])
+    rq_status_lua = custom_target(
+        'rq_status_lua_c',
+        input: 'lua/status.lua',
+        output: 'rq_status_lua.c',
+        command: [py, meson.current_source_dir() / 'gen_lua_embed.py', '@INPUT@', '@OUTPUT@', 'rq_status_lua'])
     xsystem4 += ['modloader.c', 'modloader_order.c', 'modloader_sandbox.c', 'modloader_query.c',
                  'modloader_agent.c', 'modloader_ui.c', 'modloader_path.c',
                  'modloader_dialog.c',
@@ -305,7 +310,7 @@ if get_option('modloader')
                  'modloader_skilllist.c',
                  'modloader_debug.c', 'modloader_discord.c',
                  'modloader_saves.c', 'modloader_roster.c', 'modloader_crash.c', 'modloader_events.c', 'modloader_scene.c', 'modloader_anim.c', 'modloader_image.c', 'modloader_item.c',
-                 'modloader_uikit.c', 'modloader_config.c', 'modloader_sprite.c', 'modloader_unwind.c', 'modloader_ids.c', rq_stamp, rq_uikit, rq_config, rq_sprite, rq_scene, rq_ids, rq_battle_lua]
+                 'modloader_uikit.c', 'modloader_config.c', 'modloader_sprite.c', 'modloader_unwind.c', 'modloader_ids.c', rq_stamp, rq_uikit, rq_config, rq_sprite, rq_scene, rq_ids, rq_battle_lua, rq_status_lua]
     if host_machine.system() == 'windows'
         static_link_args += ['-lpsapi', '-lshell32', '-lole32']
     endif

@@ -2110,19 +2110,28 @@ int rq_lua_battle_buffs(lua_State *L)
  * loader 2.1.0). Runs after rq_scene_open, which puts the removable rq.ain.hook in place. */
 extern const char rq_battle_lua[];
 extern const unsigned rq_battle_lua_len;
+extern const char rq_status_lua[];
+extern const unsigned rq_status_lua_len;
 
-void rq_battle_lua_open(lua_State *L, int rq_index)
+static void run_embedded(lua_State *L, int rq_index, const char *code, unsigned len, const char *name)
 {
-	if (luaL_loadbuffer(L, rq_battle_lua, rq_battle_lua_len, "=battle") != LUA_OK) {
-		rq_log("battle.lua: %s", lua_tostring(L, -1));
+	if (luaL_loadbuffer(L, code, len, name) != LUA_OK) {
+		rq_log("%s: %s", name + 1, lua_tostring(L, -1));
 		lua_pop(L, 1);
 		return;
 	}
 	lua_pushvalue(L, rq_index);
 	if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
-		rq_log("battle.lua: %s", lua_tostring(L, -1));
+		rq_log("%s: %s", name + 1, lua_tostring(L, -1));
 		lua_pop(L, 1);
 	}
+}
+
+/* rq.status (lua/status.lua, loader 2.2.0) is built on the events of battle.lua. */
+void rq_battle_lua_open(lua_State *L, int rq_index)
+{
+	run_embedded(L, rq_index, rq_battle_lua, rq_battle_lua_len, "=battle");
+	run_embedded(L, rq_index, rq_status_lua, rq_status_lua_len, "=status");
 }
 
 #endif /* RQ_MODLOADER */
