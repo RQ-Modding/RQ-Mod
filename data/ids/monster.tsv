@@ -1,0 +1,372 @@
+113	Chi-Ha Familiar	0,60
+114	Can Can Familiar	0,60
+115	Gecky Familiar	0,60
+116	Magisco Familiar	0,60
+117	Kraken Familiar	0,60
+118	Crab Girl Familiar	0,60
+119	Splish-Splash Familiar	0,60
+120	Frog Lady Familiar	0,60
+121	Maid Lady Familiar	0,60
+122	Zashiki-Warashi Familiar	0,60
+123	Lantyrn Familiar	0,60
+124	Tokko Familiar	0,60
+125	Majician Familiar	0,60
+126	Nekomatamata Familiar	0,60
+127	Valkyrie Familiar	0,60
+128	Captain Vanilla Familiar	0,60
+129	Battle Booklet Familiar	0,60
+135	Squidman	1,4
+136	Squidman (Love)	10,4
+137	Ruronta	1,4
+138	Doggy	1,6
+139	Roper	1,4
+140	Hanny	1,8
+141	Grape	2,7
+142	Can Can	1,3
+143	Lucky Can Can	2,3
+144	Yankee	5,4
+145	Yankee (Braceleted)	5,4
+146	Goldfish	5,7
+147	Puryo	5,4
+148	Rust	5,10
+149	Meatball	5,4
+150	Blue Meatball	25,4
+151	Uppy	5,6
+152	Soil Pollution	5,6
+153	97 Chi-Ha	5,3
+154	Circle	10,11
+155	Polyman	10,12
+156	Magball	10,11
+157	Wooden Boxen	10,12
+158	Green Hanny	10,8
+159	Auntie Bat	10,6
+160	Rotten Corpse	10,4
+161	Putrid Corpse	10,4
+162	Giant Corpse	15,4
+163	Gates 95	10,4
+164	Gecky	10,3
+165	Kraken	10,3
+166	Ham Bambara	15,4
+167	Giant Ham Bambara	35,4
+168	Crab Girl	15,3
+169	Ironhead	20,4
+170	D. Shield	15,4
+171	Crimson Eye	15,4
+172	Bonded Crimson Eye	25,4
+173	Not Yet Horned Whale	15,6
+174	Jar	15,6
+175	Splish-Splash	20,3
+176	Odds	20,4
+177	Anton	20,6
+178	Blue Hanny	20,8
+179	Rommel	20,10
+180	Hornet	20,4
+181	Japanese Soldier	20,4
+182	Mechavalry Copter	20,12
+183	Scream Man	20,4
+184	Lone Spirit	15,4
+185	Ghost	25,4
+186	Vevetar	20,15
+187	Frog Lady	20,3
+188	Maid Lady	20,3
+189	Samera~i	25,4
+190	Mechavalry Metal	25,12
+191	Lead Orb	25,11
+192	Iron Boxen	25,12
+193	Catpot	25,4
+194	Happy	25,6
+195	Smile Man	25,4
+196	Asshole	25,6
+197	Magisco	25,3
+198	Zashiki-Warashi	25,3
+199	Ralga's Cat	25,3
+200	North Slug	30,4
+201	Red Hanny	30,8
+202	President Garter	30,4
+203	Ebony Eye	30,4
+204	Goering	30,10
+205	Mechavalry Tank	30,12
+206	Lantyrn	30,3
+207	NASU	30,4
+208	Burner	30,4
+209	Ranken	35,4
+210	Ice Boxen	30,12
+211	Hugant	35,4
+212	Familiar Hugant	35,4
+213	Mechavalry Submarine	35,12
+214	Demonemone	35,4
+215	Horned Whale	35,6
+216	Blue Wand	35,12
+217	Blue Wand	35,12
+218	Circle MkII	35,11
+219	Bug	30,4
+220	Captain Vanilla	35,3
+221	Captain Vanilla	35,3
+222	Animated Armor	40,4
+223	Black Hanny	40,8
+224	Stone Guardian	40,4
+225	Love Me Tender	40,4
+226	Thunderfish	35,6
+227	Night Horror	40,4
+228	Nyo~	35,4
+229	Himmler	40,10
+230	Majician	40,3
+231	Tokko	40,3
+232	Rad Diviner	40,7
+233	Bigfoot	70,4
+234	Former President Garter	45,4
+235	Dark Chippy	70,4
+237	Super Hanny	60,8
+238	Golden Orb	50,11
+239	Nekomatamata	45,3
+240	Valkyrie	60,3
+241	Aimameyas	45,12
+242	Cranium Flower	45,7
+244	Shadow	50,4
+245	Swortoad	0,4
+246	Armored Anton	45,6
+247	The Invincible Iron Bird	60,4
+248	Alabaster Eye	45,4
+249	Uncle Bat	45,6
+250	One-eyed Golem	45,12
+251	Polysaurus	50,12
+252	Bone	20,5
+253	Bone W	30,5
+254	Bone K	40,5
+255	Bone S	25,5
+256	Bone M	35,5
+257	Boss Bone	30,5
+258	Lion Soldier	5,2
+259	Cheetah Soldier	10,2
+260	Wrestler Sumo	5,2
+261	Weak Fighter	4,2
+262	Regular Fighter	10,2
+263	Skilled Fighter	20,2
+264	Strong Fighter	30,2
+265	Famous Fighter	40,2
+266	Weak Guard	4,2
+267	Regular Guard	10,2
+268	Skilled Guard	20,2
+269	Strong Guard	30,2
+270	Famous Guard	40,2
+271	Weak Gunner	4,2
+272	Regular Gunner	10,2
+273	Skilled Gunner	20,2
+274	Strong Gunner	30,2
+275	Famous Gunner	40,2
+276	Weak Ranger	4,2
+277	Regular Ranger	10,2
+278	Skilled Ranger	20,2
+279	Strong Ranger	30,2
+280	Famous Ranger	40,2
+281	Weak Sorcerer	4,2
+282	Regular Sorcerer	10,2
+283	Skilled Sorcerer	20,2
+284	Strong Sorcerer	30,2
+285	Famous Sorcerer	40,2
+286	Weak Brawler	4,2
+287	Regular Brawler	10,2
+288	Skilled Brawler	20,2
+289	Strong Brawler	30,2
+290	Famous Brawler	40,2
+291	Weak Monster Tamer	4,2
+292	Regular Monster Tamer	10,2
+293	Skilled Monster Tamer	20,2
+294	Strong Monster Tamer	30,2
+295	Famous Monster Tamer	40,2
+296	Leopold	15,2
+297	Bonded Man	25,2
+298	Helmanian Soldier A	5,2
+299	Helmanian Knight	35,2
+300	Captain Org	35,2
+301	Commander Isaac	35,2
+302	Amitos	40,2
+303	Amitos (Weakened)	40,2
+304	Templar	25,2
+305	Amazusa Employee	0,2
+306	Crystal Robo	25,12
+307	Crystal Robo	30,12
+308	Kalar	5,13
+309	Kalar Commander	5,13
+310	Elite Kalar	30,13
+311	Elite Kalar	30,13
+312	Sanuki Aloe	5,7
+313	South American Aloe	15,7
+314	Emperor Aloe	35,7
+315	Attack Spirit	45,12
+316	Defense Spirit	45,12
+317	Healing Spirit	45,12
+318	Magic Spirit	45,12
+319	Pastel	45,13
+320	Modern	45,13
+321	Vivid	45,13
+322	Full	45,13
+323	Matilda (LV 15)	15,2
+324	Matilda (LV 22)	22,2
+325	Matilda (LV 35)	35,2
+326	Matilda (LV 38)	38,2
+327	Matilda (X)	39,2
+328	Dark Matilda	39,2
+329	Lord of the Abyss	30,4
+330	Masuzoe	50,9
+331	Green Dragon	25,11
+333	Alkanese	35,2
+334	Alkanese (Weakened)	35,2
+335	Alkanese Copy	10,4
+336	Aegis	35,13
+337	Silbarrel	20,2
+338	Snowy Mountain Japanese Soldier	30,4
+339	Yudain	10,4
+340	Burglar Leader	5,2
+341	Washed-Up Assassin	5,2
+342	Stray Archer	5,2
+343	Helmanian Monster Tamer	20,2
+344	Hopeful	42,2
+345	Nirote Guma	25,24
+346	Ralga's Cat Familiar	0,60
+347	Pocky Rock	10,11
+348	Fighter in Training	1,2
+349	Gunner in Training	1,2
+350	Bird	20,2
+351	Snatcher	10,6
+352	Giant Soil Pollution	5,6
+353	Helmanian Knight	35,2
+354	Hanny King	60,0
+355	Helmanian Soldier	20,2
+356	Wrestler Sumo	30,2
+357	Tofu Ghost	4,4
+358	Cockroach	15,6
+359	Rad Actor	40,7
+360	Huge Goldfish	40,7
+361	Abnormal Squidman	30,4
+362	Abnormal Bone	30,5
+363	Contaminated Fighter	40,24
+364	Contaminated Guard	40,24
+365	Contaminated Gunner	40,24
+366	Contaminated Sorcerer	40,24
+367	Contaminated Ranger	40,24
+368	Dark Rance	40,15
+369	Goblin	45,4
+370	Red Dragon	35,11
+371	Blue Dragon	45,11
+372	Black Dragon	60,11
+373	Healcinth	50,3
+374	Angel Knight Clone	60,14
+375	Pastel	45,13
+376	Kaito	60,9
+377	Kaito	60,9
+378	Vecdran	50,2
+379	Seconaott	50,2
+380	Salvenaott	50,2
+381	Paluott	50,2
+382	Contaott	50,2
+383	BS	50,2
+384	Black Bird	20,24
+386	Hexapillar	60,12
+387	Z Guardian	50,12
+388	Gunagan	70,15
+389	Larva	30,7
+390	Goebbels	45,10
+391	Hitler	60,10
+392	Conturtle	70,4
+393	Serious Sumo	50,4
+394	Crazy King	99,4
+395	King Squidman	45,4
+396	Mechavalry Destroyer	45,12
+397	One-Fanged Puryo 	45,4
+398	Animated Fine Armor	50,4
+399	Mechavalry Pillbox	40,12
+400	Hanny Cannon	50,8
+401	Ngyo!	70,4
+402	Mr. Metaboly	50,15
+403	Billboard	0,6
+404	Billboard	0,6
+405	Billboard	0,6
+406	Billboard	0,6
+407	Billboard	0,6
+408	Billboard	0,6
+409	Billboard	0,6
+410	Billboard	0,6
+411	Billboard	0,6
+412	Billboard	0,6
+413	Billboard	0,6
+414	Billboard	0,6
+415	Billboard	0,6
+416	Billboard	0,6
+417	Billboard	0,6
+418	Billboard	0,6
+419	Billboard	0,6
+420	Billboard	0,6
+421	Billboard	0,6
+422	Billboard	0,6
+423	Crystal Robo	40,12
+424	Flying Monitor Lizard	50,4
+425	Elastic Grape	40,7
+426	Sorceror Hellbell	50,2
+427	Assassin Paraly	50,2
+428	Warrior Gajel	50,2
+429	Magneball	45,11
+430	Am Yisael	60,24
+431	Treasure Dango	10,6
+432	Giant Hornet	45,4
+434	Mechavalry Copter MkII	40,12
+435	Mechavalry Metal MkII	40,12
+436	Mechavalry Tank MkII	50,12
+437	Okayu Fever	40,4
+438	Fishball	5,4
+439	Tricerawhale	35,6
+440	Abnormal Samera~i	25,4
+441	Abnormal Ruronta	0,4
+442	Abnormal Ruronta	0,4
+443	Abnormal Ruronta	0,4
+444	Abnormal Ruronta	0,4
+445	Abnormal Ruronta	0,4
+446	Abnormal Uppy	5,6
+448	Rance CopyPaste	0,4
+449	King Squidman (Love)	45,4
+450	Contaminated Fighter (Weak)	20,24
+451	Troll	45,4
+452	Templar	35,2
+453	Bear	30,4
+454	Bear	50,4
+455	Goddess Alice	100,14
+456	Battle Booklet	50,3
+457	Hanny (Shepherd)	0,8
+458	Super Silbarrel	50,2
+459	Ammoth	70,4
+460	KIUWRI	70,4
+461	E. Shield	70,4
+462	Giant Uppy	70,4
+463	Giant Happy	70,4
+464	Philanthropist Gates	70,4
+465	Transparent Cockroach	70,4
+466	Heroic Samera~i	70,4
+467	Unbreakable Jar	70,4
+468	Ice Hugant	70,4
+469	Space Burner	70,4
+470	Blue Puryo	70,4
+471	Hellhound	70,4
+472	Gold Coin	70,12
+473	Silbarrel, age 5	60,2
+474	Silbarrel, 80-years-old	70,4
+475	Bone S MkII	70,4
+476	Bone W MkII	70,4
+477	Bone K MkII	70,4
+478	Bone M MkII	70,4
+479	Bone MkII	70,4
+480	Iron Guardian	70,4
+481	Glass Guardian	70,4
+482	Poisonous Goldfish	70,4
+483	Healcinth	50,3
+484	Dark Matilda	39,2
+485	Red Justice Person	70,4
+486	B Ranger	70,4
+487	C Ranger	70,4
+488	D Ranger	70,4
+489	E Ranger	70,4
+491	Data-less Ghost	4,4
+492	Data-less Ghost	4,4
+493	Data-less Ghost	4,4
+494	Data-less Ghost	4,4
+495	Data-less Ghost	4,4
+496	Zashiki-Warashi (5 Killer)	25,3

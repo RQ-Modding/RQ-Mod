@@ -2632,6 +2632,2245 @@
    ]
   },
   {
+   "kind": "monster",
+   "title": "Monsters",
+   "what": "monster numbers, as `rq.battle.start` takes them and `rq.battle.snap()` gives them (`enemies[i].no`)",
+   "entries": [
+    {
+     "no": 113,
+     "name": "Chi-Ha Familiar",
+     "detail": "Lv 0, Familiar",
+     "key": "CHI_HA_FAMILIAR"
+    },
+    {
+     "no": 114,
+     "name": "Can Can Familiar",
+     "detail": "Lv 0, Familiar",
+     "key": "CAN_CAN_FAMILIAR"
+    },
+    {
+     "no": 115,
+     "name": "Gecky Familiar",
+     "detail": "Lv 0, Familiar",
+     "key": "GECKY_FAMILIAR"
+    },
+    {
+     "no": 116,
+     "name": "Magisco Familiar",
+     "detail": "Lv 0, Familiar",
+     "key": "MAGISCO_FAMILIAR"
+    },
+    {
+     "no": 117,
+     "name": "Kraken Familiar",
+     "detail": "Lv 0, Familiar",
+     "key": "KRAKEN_FAMILIAR"
+    },
+    {
+     "no": 118,
+     "name": "Crab Girl Familiar",
+     "detail": "Lv 0, Familiar",
+     "key": "CRAB_GIRL_FAMILIAR"
+    },
+    {
+     "no": 119,
+     "name": "Splish-Splash Familiar",
+     "detail": "Lv 0, Familiar",
+     "key": "SPLISH_SPLASH_FAMILIAR"
+    },
+    {
+     "no": 120,
+     "name": "Frog Lady Familiar",
+     "detail": "Lv 0, Familiar",
+     "key": "FROG_LADY_FAMILIAR"
+    },
+    {
+     "no": 121,
+     "name": "Maid Lady Familiar",
+     "detail": "Lv 0, Familiar",
+     "key": "MAID_LADY_FAMILIAR"
+    },
+    {
+     "no": 122,
+     "name": "Zashiki-Warashi Familiar",
+     "detail": "Lv 0, Familiar",
+     "key": "ZASHIKI_WARASHI_FAMILIAR"
+    },
+    {
+     "no": 123,
+     "name": "Lantyrn Familiar",
+     "detail": "Lv 0, Familiar",
+     "key": "LANTYRN_FAMILIAR"
+    },
+    {
+     "no": 124,
+     "name": "Tokko Familiar",
+     "detail": "Lv 0, Familiar",
+     "key": "TOKKO_FAMILIAR"
+    },
+    {
+     "no": 125,
+     "name": "Majician Familiar",
+     "detail": "Lv 0, Familiar",
+     "key": "MAJICIAN_FAMILIAR"
+    },
+    {
+     "no": 126,
+     "name": "Nekomatamata Familiar",
+     "detail": "Lv 0, Familiar",
+     "key": "NEKOMATAMATA_FAMILIAR"
+    },
+    {
+     "no": 127,
+     "name": "Valkyrie Familiar",
+     "detail": "Lv 0, Familiar",
+     "key": "VALKYRIE_FAMILIAR"
+    },
+    {
+     "no": 128,
+     "name": "Captain Vanilla Familiar",
+     "detail": "Lv 0, Familiar",
+     "key": "CAPTAIN_VANILLA_FAMILIAR"
+    },
+    {
+     "no": 129,
+     "name": "Battle Booklet Familiar",
+     "detail": "Lv 0, Familiar",
+     "key": "BATTLE_BOOKLET_FAMILIAR"
+    },
+    {
+     "no": 135,
+     "name": "Squidman",
+     "detail": "Lv 1, Guy Monster",
+     "key": "SQUIDMAN"
+    },
+    {
+     "no": 136,
+     "name": "Squidman (Love)",
+     "detail": "Lv 10, Guy Monster",
+     "key": "SQUIDMAN_LOVE"
+    },
+    {
+     "no": 137,
+     "name": "Ruronta",
+     "detail": "Lv 1, Guy Monster",
+     "key": "RURONTA"
+    },
+    {
+     "no": 138,
+     "name": "Doggy",
+     "detail": "Lv 1, Insect",
+     "key": "DOGGY"
+    },
+    {
+     "no": 139,
+     "name": "Roper",
+     "detail": "Lv 1, Guy Monster",
+     "key": "ROPER"
+    },
+    {
+     "no": 140,
+     "name": "Hanny",
+     "detail": "Lv 1, Hanny",
+     "key": "HANNY"
+    },
+    {
+     "no": 141,
+     "name": "Grape",
+     "detail": "Lv 2, Plant",
+     "key": "GRAPE"
+    },
+    {
+     "no": 142,
+     "name": "Can Can",
+     "detail": "Lv 1, Gal Monster",
+     "key": "CAN_CAN"
+    },
+    {
+     "no": 143,
+     "name": "Lucky Can Can",
+     "detail": "Lv 2, Gal Monster",
+     "key": "LUCKY_CAN_CAN"
+    },
+    {
+     "no": 144,
+     "name": "Yankee",
+     "detail": "Lv 5, Guy Monster",
+     "key": "YANKEE"
+    },
+    {
+     "no": 145,
+     "name": "Yankee (Braceleted)",
+     "detail": "Lv 5, Guy Monster",
+     "key": "YANKEE_BRACELETED"
+    },
+    {
+     "no": 146,
+     "name": "Goldfish",
+     "detail": "Lv 5, Plant",
+     "key": "GOLDFISH"
+    },
+    {
+     "no": 147,
+     "name": "Puryo",
+     "detail": "Lv 5, Guy Monster",
+     "key": "PURYO"
+    },
+    {
+     "no": 148,
+     "name": "Rust",
+     "detail": "Lv 5, Holy Shroud Warlord",
+     "key": "RUST"
+    },
+    {
+     "no": 149,
+     "name": "Meatball",
+     "detail": "Lv 5, Guy Monster",
+     "key": "MEATBALL"
+    },
+    {
+     "no": 150,
+     "name": "Blue Meatball",
+     "detail": "Lv 25, Guy Monster",
+     "key": "BLUE_MEATBALL"
+    },
+    {
+     "no": 151,
+     "name": "Uppy",
+     "detail": "Lv 5, Insect",
+     "key": "UPPY"
+    },
+    {
+     "no": 152,
+     "name": "Soil Pollution",
+     "detail": "Lv 5, Insect",
+     "key": "SOIL_POLLUTION"
+    },
+    {
+     "no": 153,
+     "name": "97 Chi-Ha",
+     "detail": "Lv 5, Gal Monster",
+     "key": "N_97_CHI_HA"
+    },
+    {
+     "no": 154,
+     "name": "Circle",
+     "detail": "Lv 10, Ancient",
+     "key": "CIRCLE"
+    },
+    {
+     "no": 155,
+     "name": "Polyman",
+     "detail": "Lv 10, Construct",
+     "key": "POLYMAN"
+    },
+    {
+     "no": 156,
+     "name": "Magball",
+     "detail": "Lv 10, Ancient",
+     "key": "MAGBALL"
+    },
+    {
+     "no": 157,
+     "name": "Wooden Boxen",
+     "detail": "Lv 10, Construct",
+     "key": "WOODEN_BOXEN"
+    },
+    {
+     "no": 158,
+     "name": "Green Hanny",
+     "detail": "Lv 10, Hanny",
+     "key": "GREEN_HANNY"
+    },
+    {
+     "no": 159,
+     "name": "Auntie Bat",
+     "detail": "Lv 10, Insect",
+     "key": "AUNTIE_BAT"
+    },
+    {
+     "no": 160,
+     "name": "Rotten Corpse",
+     "detail": "Lv 10, Guy Monster",
+     "key": "ROTTEN_CORPSE"
+    },
+    {
+     "no": 161,
+     "name": "Putrid Corpse",
+     "detail": "Lv 10, Guy Monster",
+     "key": "PUTRID_CORPSE"
+    },
+    {
+     "no": 162,
+     "name": "Giant Corpse",
+     "detail": "Lv 15, Guy Monster",
+     "key": "GIANT_CORPSE"
+    },
+    {
+     "no": 163,
+     "name": "Gates 95",
+     "detail": "Lv 10, Guy Monster",
+     "key": "GATES_95"
+    },
+    {
+     "no": 164,
+     "name": "Gecky",
+     "detail": "Lv 10, Gal Monster",
+     "key": "GECKY"
+    },
+    {
+     "no": 165,
+     "name": "Kraken",
+     "detail": "Lv 10, Gal Monster",
+     "key": "KRAKEN"
+    },
+    {
+     "no": 166,
+     "name": "Ham Bambara",
+     "detail": "Lv 15, Guy Monster",
+     "key": "HAM_BAMBARA"
+    },
+    {
+     "no": 167,
+     "name": "Giant Ham Bambara",
+     "detail": "Lv 35, Guy Monster",
+     "key": "GIANT_HAM_BAMBARA"
+    },
+    {
+     "no": 168,
+     "name": "Crab Girl",
+     "detail": "Lv 15, Gal Monster",
+     "key": "CRAB_GIRL"
+    },
+    {
+     "no": 169,
+     "name": "Ironhead",
+     "detail": "Lv 20, Guy Monster",
+     "key": "IRONHEAD"
+    },
+    {
+     "no": 170,
+     "name": "D. Shield",
+     "detail": "Lv 15, Guy Monster",
+     "key": "D_SHIELD"
+    },
+    {
+     "no": 171,
+     "name": "Crimson Eye",
+     "detail": "Lv 15, Guy Monster",
+     "key": "CRIMSON_EYE"
+    },
+    {
+     "no": 172,
+     "name": "Bonded Crimson Eye",
+     "detail": "Lv 25, Guy Monster",
+     "key": "BONDED_CRIMSON_EYE"
+    },
+    {
+     "no": 173,
+     "name": "Not Yet Horned Whale",
+     "detail": "Lv 15, Insect",
+     "key": "NOT_YET_HORNED_WHALE"
+    },
+    {
+     "no": 174,
+     "name": "Jar",
+     "detail": "Lv 15, Insect",
+     "key": "JAR"
+    },
+    {
+     "no": 175,
+     "name": "Splish-Splash",
+     "detail": "Lv 20, Gal Monster",
+     "key": "SPLISH_SPLASH"
+    },
+    {
+     "no": 176,
+     "name": "Odds",
+     "detail": "Lv 20, Guy Monster",
+     "key": "ODDS"
+    },
+    {
+     "no": 177,
+     "name": "Anton",
+     "detail": "Lv 20, Insect",
+     "key": "ANTON"
+    },
+    {
+     "no": 178,
+     "name": "Blue Hanny",
+     "detail": "Lv 20, Hanny",
+     "key": "BLUE_HANNY"
+    },
+    {
+     "no": 179,
+     "name": "Rommel",
+     "detail": "Lv 20, Holy Shroud Warlord",
+     "key": "ROMMEL"
+    },
+    {
+     "no": 180,
+     "name": "Hornet",
+     "detail": "Lv 20, Guy Monster",
+     "key": "HORNET"
+    },
+    {
+     "no": 181,
+     "name": "Japanese Soldier",
+     "detail": "Lv 20, Guy Monster",
+     "key": "JAPANESE_SOLDIER"
+    },
+    {
+     "no": 182,
+     "name": "Mechavalry Copter",
+     "detail": "Lv 20, Construct",
+     "key": "MECHAVALRY_COPTER"
+    },
+    {
+     "no": 183,
+     "name": "Scream Man",
+     "detail": "Lv 20, Guy Monster",
+     "key": "SCREAM_MAN"
+    },
+    {
+     "no": 184,
+     "name": "Lone Spirit",
+     "detail": "Lv 15, Guy Monster",
+     "key": "LONE_SPIRIT"
+    },
+    {
+     "no": 185,
+     "name": "Ghost",
+     "detail": "Lv 25, Guy Monster",
+     "key": "GHOST"
+    },
+    {
+     "no": 186,
+     "name": "Vevetar",
+     "detail": "Lv 20, Devil",
+     "key": "VEVETAR"
+    },
+    {
+     "no": 187,
+     "name": "Frog Lady",
+     "detail": "Lv 20, Gal Monster",
+     "key": "FROG_LADY"
+    },
+    {
+     "no": 188,
+     "name": "Maid Lady",
+     "detail": "Lv 20, Gal Monster",
+     "key": "MAID_LADY"
+    },
+    {
+     "no": 189,
+     "name": "Samera~i",
+     "detail": "Lv 25, Guy Monster",
+     "key": "SAMERAI"
+    },
+    {
+     "no": 190,
+     "name": "Mechavalry Metal",
+     "detail": "Lv 25, Construct",
+     "key": "MECHAVALRY_METAL"
+    },
+    {
+     "no": 191,
+     "name": "Lead Orb",
+     "detail": "Lv 25, Ancient",
+     "key": "LEAD_ORB"
+    },
+    {
+     "no": 192,
+     "name": "Iron Boxen",
+     "detail": "Lv 25, Construct",
+     "key": "IRON_BOXEN"
+    },
+    {
+     "no": 193,
+     "name": "Catpot",
+     "detail": "Lv 25, Guy Monster",
+     "key": "CATPOT"
+    },
+    {
+     "no": 194,
+     "name": "Happy",
+     "detail": "Lv 25, Insect",
+     "key": "HAPPY"
+    },
+    {
+     "no": 195,
+     "name": "Smile Man",
+     "detail": "Lv 25, Guy Monster",
+     "key": "SMILE_MAN"
+    },
+    {
+     "no": 196,
+     "name": "Asshole",
+     "detail": "Lv 25, Insect",
+     "key": "ASSHOLE"
+    },
+    {
+     "no": 197,
+     "name": "Magisco",
+     "detail": "Lv 25, Gal Monster",
+     "key": "MAGISCO"
+    },
+    {
+     "no": 198,
+     "name": "Zashiki-Warashi",
+     "detail": "Lv 25, Gal Monster",
+     "key": "ZASHIKI_WARASHI"
+    },
+    {
+     "no": 199,
+     "name": "Ralga's Cat",
+     "detail": "Lv 25, Gal Monster",
+     "key": "RALGAS_CAT"
+    },
+    {
+     "no": 200,
+     "name": "North Slug",
+     "detail": "Lv 30, Guy Monster",
+     "key": "NORTH_SLUG"
+    },
+    {
+     "no": 201,
+     "name": "Red Hanny",
+     "detail": "Lv 30, Hanny",
+     "key": "RED_HANNY"
+    },
+    {
+     "no": 202,
+     "name": "President Garter",
+     "detail": "Lv 30, Guy Monster",
+     "key": "PRESIDENT_GARTER"
+    },
+    {
+     "no": 203,
+     "name": "Ebony Eye",
+     "detail": "Lv 30, Guy Monster",
+     "key": "EBONY_EYE"
+    },
+    {
+     "no": 204,
+     "name": "Goering",
+     "detail": "Lv 30, Holy Shroud Warlord",
+     "key": "GOERING"
+    },
+    {
+     "no": 205,
+     "name": "Mechavalry Tank",
+     "detail": "Lv 30, Construct",
+     "key": "MECHAVALRY_TANK"
+    },
+    {
+     "no": 206,
+     "name": "Lantyrn",
+     "detail": "Lv 30, Gal Monster",
+     "key": "LANTYRN"
+    },
+    {
+     "no": 207,
+     "name": "NASU",
+     "detail": "Lv 30, Guy Monster",
+     "key": "NASU"
+    },
+    {
+     "no": 208,
+     "name": "Burner",
+     "detail": "Lv 30, Guy Monster",
+     "key": "BURNER"
+    },
+    {
+     "no": 209,
+     "name": "Ranken",
+     "detail": "Lv 35, Guy Monster",
+     "key": "RANKEN"
+    },
+    {
+     "no": 210,
+     "name": "Ice Boxen",
+     "detail": "Lv 30, Construct",
+     "key": "ICE_BOXEN"
+    },
+    {
+     "no": 211,
+     "name": "Hugant",
+     "detail": "Lv 35, Guy Monster",
+     "key": "HUGANT"
+    },
+    {
+     "no": 212,
+     "name": "Familiar Hugant",
+     "detail": "Lv 35, Guy Monster",
+     "key": "FAMILIAR_HUGANT"
+    },
+    {
+     "no": 213,
+     "name": "Mechavalry Submarine",
+     "detail": "Lv 35, Construct",
+     "key": "MECHAVALRY_SUBMARINE"
+    },
+    {
+     "no": 214,
+     "name": "Demonemone",
+     "detail": "Lv 35, Guy Monster",
+     "key": "DEMONEMONE"
+    },
+    {
+     "no": 215,
+     "name": "Horned Whale",
+     "detail": "Lv 35, Insect",
+     "key": "HORNED_WHALE"
+    },
+    {
+     "no": 216,
+     "name": "Blue Wand",
+     "detail": "Lv 35, Construct",
+     "key": "BLUE_WAND_216"
+    },
+    {
+     "no": 217,
+     "name": "Blue Wand",
+     "detail": "Lv 35, Construct",
+     "key": "BLUE_WAND_217"
+    },
+    {
+     "no": 218,
+     "name": "Circle MkII",
+     "detail": "Lv 35, Ancient",
+     "key": "CIRCLE_MKII"
+    },
+    {
+     "no": 219,
+     "name": "Bug",
+     "detail": "Lv 30, Guy Monster",
+     "key": "BUG"
+    },
+    {
+     "no": 220,
+     "name": "Captain Vanilla",
+     "detail": "Lv 35, Gal Monster",
+     "key": "CAPTAIN_VANILLA_220"
+    },
+    {
+     "no": 221,
+     "name": "Captain Vanilla",
+     "detail": "Lv 35, Gal Monster",
+     "key": "CAPTAIN_VANILLA_221"
+    },
+    {
+     "no": 222,
+     "name": "Animated Armor",
+     "detail": "Lv 40, Guy Monster",
+     "key": "ANIMATED_ARMOR"
+    },
+    {
+     "no": 223,
+     "name": "Black Hanny",
+     "detail": "Lv 40, Hanny",
+     "key": "BLACK_HANNY"
+    },
+    {
+     "no": 224,
+     "name": "Stone Guardian",
+     "detail": "Lv 40, Guy Monster",
+     "key": "STONE_GUARDIAN"
+    },
+    {
+     "no": 225,
+     "name": "Love Me Tender",
+     "detail": "Lv 40, Guy Monster",
+     "key": "LOVE_ME_TENDER"
+    },
+    {
+     "no": 226,
+     "name": "Thunderfish",
+     "detail": "Lv 35, Insect",
+     "key": "THUNDERFISH"
+    },
+    {
+     "no": 227,
+     "name": "Night Horror",
+     "detail": "Lv 40, Guy Monster",
+     "key": "NIGHT_HORROR"
+    },
+    {
+     "no": 228,
+     "name": "Nyo~",
+     "detail": "Lv 35, Guy Monster",
+     "key": "NYO"
+    },
+    {
+     "no": 229,
+     "name": "Himmler",
+     "detail": "Lv 40, Holy Shroud Warlord",
+     "key": "HIMMLER"
+    },
+    {
+     "no": 230,
+     "name": "Majician",
+     "detail": "Lv 40, Gal Monster",
+     "key": "MAJICIAN"
+    },
+    {
+     "no": 231,
+     "name": "Tokko",
+     "detail": "Lv 40, Gal Monster",
+     "key": "TOKKO"
+    },
+    {
+     "no": 232,
+     "name": "Rad Diviner",
+     "detail": "Lv 40, Plant",
+     "key": "RAD_DIVINER"
+    },
+    {
+     "no": 233,
+     "name": "Bigfoot",
+     "detail": "Lv 70, Guy Monster",
+     "key": "BIGFOOT"
+    },
+    {
+     "no": 234,
+     "name": "Former President Garter",
+     "detail": "Lv 45, Guy Monster",
+     "key": "FORMER_PRESIDENT_GARTER"
+    },
+    {
+     "no": 235,
+     "name": "Dark Chippy",
+     "detail": "Lv 70, Guy Monster",
+     "key": "DARK_CHIPPY"
+    },
+    {
+     "no": 237,
+     "name": "Super Hanny",
+     "detail": "Lv 60, Hanny",
+     "key": "SUPER_HANNY"
+    },
+    {
+     "no": 238,
+     "name": "Golden Orb",
+     "detail": "Lv 50, Ancient",
+     "key": "GOLDEN_ORB"
+    },
+    {
+     "no": 239,
+     "name": "Nekomatamata",
+     "detail": "Lv 45, Gal Monster",
+     "key": "NEKOMATAMATA"
+    },
+    {
+     "no": 240,
+     "name": "Valkyrie",
+     "detail": "Lv 60, Gal Monster",
+     "key": "VALKYRIE"
+    },
+    {
+     "no": 241,
+     "name": "Aimameyas",
+     "detail": "Lv 45, Construct",
+     "key": "AIMAMEYAS"
+    },
+    {
+     "no": 242,
+     "name": "Cranium Flower",
+     "detail": "Lv 45, Plant",
+     "key": "CRANIUM_FLOWER"
+    },
+    {
+     "no": 244,
+     "name": "Shadow",
+     "detail": "Lv 50, Guy Monster",
+     "key": "SHADOW"
+    },
+    {
+     "no": 245,
+     "name": "Swortoad",
+     "detail": "Lv 0, Guy Monster",
+     "key": "SWORTOAD"
+    },
+    {
+     "no": 246,
+     "name": "Armored Anton",
+     "detail": "Lv 45, Insect",
+     "key": "ARMORED_ANTON"
+    },
+    {
+     "no": 247,
+     "name": "The Invincible Iron Bird",
+     "detail": "Lv 60, Guy Monster",
+     "key": "THE_INVINCIBLE_IRON_BIRD"
+    },
+    {
+     "no": 248,
+     "name": "Alabaster Eye",
+     "detail": "Lv 45, Guy Monster",
+     "key": "ALABASTER_EYE"
+    },
+    {
+     "no": 249,
+     "name": "Uncle Bat",
+     "detail": "Lv 45, Insect",
+     "key": "UNCLE_BAT"
+    },
+    {
+     "no": 250,
+     "name": "One-eyed Golem",
+     "detail": "Lv 45, Construct",
+     "key": "ONE_EYED_GOLEM"
+    },
+    {
+     "no": 251,
+     "name": "Polysaurus",
+     "detail": "Lv 50, Construct",
+     "key": "POLYSAURUS"
+    },
+    {
+     "no": 252,
+     "name": "Bone",
+     "detail": "Lv 20, Guy Monster",
+     "key": "BONE"
+    },
+    {
+     "no": 253,
+     "name": "Bone W",
+     "detail": "Lv 30, Guy Monster",
+     "key": "BONE_W"
+    },
+    {
+     "no": 254,
+     "name": "Bone K",
+     "detail": "Lv 40, Guy Monster",
+     "key": "BONE_K"
+    },
+    {
+     "no": 255,
+     "name": "Bone S",
+     "detail": "Lv 25, Guy Monster",
+     "key": "BONE_S"
+    },
+    {
+     "no": 256,
+     "name": "Bone M",
+     "detail": "Lv 35, Guy Monster",
+     "key": "BONE_M"
+    },
+    {
+     "no": 257,
+     "name": "Boss Bone",
+     "detail": "Lv 30, Guy Monster",
+     "key": "BOSS_BONE"
+    },
+    {
+     "no": 258,
+     "name": "Lion Soldier",
+     "detail": "Lv 5, Human",
+     "key": "LION_SOLDIER"
+    },
+    {
+     "no": 259,
+     "name": "Cheetah Soldier",
+     "detail": "Lv 10, Human",
+     "key": "CHEETAH_SOLDIER"
+    },
+    {
+     "no": 260,
+     "name": "Wrestler Sumo",
+     "detail": "Lv 5, Human",
+     "key": "WRESTLER_SUMO_260"
+    },
+    {
+     "no": 261,
+     "name": "Weak Fighter",
+     "detail": "Lv 4, Human",
+     "key": "WEAK_FIGHTER"
+    },
+    {
+     "no": 262,
+     "name": "Regular Fighter",
+     "detail": "Lv 10, Human",
+     "key": "REGULAR_FIGHTER"
+    },
+    {
+     "no": 263,
+     "name": "Skilled Fighter",
+     "detail": "Lv 20, Human",
+     "key": "SKILLED_FIGHTER"
+    },
+    {
+     "no": 264,
+     "name": "Strong Fighter",
+     "detail": "Lv 30, Human",
+     "key": "STRONG_FIGHTER"
+    },
+    {
+     "no": 265,
+     "name": "Famous Fighter",
+     "detail": "Lv 40, Human",
+     "key": "FAMOUS_FIGHTER"
+    },
+    {
+     "no": 266,
+     "name": "Weak Guard",
+     "detail": "Lv 4, Human",
+     "key": "WEAK_GUARD"
+    },
+    {
+     "no": 267,
+     "name": "Regular Guard",
+     "detail": "Lv 10, Human",
+     "key": "REGULAR_GUARD"
+    },
+    {
+     "no": 268,
+     "name": "Skilled Guard",
+     "detail": "Lv 20, Human",
+     "key": "SKILLED_GUARD"
+    },
+    {
+     "no": 269,
+     "name": "Strong Guard",
+     "detail": "Lv 30, Human",
+     "key": "STRONG_GUARD"
+    },
+    {
+     "no": 270,
+     "name": "Famous Guard",
+     "detail": "Lv 40, Human",
+     "key": "FAMOUS_GUARD"
+    },
+    {
+     "no": 271,
+     "name": "Weak Gunner",
+     "detail": "Lv 4, Human",
+     "key": "WEAK_GUNNER"
+    },
+    {
+     "no": 272,
+     "name": "Regular Gunner",
+     "detail": "Lv 10, Human",
+     "key": "REGULAR_GUNNER"
+    },
+    {
+     "no": 273,
+     "name": "Skilled Gunner",
+     "detail": "Lv 20, Human",
+     "key": "SKILLED_GUNNER"
+    },
+    {
+     "no": 274,
+     "name": "Strong Gunner",
+     "detail": "Lv 30, Human",
+     "key": "STRONG_GUNNER"
+    },
+    {
+     "no": 275,
+     "name": "Famous Gunner",
+     "detail": "Lv 40, Human",
+     "key": "FAMOUS_GUNNER"
+    },
+    {
+     "no": 276,
+     "name": "Weak Ranger",
+     "detail": "Lv 4, Human",
+     "key": "WEAK_RANGER"
+    },
+    {
+     "no": 277,
+     "name": "Regular Ranger",
+     "detail": "Lv 10, Human",
+     "key": "REGULAR_RANGER"
+    },
+    {
+     "no": 278,
+     "name": "Skilled Ranger",
+     "detail": "Lv 20, Human",
+     "key": "SKILLED_RANGER"
+    },
+    {
+     "no": 279,
+     "name": "Strong Ranger",
+     "detail": "Lv 30, Human",
+     "key": "STRONG_RANGER"
+    },
+    {
+     "no": 280,
+     "name": "Famous Ranger",
+     "detail": "Lv 40, Human",
+     "key": "FAMOUS_RANGER"
+    },
+    {
+     "no": 281,
+     "name": "Weak Sorcerer",
+     "detail": "Lv 4, Human",
+     "key": "WEAK_SORCERER"
+    },
+    {
+     "no": 282,
+     "name": "Regular Sorcerer",
+     "detail": "Lv 10, Human",
+     "key": "REGULAR_SORCERER"
+    },
+    {
+     "no": 283,
+     "name": "Skilled Sorcerer",
+     "detail": "Lv 20, Human",
+     "key": "SKILLED_SORCERER"
+    },
+    {
+     "no": 284,
+     "name": "Strong Sorcerer",
+     "detail": "Lv 30, Human",
+     "key": "STRONG_SORCERER"
+    },
+    {
+     "no": 285,
+     "name": "Famous Sorcerer",
+     "detail": "Lv 40, Human",
+     "key": "FAMOUS_SORCERER"
+    },
+    {
+     "no": 286,
+     "name": "Weak Brawler",
+     "detail": "Lv 4, Human",
+     "key": "WEAK_BRAWLER"
+    },
+    {
+     "no": 287,
+     "name": "Regular Brawler",
+     "detail": "Lv 10, Human",
+     "key": "REGULAR_BRAWLER"
+    },
+    {
+     "no": 288,
+     "name": "Skilled Brawler",
+     "detail": "Lv 20, Human",
+     "key": "SKILLED_BRAWLER"
+    },
+    {
+     "no": 289,
+     "name": "Strong Brawler",
+     "detail": "Lv 30, Human",
+     "key": "STRONG_BRAWLER"
+    },
+    {
+     "no": 290,
+     "name": "Famous Brawler",
+     "detail": "Lv 40, Human",
+     "key": "FAMOUS_BRAWLER"
+    },
+    {
+     "no": 291,
+     "name": "Weak Monster Tamer",
+     "detail": "Lv 4, Human",
+     "key": "WEAK_MONSTER_TAMER"
+    },
+    {
+     "no": 292,
+     "name": "Regular Monster Tamer",
+     "detail": "Lv 10, Human",
+     "key": "REGULAR_MONSTER_TAMER"
+    },
+    {
+     "no": 293,
+     "name": "Skilled Monster Tamer",
+     "detail": "Lv 20, Human",
+     "key": "SKILLED_MONSTER_TAMER"
+    },
+    {
+     "no": 294,
+     "name": "Strong Monster Tamer",
+     "detail": "Lv 30, Human",
+     "key": "STRONG_MONSTER_TAMER"
+    },
+    {
+     "no": 295,
+     "name": "Famous Monster Tamer",
+     "detail": "Lv 40, Human",
+     "key": "FAMOUS_MONSTER_TAMER"
+    },
+    {
+     "no": 296,
+     "name": "Leopold",
+     "detail": "Lv 15, Human",
+     "key": "LEOPOLD"
+    },
+    {
+     "no": 297,
+     "name": "Bonded Man",
+     "detail": "Lv 25, Human",
+     "key": "BONDED_MAN"
+    },
+    {
+     "no": 298,
+     "name": "Helmanian Soldier A",
+     "detail": "Lv 5, Human",
+     "key": "HELMANIAN_SOLDIER_A"
+    },
+    {
+     "no": 299,
+     "name": "Helmanian Knight",
+     "detail": "Lv 35, Human",
+     "key": "HELMANIAN_KNIGHT_299"
+    },
+    {
+     "no": 300,
+     "name": "Captain Org",
+     "detail": "Lv 35, Human",
+     "key": "CAPTAIN_ORG"
+    },
+    {
+     "no": 301,
+     "name": "Commander Isaac",
+     "detail": "Lv 35, Human",
+     "key": "COMMANDER_ISAAC"
+    },
+    {
+     "no": 302,
+     "name": "Amitos",
+     "detail": "Lv 40, Human",
+     "key": "AMITOS"
+    },
+    {
+     "no": 303,
+     "name": "Amitos (Weakened)",
+     "detail": "Lv 40, Human",
+     "key": "AMITOS_WEAKENED"
+    },
+    {
+     "no": 304,
+     "name": "Templar",
+     "detail": "Lv 25, Human",
+     "key": "TEMPLAR_304"
+    },
+    {
+     "no": 305,
+     "name": "Amazusa Employee",
+     "detail": "Lv 0, Human",
+     "key": "AMAZUSA_EMPLOYEE"
+    },
+    {
+     "no": 306,
+     "name": "Crystal Robo",
+     "detail": "Lv 25, Construct",
+     "key": "CRYSTAL_ROBO_306"
+    },
+    {
+     "no": 307,
+     "name": "Crystal Robo",
+     "detail": "Lv 30, Construct",
+     "key": "CRYSTAL_ROBO_307"
+    },
+    {
+     "no": 308,
+     "name": "Kalar",
+     "detail": "Lv 5, Kalar",
+     "key": "KALAR"
+    },
+    {
+     "no": 309,
+     "name": "Kalar Commander",
+     "detail": "Lv 5, Kalar",
+     "key": "KALAR_COMMANDER"
+    },
+    {
+     "no": 310,
+     "name": "Elite Kalar",
+     "detail": "Lv 30, Kalar",
+     "key": "ELITE_KALAR_310"
+    },
+    {
+     "no": 311,
+     "name": "Elite Kalar",
+     "detail": "Lv 30, Kalar",
+     "key": "ELITE_KALAR_311"
+    },
+    {
+     "no": 312,
+     "name": "Sanuki Aloe",
+     "detail": "Lv 5, Plant",
+     "key": "SANUKI_ALOE"
+    },
+    {
+     "no": 313,
+     "name": "South American Aloe",
+     "detail": "Lv 15, Plant",
+     "key": "SOUTH_AMERICAN_ALOE"
+    },
+    {
+     "no": 314,
+     "name": "Emperor Aloe",
+     "detail": "Lv 35, Plant",
+     "key": "EMPEROR_ALOE"
+    },
+    {
+     "no": 315,
+     "name": "Attack Spirit",
+     "detail": "Lv 45, Construct",
+     "key": "ATTACK_SPIRIT"
+    },
+    {
+     "no": 316,
+     "name": "Defense Spirit",
+     "detail": "Lv 45, Construct",
+     "key": "DEFENSE_SPIRIT"
+    },
+    {
+     "no": 317,
+     "name": "Healing Spirit",
+     "detail": "Lv 45, Construct",
+     "key": "HEALING_SPIRIT"
+    },
+    {
+     "no": 318,
+     "name": "Magic Spirit",
+     "detail": "Lv 45, Construct",
+     "key": "MAGIC_SPIRIT"
+    },
+    {
+     "no": 319,
+     "name": "Pastel",
+     "detail": "Lv 45, Kalar",
+     "key": "PASTEL_319"
+    },
+    {
+     "no": 320,
+     "name": "Modern",
+     "detail": "Lv 45, Kalar",
+     "key": "MODERN"
+    },
+    {
+     "no": 321,
+     "name": "Vivid",
+     "detail": "Lv 45, Kalar",
+     "key": "VIVID"
+    },
+    {
+     "no": 322,
+     "name": "Full",
+     "detail": "Lv 45, Kalar",
+     "key": "FULL"
+    },
+    {
+     "no": 323,
+     "name": "Matilda (LV 15)",
+     "detail": "Lv 15, Human",
+     "key": "MATILDA_LV_15"
+    },
+    {
+     "no": 324,
+     "name": "Matilda (LV 22)",
+     "detail": "Lv 22, Human",
+     "key": "MATILDA_LV_22"
+    },
+    {
+     "no": 325,
+     "name": "Matilda (LV 35)",
+     "detail": "Lv 35, Human",
+     "key": "MATILDA_LV_35"
+    },
+    {
+     "no": 326,
+     "name": "Matilda (LV 38)",
+     "detail": "Lv 38, Human",
+     "key": "MATILDA_LV_38"
+    },
+    {
+     "no": 327,
+     "name": "Matilda (X)",
+     "detail": "Lv 39, Human",
+     "key": "MATILDA_X"
+    },
+    {
+     "no": 328,
+     "name": "Dark Matilda",
+     "detail": "Lv 39, Human",
+     "key": "DARK_MATILDA_328"
+    },
+    {
+     "no": 329,
+     "name": "Lord of the Abyss",
+     "detail": "Lv 30, Guy Monster",
+     "key": "LORD_OF_THE_ABYSS"
+    },
+    {
+     "no": 330,
+     "name": "Masuzoe",
+     "detail": "Lv 50, Fiend",
+     "key": "MASUZOE"
+    },
+    {
+     "no": 331,
+     "name": "Green Dragon",
+     "detail": "Lv 25, Ancient",
+     "key": "GREEN_DRAGON"
+    },
+    {
+     "no": 333,
+     "name": "Alkanese",
+     "detail": "Lv 35, Human",
+     "key": "ALKANESE"
+    },
+    {
+     "no": 334,
+     "name": "Alkanese (Weakened)",
+     "detail": "Lv 35, Human",
+     "key": "ALKANESE_WEAKENED"
+    },
+    {
+     "no": 335,
+     "name": "Alkanese Copy",
+     "detail": "Lv 10, Guy Monster",
+     "key": "ALKANESE_COPY"
+    },
+    {
+     "no": 336,
+     "name": "Aegis",
+     "detail": "Lv 35, Kalar",
+     "key": "AEGIS"
+    },
+    {
+     "no": 337,
+     "name": "Silbarrel",
+     "detail": "Lv 20, Human",
+     "key": "SILBARREL"
+    },
+    {
+     "no": 338,
+     "name": "Snowy Mountain Japanese Soldier",
+     "detail": "Lv 30, Guy Monster",
+     "key": "SNOWY_MOUNTAIN_JAPANESE_SOLDIER"
+    },
+    {
+     "no": 339,
+     "name": "Yudain",
+     "detail": "Lv 10, Guy Monster",
+     "key": "YUDAIN"
+    },
+    {
+     "no": 340,
+     "name": "Burglar Leader",
+     "detail": "Lv 5, Human",
+     "key": "BURGLAR_LEADER"
+    },
+    {
+     "no": 341,
+     "name": "Washed-Up Assassin",
+     "detail": "Lv 5, Human",
+     "key": "WASHED_UP_ASSASSIN"
+    },
+    {
+     "no": 342,
+     "name": "Stray Archer",
+     "detail": "Lv 5, Human",
+     "key": "STRAY_ARCHER"
+    },
+    {
+     "no": 343,
+     "name": "Helmanian Monster Tamer",
+     "detail": "Lv 20, Human",
+     "key": "HELMANIAN_MONSTER_TAMER"
+    },
+    {
+     "no": 344,
+     "name": "Hopeful",
+     "detail": "Lv 42, Human",
+     "key": "HOPEFUL"
+    },
+    {
+     "no": 345,
+     "name": "Nirote Guma",
+     "detail": "Lv 25, Contaminated",
+     "key": "NIROTE_GUMA"
+    },
+    {
+     "no": 346,
+     "name": "Ralga's Cat Familiar",
+     "detail": "Lv 0, Familiar",
+     "key": "RALGAS_CAT_FAMILIAR"
+    },
+    {
+     "no": 347,
+     "name": "Pocky Rock",
+     "detail": "Lv 10, Ancient",
+     "key": "POCKY_ROCK"
+    },
+    {
+     "no": 348,
+     "name": "Fighter in Training",
+     "detail": "Lv 1, Human",
+     "key": "FIGHTER_IN_TRAINING"
+    },
+    {
+     "no": 349,
+     "name": "Gunner in Training",
+     "detail": "Lv 1, Human",
+     "key": "GUNNER_IN_TRAINING"
+    },
+    {
+     "no": 350,
+     "name": "Bird",
+     "detail": "Lv 20, Human",
+     "key": "BIRD"
+    },
+    {
+     "no": 351,
+     "name": "Snatcher",
+     "detail": "Lv 10, Insect",
+     "key": "SNATCHER"
+    },
+    {
+     "no": 352,
+     "name": "Giant Soil Pollution",
+     "detail": "Lv 5, Insect",
+     "key": "GIANT_SOIL_POLLUTION"
+    },
+    {
+     "no": 353,
+     "name": "Helmanian Knight",
+     "detail": "Lv 35, Human",
+     "key": "HELMANIAN_KNIGHT_353"
+    },
+    {
+     "no": 354,
+     "name": "Hanny King",
+     "detail": "Lv 60, race 0",
+     "key": "HANNY_KING"
+    },
+    {
+     "no": 355,
+     "name": "Helmanian Soldier",
+     "detail": "Lv 20, Human",
+     "key": "HELMANIAN_SOLDIER"
+    },
+    {
+     "no": 356,
+     "name": "Wrestler Sumo",
+     "detail": "Lv 30, Human",
+     "key": "WRESTLER_SUMO_356"
+    },
+    {
+     "no": 357,
+     "name": "Tofu Ghost",
+     "detail": "Lv 4, Guy Monster",
+     "key": "TOFU_GHOST"
+    },
+    {
+     "no": 358,
+     "name": "Cockroach",
+     "detail": "Lv 15, Insect",
+     "key": "COCKROACH"
+    },
+    {
+     "no": 359,
+     "name": "Rad Actor",
+     "detail": "Lv 40, Plant",
+     "key": "RAD_ACTOR"
+    },
+    {
+     "no": 360,
+     "name": "Huge Goldfish",
+     "detail": "Lv 40, Plant",
+     "key": "HUGE_GOLDFISH"
+    },
+    {
+     "no": 361,
+     "name": "Abnormal Squidman",
+     "detail": "Lv 30, Guy Monster",
+     "key": "ABNORMAL_SQUIDMAN"
+    },
+    {
+     "no": 362,
+     "name": "Abnormal Bone",
+     "detail": "Lv 30, Guy Monster",
+     "key": "ABNORMAL_BONE"
+    },
+    {
+     "no": 363,
+     "name": "Contaminated Fighter",
+     "detail": "Lv 40, Contaminated",
+     "key": "CONTAMINATED_FIGHTER"
+    },
+    {
+     "no": 364,
+     "name": "Contaminated Guard",
+     "detail": "Lv 40, Contaminated",
+     "key": "CONTAMINATED_GUARD"
+    },
+    {
+     "no": 365,
+     "name": "Contaminated Gunner",
+     "detail": "Lv 40, Contaminated",
+     "key": "CONTAMINATED_GUNNER"
+    },
+    {
+     "no": 366,
+     "name": "Contaminated Sorcerer",
+     "detail": "Lv 40, Contaminated",
+     "key": "CONTAMINATED_SORCERER"
+    },
+    {
+     "no": 367,
+     "name": "Contaminated Ranger",
+     "detail": "Lv 40, Contaminated",
+     "key": "CONTAMINATED_RANGER"
+    },
+    {
+     "no": 368,
+     "name": "Dark Rance",
+     "detail": "Lv 40, Devil",
+     "key": "DARK_RANCE"
+    },
+    {
+     "no": 369,
+     "name": "Goblin",
+     "detail": "Lv 45, Guy Monster",
+     "key": "GOBLIN"
+    },
+    {
+     "no": 370,
+     "name": "Red Dragon",
+     "detail": "Lv 35, Ancient",
+     "key": "RED_DRAGON"
+    },
+    {
+     "no": 371,
+     "name": "Blue Dragon",
+     "detail": "Lv 45, Ancient",
+     "key": "BLUE_DRAGON"
+    },
+    {
+     "no": 372,
+     "name": "Black Dragon",
+     "detail": "Lv 60, Ancient",
+     "key": "BLACK_DRAGON"
+    },
+    {
+     "no": 373,
+     "name": "Healcinth",
+     "detail": "Lv 50, Gal Monster",
+     "key": "HEALCINTH_373"
+    },
+    {
+     "no": 374,
+     "name": "Angel Knight Clone",
+     "detail": "Lv 60, Angel",
+     "key": "ANGEL_KNIGHT_CLONE"
+    },
+    {
+     "no": 375,
+     "name": "Pastel",
+     "detail": "Lv 45, Kalar",
+     "key": "PASTEL_375"
+    },
+    {
+     "no": 376,
+     "name": "Kaito",
+     "detail": "Lv 60, Fiend",
+     "key": "KAITO_376"
+    },
+    {
+     "no": 377,
+     "name": "Kaito",
+     "detail": "Lv 60, Fiend",
+     "key": "KAITO_377"
+    },
+    {
+     "no": 378,
+     "name": "Vecdran",
+     "detail": "Lv 50, Human",
+     "key": "VECDRAN"
+    },
+    {
+     "no": 379,
+     "name": "Seconaott",
+     "detail": "Lv 50, Human",
+     "key": "SECONAOTT"
+    },
+    {
+     "no": 380,
+     "name": "Salvenaott",
+     "detail": "Lv 50, Human",
+     "key": "SALVENAOTT"
+    },
+    {
+     "no": 381,
+     "name": "Paluott",
+     "detail": "Lv 50, Human",
+     "key": "PALUOTT"
+    },
+    {
+     "no": 382,
+     "name": "Contaott",
+     "detail": "Lv 50, Human",
+     "key": "CONTAOTT"
+    },
+    {
+     "no": 383,
+     "name": "BS",
+     "detail": "Lv 50, Human",
+     "key": "BS"
+    },
+    {
+     "no": 384,
+     "name": "Black Bird",
+     "detail": "Lv 20, Contaminated",
+     "key": "BLACK_BIRD"
+    },
+    {
+     "no": 386,
+     "name": "Hexapillar",
+     "detail": "Lv 60, Construct",
+     "key": "HEXAPILLAR"
+    },
+    {
+     "no": 387,
+     "name": "Z Guardian",
+     "detail": "Lv 50, Construct",
+     "key": "Z_GUARDIAN"
+    },
+    {
+     "no": 388,
+     "name": "Gunagan",
+     "detail": "Lv 70, Devil",
+     "key": "GUNAGAN"
+    },
+    {
+     "no": 389,
+     "name": "Larva",
+     "detail": "Lv 30, Plant",
+     "key": "LARVA"
+    },
+    {
+     "no": 390,
+     "name": "Goebbels",
+     "detail": "Lv 45, Holy Shroud Warlord",
+     "key": "GOEBBELS"
+    },
+    {
+     "no": 391,
+     "name": "Hitler",
+     "detail": "Lv 60, Holy Shroud Warlord",
+     "key": "HITLER"
+    },
+    {
+     "no": 392,
+     "name": "Conturtle",
+     "detail": "Lv 70, Guy Monster",
+     "key": "CONTURTLE"
+    },
+    {
+     "no": 393,
+     "name": "Serious Sumo",
+     "detail": "Lv 50, Guy Monster",
+     "key": "SERIOUS_SUMO"
+    },
+    {
+     "no": 394,
+     "name": "Crazy King",
+     "detail": "Lv 99, Guy Monster",
+     "key": "CRAZY_KING"
+    },
+    {
+     "no": 395,
+     "name": "King Squidman",
+     "detail": "Lv 45, Guy Monster",
+     "key": "KING_SQUIDMAN"
+    },
+    {
+     "no": 396,
+     "name": "Mechavalry Destroyer",
+     "detail": "Lv 45, Construct",
+     "key": "MECHAVALRY_DESTROYER"
+    },
+    {
+     "no": 397,
+     "name": "One-Fanged Puryo ",
+     "detail": "Lv 45, Guy Monster",
+     "key": "ONE_FANGED_PURYO"
+    },
+    {
+     "no": 398,
+     "name": "Animated Fine Armor",
+     "detail": "Lv 50, Guy Monster",
+     "key": "ANIMATED_FINE_ARMOR"
+    },
+    {
+     "no": 399,
+     "name": "Mechavalry Pillbox",
+     "detail": "Lv 40, Construct",
+     "key": "MECHAVALRY_PILLBOX"
+    },
+    {
+     "no": 400,
+     "name": "Hanny Cannon",
+     "detail": "Lv 50, Hanny",
+     "key": "HANNY_CANNON"
+    },
+    {
+     "no": 401,
+     "name": "Ngyo!",
+     "detail": "Lv 70, Guy Monster",
+     "key": "NGYO"
+    },
+    {
+     "no": 402,
+     "name": "Mr. Metaboly",
+     "detail": "Lv 50, Devil",
+     "key": "MR_METABOLY"
+    },
+    {
+     "no": 403,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_403"
+    },
+    {
+     "no": 404,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_404"
+    },
+    {
+     "no": 405,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_405"
+    },
+    {
+     "no": 406,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_406"
+    },
+    {
+     "no": 407,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_407"
+    },
+    {
+     "no": 408,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_408"
+    },
+    {
+     "no": 409,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_409"
+    },
+    {
+     "no": 410,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_410"
+    },
+    {
+     "no": 411,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_411"
+    },
+    {
+     "no": 412,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_412"
+    },
+    {
+     "no": 413,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_413"
+    },
+    {
+     "no": 414,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_414"
+    },
+    {
+     "no": 415,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_415"
+    },
+    {
+     "no": 416,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_416"
+    },
+    {
+     "no": 417,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_417"
+    },
+    {
+     "no": 418,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_418"
+    },
+    {
+     "no": 419,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_419"
+    },
+    {
+     "no": 420,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_420"
+    },
+    {
+     "no": 421,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_421"
+    },
+    {
+     "no": 422,
+     "name": "Billboard",
+     "detail": "Lv 0, Insect",
+     "key": "BILLBOARD_422"
+    },
+    {
+     "no": 423,
+     "name": "Crystal Robo",
+     "detail": "Lv 40, Construct",
+     "key": "CRYSTAL_ROBO_423"
+    },
+    {
+     "no": 424,
+     "name": "Flying Monitor Lizard",
+     "detail": "Lv 50, Guy Monster",
+     "key": "FLYING_MONITOR_LIZARD"
+    },
+    {
+     "no": 425,
+     "name": "Elastic Grape",
+     "detail": "Lv 40, Plant",
+     "key": "ELASTIC_GRAPE"
+    },
+    {
+     "no": 426,
+     "name": "Sorceror Hellbell",
+     "detail": "Lv 50, Human",
+     "key": "SORCEROR_HELLBELL"
+    },
+    {
+     "no": 427,
+     "name": "Assassin Paraly",
+     "detail": "Lv 50, Human",
+     "key": "ASSASSIN_PARALY"
+    },
+    {
+     "no": 428,
+     "name": "Warrior Gajel",
+     "detail": "Lv 50, Human",
+     "key": "WARRIOR_GAJEL"
+    },
+    {
+     "no": 429,
+     "name": "Magneball",
+     "detail": "Lv 45, Ancient",
+     "key": "MAGNEBALL"
+    },
+    {
+     "no": 430,
+     "name": "Am Yisael",
+     "detail": "Lv 60, Contaminated",
+     "key": "AM_YISAEL"
+    },
+    {
+     "no": 431,
+     "name": "Treasure Dango",
+     "detail": "Lv 10, Insect",
+     "key": "TREASURE_DANGO"
+    },
+    {
+     "no": 432,
+     "name": "Giant Hornet",
+     "detail": "Lv 45, Guy Monster",
+     "key": "GIANT_HORNET"
+    },
+    {
+     "no": 434,
+     "name": "Mechavalry Copter MkII",
+     "detail": "Lv 40, Construct",
+     "key": "MECHAVALRY_COPTER_MKII"
+    },
+    {
+     "no": 435,
+     "name": "Mechavalry Metal MkII",
+     "detail": "Lv 40, Construct",
+     "key": "MECHAVALRY_METAL_MKII"
+    },
+    {
+     "no": 436,
+     "name": "Mechavalry Tank MkII",
+     "detail": "Lv 50, Construct",
+     "key": "MECHAVALRY_TANK_MKII"
+    },
+    {
+     "no": 437,
+     "name": "Okayu Fever",
+     "detail": "Lv 40, Guy Monster",
+     "key": "OKAYU_FEVER"
+    },
+    {
+     "no": 438,
+     "name": "Fishball",
+     "detail": "Lv 5, Guy Monster",
+     "key": "FISHBALL"
+    },
+    {
+     "no": 439,
+     "name": "Tricerawhale",
+     "detail": "Lv 35, Insect",
+     "key": "TRICERAWHALE"
+    },
+    {
+     "no": 440,
+     "name": "Abnormal Samera~i",
+     "detail": "Lv 25, Guy Monster",
+     "key": "ABNORMAL_SAMERAI"
+    },
+    {
+     "no": 441,
+     "name": "Abnormal Ruronta",
+     "detail": "Lv 0, Guy Monster",
+     "key": "ABNORMAL_RURONTA_441"
+    },
+    {
+     "no": 442,
+     "name": "Abnormal Ruronta",
+     "detail": "Lv 0, Guy Monster",
+     "key": "ABNORMAL_RURONTA_442"
+    },
+    {
+     "no": 443,
+     "name": "Abnormal Ruronta",
+     "detail": "Lv 0, Guy Monster",
+     "key": "ABNORMAL_RURONTA_443"
+    },
+    {
+     "no": 444,
+     "name": "Abnormal Ruronta",
+     "detail": "Lv 0, Guy Monster",
+     "key": "ABNORMAL_RURONTA_444"
+    },
+    {
+     "no": 445,
+     "name": "Abnormal Ruronta",
+     "detail": "Lv 0, Guy Monster",
+     "key": "ABNORMAL_RURONTA_445"
+    },
+    {
+     "no": 446,
+     "name": "Abnormal Uppy",
+     "detail": "Lv 5, Insect",
+     "key": "ABNORMAL_UPPY"
+    },
+    {
+     "no": 448,
+     "name": "Rance CopyPaste",
+     "detail": "Lv 0, Guy Monster",
+     "key": "RANCE_COPYPASTE"
+    },
+    {
+     "no": 449,
+     "name": "King Squidman (Love)",
+     "detail": "Lv 45, Guy Monster",
+     "key": "KING_SQUIDMAN_LOVE"
+    },
+    {
+     "no": 450,
+     "name": "Contaminated Fighter (Weak)",
+     "detail": "Lv 20, Contaminated",
+     "key": "CONTAMINATED_FIGHTER_WEAK"
+    },
+    {
+     "no": 451,
+     "name": "Troll",
+     "detail": "Lv 45, Guy Monster",
+     "key": "TROLL"
+    },
+    {
+     "no": 452,
+     "name": "Templar",
+     "detail": "Lv 35, Human",
+     "key": "TEMPLAR_452"
+    },
+    {
+     "no": 453,
+     "name": "Bear",
+     "detail": "Lv 30, Guy Monster",
+     "key": "BEAR_453"
+    },
+    {
+     "no": 454,
+     "name": "Bear",
+     "detail": "Lv 50, Guy Monster",
+     "key": "BEAR_454"
+    },
+    {
+     "no": 455,
+     "name": "Goddess Alice",
+     "detail": "Lv 100, Angel",
+     "key": "GODDESS_ALICE"
+    },
+    {
+     "no": 456,
+     "name": "Battle Booklet",
+     "detail": "Lv 50, Gal Monster",
+     "key": "BATTLE_BOOKLET"
+    },
+    {
+     "no": 457,
+     "name": "Hanny (Shepherd)",
+     "detail": "Lv 0, Hanny",
+     "key": "HANNY_SHEPHERD"
+    },
+    {
+     "no": 458,
+     "name": "Super Silbarrel",
+     "detail": "Lv 50, Human",
+     "key": "SUPER_SILBARREL"
+    },
+    {
+     "no": 459,
+     "name": "Ammoth",
+     "detail": "Lv 70, Guy Monster",
+     "key": "AMMOTH"
+    },
+    {
+     "no": 460,
+     "name": "KIUWRI",
+     "detail": "Lv 70, Guy Monster",
+     "key": "KIUWRI"
+    },
+    {
+     "no": 461,
+     "name": "E. Shield",
+     "detail": "Lv 70, Guy Monster",
+     "key": "E_SHIELD"
+    },
+    {
+     "no": 462,
+     "name": "Giant Uppy",
+     "detail": "Lv 70, Guy Monster",
+     "key": "GIANT_UPPY"
+    },
+    {
+     "no": 463,
+     "name": "Giant Happy",
+     "detail": "Lv 70, Guy Monster",
+     "key": "GIANT_HAPPY"
+    },
+    {
+     "no": 464,
+     "name": "Philanthropist Gates",
+     "detail": "Lv 70, Guy Monster",
+     "key": "PHILANTHROPIST_GATES"
+    },
+    {
+     "no": 465,
+     "name": "Transparent Cockroach",
+     "detail": "Lv 70, Guy Monster",
+     "key": "TRANSPARENT_COCKROACH"
+    },
+    {
+     "no": 466,
+     "name": "Heroic Samera~i",
+     "detail": "Lv 70, Guy Monster",
+     "key": "HEROIC_SAMERAI"
+    },
+    {
+     "no": 467,
+     "name": "Unbreakable Jar",
+     "detail": "Lv 70, Guy Monster",
+     "key": "UNBREAKABLE_JAR"
+    },
+    {
+     "no": 468,
+     "name": "Ice Hugant",
+     "detail": "Lv 70, Guy Monster",
+     "key": "ICE_HUGANT"
+    },
+    {
+     "no": 469,
+     "name": "Space Burner",
+     "detail": "Lv 70, Guy Monster",
+     "key": "SPACE_BURNER"
+    },
+    {
+     "no": 470,
+     "name": "Blue Puryo",
+     "detail": "Lv 70, Guy Monster",
+     "key": "BLUE_PURYO"
+    },
+    {
+     "no": 471,
+     "name": "Hellhound",
+     "detail": "Lv 70, Guy Monster",
+     "key": "HELLHOUND"
+    },
+    {
+     "no": 472,
+     "name": "Gold Coin",
+     "detail": "Lv 70, Construct",
+     "key": "GOLD_COIN"
+    },
+    {
+     "no": 473,
+     "name": "Silbarrel, age 5",
+     "detail": "Lv 60, Human",
+     "key": "SILBARREL_AGE_5"
+    },
+    {
+     "no": 474,
+     "name": "Silbarrel, 80-years-old",
+     "detail": "Lv 70, Guy Monster",
+     "key": "SILBARREL_80_YEARS_OLD"
+    },
+    {
+     "no": 475,
+     "name": "Bone S MkII",
+     "detail": "Lv 70, Guy Monster",
+     "key": "BONE_S_MKII"
+    },
+    {
+     "no": 476,
+     "name": "Bone W MkII",
+     "detail": "Lv 70, Guy Monster",
+     "key": "BONE_W_MKII"
+    },
+    {
+     "no": 477,
+     "name": "Bone K MkII",
+     "detail": "Lv 70, Guy Monster",
+     "key": "BONE_K_MKII"
+    },
+    {
+     "no": 478,
+     "name": "Bone M MkII",
+     "detail": "Lv 70, Guy Monster",
+     "key": "BONE_M_MKII"
+    },
+    {
+     "no": 479,
+     "name": "Bone MkII",
+     "detail": "Lv 70, Guy Monster",
+     "key": "BONE_MKII"
+    },
+    {
+     "no": 480,
+     "name": "Iron Guardian",
+     "detail": "Lv 70, Guy Monster",
+     "key": "IRON_GUARDIAN"
+    },
+    {
+     "no": 481,
+     "name": "Glass Guardian",
+     "detail": "Lv 70, Guy Monster",
+     "key": "GLASS_GUARDIAN"
+    },
+    {
+     "no": 482,
+     "name": "Poisonous Goldfish",
+     "detail": "Lv 70, Guy Monster",
+     "key": "POISONOUS_GOLDFISH"
+    },
+    {
+     "no": 483,
+     "name": "Healcinth",
+     "detail": "Lv 50, Gal Monster",
+     "key": "HEALCINTH_483"
+    },
+    {
+     "no": 484,
+     "name": "Dark Matilda",
+     "detail": "Lv 39, Human",
+     "key": "DARK_MATILDA_484"
+    },
+    {
+     "no": 485,
+     "name": "Red Justice Person",
+     "detail": "Lv 70, Guy Monster",
+     "key": "RED_JUSTICE_PERSON"
+    },
+    {
+     "no": 486,
+     "name": "B Ranger",
+     "detail": "Lv 70, Guy Monster",
+     "key": "B_RANGER"
+    },
+    {
+     "no": 487,
+     "name": "C Ranger",
+     "detail": "Lv 70, Guy Monster",
+     "key": "C_RANGER"
+    },
+    {
+     "no": 488,
+     "name": "D Ranger",
+     "detail": "Lv 70, Guy Monster",
+     "key": "D_RANGER"
+    },
+    {
+     "no": 489,
+     "name": "E Ranger",
+     "detail": "Lv 70, Guy Monster",
+     "key": "E_RANGER"
+    },
+    {
+     "no": 491,
+     "name": "Data-less Ghost",
+     "detail": "Lv 4, Guy Monster",
+     "key": "DATA_LESS_GHOST_491"
+    },
+    {
+     "no": 492,
+     "name": "Data-less Ghost",
+     "detail": "Lv 4, Guy Monster",
+     "key": "DATA_LESS_GHOST_492"
+    },
+    {
+     "no": 493,
+     "name": "Data-less Ghost",
+     "detail": "Lv 4, Guy Monster",
+     "key": "DATA_LESS_GHOST_493"
+    },
+    {
+     "no": 494,
+     "name": "Data-less Ghost",
+     "detail": "Lv 4, Guy Monster",
+     "key": "DATA_LESS_GHOST_494"
+    },
+    {
+     "no": 495,
+     "name": "Data-less Ghost",
+     "detail": "Lv 4, Guy Monster",
+     "key": "DATA_LESS_GHOST_495"
+    },
+    {
+     "no": 496,
+     "name": "Zashiki-Warashi (5 Killer)",
+     "detail": "Lv 25, Gal Monster",
+     "key": "ZASHIKI_WARASHI_5_KILLER"
+    }
+   ]
+  },
+  {
    "kind": "quest",
    "title": "Quests",
    "what": "quest numbers, as in `rq.quests()` and `rq.quests.start`",

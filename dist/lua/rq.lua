@@ -3223,7 +3223,7 @@ function battle.skill_usable(actor, skill_no) end
 ---  rq.log("fight:", result)
 ---end)()
 ---```
----@param opts {enemies: integer[], exp?: integer} `enemies`: up to five monster numbers in rank order, 0 for an empty rank. `exp`: experience for the win. Default 0.
+---@param opts {enemies: integer[], exp?: integer} `enemies`: up to five monster numbers (`rq.ids.monster`) in rank order, 0 for an empty rank. `exp`: experience for the win. Default 0.
 ---@return "won"|"lost"|"other" result How the fight ended.
 function battle.start(opts) end
 
@@ -3987,8 +3987,8 @@ local castle = {}
 ---@return rq.Castle castle A copy of the castle's state.
 function castle.get() end
 
----The game's numbers by name: characters, items, quests, skills, and the small lists the game names
----(classes, states, races, character types, elements, item kinds, skill targets).
+---The game's numbers by name: characters, items, monsters, quests, skills, and the small lists the
+---game names (classes, states, races, character types, elements, item kinds, skill targets).
 ---
 ---Each kind is a table of constants, so `rq.ids.skill.FORTUNE_448` is 448 and `rq.ids.item.SKILL_AGAIN`
 ---is 306. Editors complete them from `lua/rq_ids.lua`, with each entry's number and in-game name. A
@@ -4012,6 +4012,7 @@ function castle.get() end
 ---| `element` | elements (`属性`): `NOTHING`, `LIGHT`, `DARKNESS`, `ELECTRIC`, `ICE`, `FIRE` |
 ---| `item` | item numbers, not instances |
 ---| `item_kind` | item kinds (`種類詳細`), as in an item's `subtype`: `SWORD`, `SHORTSWORD`, `SPEAR`, `CLOTHING`, ... |
+---| `monster` | monster numbers, as `rq.battle.start` takes them and `rq.battle.snap` gives them: `COCKROACH` is 358 |
 ---| `quest` | quest numbers |
 ---| `race` | races (`種族`), as in `rq.chara.get(iic).race`: `HUMAN`, `HANNY`, ... |
 ---| `skill` | skill numbers |
@@ -4020,7 +4021,7 @@ function castle.get() end
 ---
 ---Since: 1.15.0
 ---
----Changed: 1.16.0 The kinds `chara_type`, `element`, `item_kind`, `race` and `target`, and plain keys for repeated names.
+---Changed: 1.16.0 The kinds `chara_type`, `element`, `item_kind`, `monster`, `race` and `target`, and keys without the number for some repeated names.
 ---
 ---```lua
 ---local FORTUNE = rq.ids.skill.FORTUNE  -- 448, also FORTUNE_448
@@ -4036,6 +4037,7 @@ function castle.get() end
 ---@field element rq.IdsElement Elements by name; each key is in the docs' Elements table (Game data). Since 1.16.0.
 ---@field item rq.IdsItem Items by name; each key is in the docs' Items table (Game data).
 ---@field item_kind rq.IdsItemKind Item kinds by name; each key is in the docs' Item kinds table (Game data). Since 1.16.0.
+---@field monster rq.IdsMonster Monsters by name; each key is in the docs' Monsters table (Game data). Since 1.16.0.
 ---@field quest rq.IdsQuest Quests by name; each key is in the docs' Quests table (Game data).
 ---@field race rq.IdsRace Races by name; each key is in the docs' Races table (Game data). Since 1.16.0.
 ---@field skill rq.IdsSkill Skills by name; each key is in the docs' Skills table (Game data).
@@ -4055,13 +4057,13 @@ local ids = {}
 ---
 ---Since: 1.15.0
 ---
----Changed: 1.16.0 Takes the kinds `chara_type`, `element`, `item_kind`, `race` and `target`. A repeated name with a plain key gives that key's number.
+---Changed: 1.16.0 Takes the kinds `chara_type`, `element`, `item_kind`, `monster`, `race` and `target`. A repeated name with a plain key gives that key's number.
 ---
 ---```lua
 ---local no, err = rq.ids.find("item", cfg.item)
 ---if not no then rq.log(err) end  -- such as: more than one skill is named "Attack": 155, 386, ...
 ---```
----@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"quest"|"race"|"skill"|"state"|"target" The kind.
+---@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"monster"|"quest"|"race"|"skill"|"state"|"target" The kind.
 ---@param name string The in-game English name, or a key.
 ---@return integer|nil no The number, or nil when no entry or more than one has that name.
 ---@return string? err Why there is no number.
@@ -4076,13 +4078,13 @@ function ids.find(kind, name) end
 ---
 ---Since: 1.15.0
 ---
----Changed: 1.16.0 Takes the kinds `chara_type`, `element`, `item_kind`, `race` and `target`.
+---Changed: 1.16.0 Takes the kinds `chara_type`, `element`, `item_kind`, `monster`, `race` and `target`.
 ---
 ---```lua
 ---rq.ids.find_all("skill", "fortune")  -- {158, 159, 160, 293, 448, 585}: Fortune, Improve Fortune,
 ---                                     -- 7 Misfortunes, 8 Pains
 ---```
----@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"quest"|"race"|"skill"|"state"|"target" The kind.
+---@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"monster"|"quest"|"race"|"skill"|"state"|"target" The kind.
 ---@param text string What the name must contain.
 ---@return integer[] numbers The numbers, smallest first; empty when none.
 ---@see rq.ids.find
@@ -4097,12 +4099,12 @@ function ids.find_all(kind, text) end
 ---
 ---Since: 1.15.0
 ---
----Changed: 1.16.0 Takes the kinds `chara_type`, `element`, `item_kind`, `race` and `target`.
+---Changed: 1.16.0 Takes the kinds `chara_type`, `element`, `item_kind`, `monster`, `race` and `target`.
 ---
 ---```lua
 ---rq.log("used " .. (rq.ids.name("skill", ctx.skill) or "a mod skill"))
 ---```
----@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"quest"|"race"|"skill"|"state"|"target" The kind.
+---@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"monster"|"quest"|"race"|"skill"|"state"|"target" The kind.
 ---@param no integer The number.
 ---@return string|nil name The name, or nil when the base game has none for that number.
 function ids.name(kind, no) end

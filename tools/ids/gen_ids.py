@@ -35,6 +35,7 @@ KINDS = [
     ("element", "element.tsv", "Elements", "element numbers (`属性`), as in a skill's `element` and `rq.chara.get(iic).weak_element`"),
     ("item", "item.tsv", "Items", "item numbers, not instances: `rq.item.give(rq.ids.item.SKILL_AGAIN)` makes one"),
     ("item_kind", "item_kind.tsv", "Item kinds", "item kinds (`種類詳細`): the weapon or armor kind, as in an item's `subtype`"),
+    ("monster", "monster.tsv", "Monsters", "monster numbers, as `rq.battle.start` takes them and `rq.battle.snap()` gives them (`enemies[i].no`)"),
     ("quest", "quest.tsv", "Quests", "quest numbers, as in `rq.quests()` and `rq.quests.start`"),
     ("race", "race.tsv", "Races", "races (`種族`), as in `rq.chara.get(iic).race` and the damage hooks' `ctx.race`"),
     ("skill", "skill.tsv", "Skills", "skill numbers, as in `rq.skill.get`"),
@@ -100,6 +101,10 @@ def check_fixed(kind, names):
         sys.exit("gen_ids: the game's %s list %r differs from FIXED %r" % (kind, game, ours))
 
 
+def race_names():
+    return {no: name for no, name, *_ in read_tsv("race.tsv")}
+
+
 def read_kind(kind, fname):
     if fname is None:
         check_fixed(kind, STATE_JA if kind == "state" else {})
@@ -110,6 +115,9 @@ def read_kind(kind, fname):
             detail = ACTION.get(detail, detail)
         elif kind == "chara":
             detail = CLASS.get(detail, detail)
+        elif kind == "monster":
+            lv, race = (detail.split(",") + ["0", "0"])[:2]
+            detail = "Lv %s, %s" % (lv, race_names().get(race, "race " + race))
         elif kind == "target":
             if name not in TARGET:
                 sys.exit("gen_ids: no English name for skill target %s %s (add it to TARGET)" % (no, name))

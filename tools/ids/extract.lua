@@ -2,7 +2,8 @@
 -- calls and writes them to ids-<kind>.tsv in the folder of the mod that runs it. Run it as a
 -- Test Lab job with no other mod installed, so nothing a mod defined is read as the game's:
 --   scripts\ids-extract.ps1
--- Each line: number, name, then one detail column (skill: action kind; item: slot name; chara: class).
+-- Each line: number, name, then one detail column (skill: action kind; item: slot name; chara: class;
+-- monster: level,race).
 -- The small lists (element, race, chara_type, item_kind, target, class, state) come from the
 -- game's own name functions, called for 0 to 99.
 -- Only names and numbers leave the game: no descriptions or other text.
@@ -83,6 +84,21 @@ list("item_kind", "Ｉ種類詳細／文字列")
 list("target", "対象文字列")        -- in Japanese in the English game; gen_ids.py names them
 list("class", "職業文字列", 0)      -- checks gen_ids.py's fixed list
 list("state", "状態変化文字列")     -- the same; Japanese, and 0 has no name
+
+-- Monsters: each number loaded into slot 1, the scratch slot the game uses for the same thing
+-- (モンスター固有番号文字列), read, and cleared. A number with no monster leaves the name empty.
+local monsters = {}
+for no = 1, 999 do
+  rq.ain.call("Ｃ初期化", 1)
+  rq.ain.call("Ｃ敵登録", 1, no)
+  local name = rq.ain.call("Ｃ名前", 1, "")
+  if type(name) == "string" and name ~= "" then
+    local c = rq.chara.get(1) or {}
+    monsters[#monsters + 1] = { no, name, string.format("%d,%d", c.level or 0, c.race or 0) }
+  end
+end
+rq.ain.call("Ｃ初期化", 1)
+write("monster", monsters)
 
 -- Quests: the game's quest list.
 local quests = {}
