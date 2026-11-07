@@ -46,7 +46,7 @@ RQ MOD targets Rance Quest Magnum on Windows. Other AliceSoft games are not supp
 
 4. Start the game with `xsystem4\xsystem4.exe`.
 
-To add a mod, extract its folder into `mods`. To remove it, delete the folder. The Mods tab in Config lists what is loaded.
+To add a mod, extract its folder into `mods`. To remove it, delete the folder. `logs\rqmod.log` lists each mod it loaded (`Loading <id>`) and says why it skipped any other.
 
 ## When something goes wrong
 

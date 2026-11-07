@@ -322,8 +322,8 @@ def md_function(f, model, here):
     if f["params"]:
         lines += ["| Parameter | Type | Description |", "| --- | --- | --- |"]
         for p in f["params"]:
-            name = p["name"] + (" *(optional)*" if p["optional"] else "")
-            lines.append("| `%s` | %s | %s |" % (name, link_types(p["type"], model, here), cell(p["desc"])))
+            name = "`%s`" % p["name"] + (" *(optional)*" if p["optional"] else "")
+            lines.append("| %s | %s | %s |" % (name, link_types(p["type"], model, here), cell(p["desc"])))
         lines.append("")
     if f["returns"]:
         lines += ["| Returns | Type | Description |", "| --- | --- | --- |"]
@@ -362,8 +362,8 @@ def md_class(c, model, here):
         lines += ["## Fields" if c["kind"] == "type" else "## Properties", "",
                   "| Name | Type | Description |", "| --- | --- | --- |"]
         for f in fields:
-            name = f["name"] + (" *(optional)*" if f["optional"] else "")
-            lines.append("| `%s` | %s | %s |" % (name, link_types(f["type"], model, here), cell(f["desc"])))
+            name = "`%s`" % f["name"] + (" *(optional)*" if f["optional"] else "")
+            lines.append("| %s | %s | %s |" % (name, link_types(f["type"], model, here), cell(f["desc"])))
         lines.append("")
     for heading, group in (("Functions", funcs), ("Events", events)):
         if not group:
