@@ -315,6 +315,7 @@ int rq_hud_tick(void);
 void rq_hud_draw(void);
 int rq_hud_block_mouse(void);
 int rq_hud_block_keys(void);
+int rq_hud_capture_mouse(void);
 
 /* Save profiles (rq.saves.*). rq_saves_init may replace *save_dir. */
 void rq_saves_wait_parent(void);
@@ -385,6 +386,7 @@ int rq_lua_hud_clip_pop(struct lua_State *L);
 int rq_lua_hud_hit(struct lua_State *L);
 int rq_lua_hud_clicked(struct lua_State *L);
 int rq_lua_hud_block(struct lua_State *L);
+int rq_lua_hud_capture_mouse(struct lua_State *L);
 int rq_lua_hud_screen(struct lua_State *L);
 int rq_lua_hud_text_width(struct lua_State *L);
 int rq_lua_hud_wrap(struct lua_State *L);
@@ -462,7 +464,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.5.0"
+#define RQ_VERSION "2.6.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -596,6 +598,7 @@ static inline int rq_sprite_tick(void) { return 0; }
 static inline void rq_hud_draw(void) {}
 static inline int rq_hud_block_mouse(void) { return 0; }
 static inline int rq_hud_block_keys(void) { return 0; }
+static inline int rq_hud_capture_mouse(void) { return 0; }
 static inline void rq_saves_wait_parent(void) {}
 static inline void rq_saves_init(char **save_dir) { (void)save_dir; }
 static inline const char *rq_saves_base_dir(void) { return NULL; }

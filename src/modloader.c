@@ -1191,6 +1191,7 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "hit", rq_lua_hud_hit);
 	set_cfn(L, "clicked", rq_lua_hud_clicked);
 	set_cfn(L, "block_game_input", rq_lua_hud_block);
+	set_cfn(L, "capture_mouse", rq_lua_hud_capture_mouse);
 	set_cfn(L, "screen", rq_lua_hud_screen);
 	set_cfn(L, "text_width", rq_lua_hud_text_width);
 	set_cfn(L, "wrap", rq_lua_hud_wrap);

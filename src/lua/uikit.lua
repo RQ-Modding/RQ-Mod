@@ -1,4 +1,5 @@
--- rq.uikit (loader 1.7.0; 1.8.0 adds ui.layers, bold, and the widgets in rqmod-ctl ui): widgets that look like the game's Config screen, drawn with rq.hud
+-- rq.uikit (loader 1.7.0; 1.8.0 adds ui.layers, bold, and the widgets in rqmod-ctl ui; 2.6.0 the
+-- hub's widgets, in uikit_hub.lua): widgets that look like the game's Config screen, drawn with rq.hud
 -- from the game's own pictures. Immediate mode: call the widgets from rq.on_frame on every
 -- update they should show, and use what they return. A widget goes where opts.x and opts.y
 -- say, or else where the row or column it is called in puts it.
@@ -140,7 +141,8 @@ end
 -- ---- Input and state ----
 
 local frame = { auto = 0, hot = nil, was_hot = nil, over = false, last = { 0, 0, 0, 0 } }
-local mouse = { x = 0, y = 0, down = false, pressed = false, released = false, scroll = 0 }
+local mouse = { x = 0, y = 0, down = false, pressed = false, released = false, scroll = 0,
+  right = false, right_released = false }
 local active -- the widget the left button went down on, until it comes up
 local state = {} -- kept across updates, by widget id
 local stack = {} -- the open rows and columns
@@ -172,8 +174,9 @@ rq.on_frame(function()
   end
   shown, shown_ids = {}, {}
   frame.was_hot, frame.hot, frame.auto, frame.over = frame.hot, nil, 0, false
-  local right
-  mouse.x, mouse.y, mouse.down, right, mouse.pressed, mouse.released = input.mouse()
+  local was_right = mouse.right
+  mouse.x, mouse.y, mouse.down, mouse.right, mouse.pressed, mouse.released = input.mouse()
+  mouse.right_released = was_right and not mouse.right
   mouse.scroll = input.scroll()
   if not mouse.down and not mouse.released then active = nil end
   if #stack > 0 then
@@ -567,7 +570,9 @@ function ui.list(items, index, o)
     end
   end
   local changed = false
-  local cw = w - 2 * inner - (max_top > 0 and 8 or 0)
+  -- The hub theme has the game's scroll bar (2.6.0); it needs room for its two arrows.
+  local game_bar = max_top > 0 and th.scroll and ui.scrollbar and view >= 100
+  local cw = w - 2 * inner - (max_top > 0 and (game_bar and 22 or 8) or 0)
   hud.clip_push(x + inner, y + inner, cw, view)
   for i, it in ipairs(items) do
     local ry = y + inner + (i - 1) * rh - st.top
@@ -594,7 +599,10 @@ function ui.list(items, index, o)
     end
   end
   hud.clip_pop()
-  if max_top > 0 then
+  if game_bar then
+    st.top = ui.scrollbar(st.top, total, view, { x = x + w - inner - 20, y = y + inner, h = view,
+      id = id .. ".bar", step = rh })
+  elseif max_top > 0 then
     local bar_h = math.max(20, math.floor(view * view / total))
     local bar_y = y + inner + math.floor((view - bar_h) * st.top / max_top)
     local c = th.scrollbar
@@ -634,4 +642,11 @@ function ui.menu(tree, path, o)
   return changed and out or path, changed, leaf
 end
 
-return ui
+-- What the hub's widgets (uikit_hub.lua) build on.
+local kit = {
+  copy = copy, piece = piece, interact = interact, show = show, place = place, play = play,
+  with = with, id_of = id_of, inside = inside, pulse = pulse, text_w = text_w, run_box = run_box,
+  mouse = mouse, frame = frame,
+}
+
+return ui, kit

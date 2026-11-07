@@ -752,6 +752,26 @@ function hud.block_game_input() end
 ---Since: 0.3.0
 function hud.block_keys() end
 
+---Hides the whole mouse from the game for this update: where it is, its buttons and the wheel.
+---
+---The game sees the cursor off the screen, so its buttons under a mod's page are not hovered, and
+---no click or wheel step reaches it. Unlike `rq.hud.block_game_input`, it also hides the mouse that
+---`rqmod-ctl` drives, so an agent gets what a player gets. A button that was down stays hidden until
+---it comes up, also when the call stops. `rq.input.mouse`, `rq.input.scroll` and the HUD calls still
+---see everything. Call it on every update while the page shows; `rq.uikit.page` does.
+---
+---Since: 2.6.0
+---
+---```lua
+---rq.on_frame(function()
+---  if not open then return end
+---  rq.hud.capture_mouse()
+---  rq.hud.block_keys()
+---  rq.hud.rect(0, 56, 1024, 536, 0, 0, 0, 200)
+---end)
+---```
+function hud.capture_mouse() end
+
 ---Starts reading typed text.
 ---
 ---It uses the system's text input, so input methods and keyboard layouts work. Only characters the
@@ -4448,7 +4468,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.5.0"
+rq.version = "2.6.0"
 
 rq.units = units
 rq.items = items
@@ -5050,8 +5070,11 @@ function sound.set_volume(handle, volume, fade_ms) end
 ---A look for the kit: pieces, text styles, colors and sounds.
 ---
 ---`rq.uikit.themes.config` is the look of the game's Config screen; it holds Config's pieces only.
+---`rq.uikit.themes.hub` (2.6.0) is Config's theme with the hub's pieces added: with it in use,
+---`rq.uikit.button` is the castle's grey button and `rq.uikit.list` has the game's scroll bar.
 ---
 ---Since: 1.7.0
+---Changed: 2.6.0 Added the hub's fields.
 ---@class rq.UiTheme
 ---@field label rq.HudTextStyle Label text.
 ---@field dim {r: integer, g: integer, b: integer} The grey-green of Config's Low and High.
@@ -5072,6 +5095,58 @@ function sound.set_volume(handle, volume, fade_ms) end
 ---@field list_current {r: integer, g: integer, b: integer} The color of the chosen list row.
 ---@field scrollbar {r: integer, g: integer, b: integer, a: integer} A list's scroll bar.
 ---@field sound {hover?: integer, click?: integer, error?: integer} Sound numbers; nil plays none.
+---@field button_style? string The button style `rq.uikit.button` draws without `opts.style`. The hub theme's is "large". Since 2.6.0.
+---@field tabs_style? string The tabs style `rq.uikit.tabs` draws without `opts.style`. Since 2.6.0.
+---@field styles? {button?: table<string, rq.UiButtonStyle>, tabs?: table<string, rq.UiTabsStyle>} Button and tabs styles by name. A name the theme in use lacks is taken from `themes.hub`. Since 2.6.0.
+---@field castle? table Rance Castle's room row: `base`, `frame`, `new` (pieces) and `marks` (`heart`, `run`: pieces with their `x`, `y`). Since 2.6.0.
+---@field quest? table A quest row: `normal`, `hover`, `box` (pieces), `no`, `name`, `mark` (text styles), `name_fit`, `current` (a color), `gap`. Since 2.6.0.
+---@field rack? table Frostbuy's rack tile: `w`, `h`, `outer`, `line`, `fill` (colors), `text`, `fit`. Since 2.6.0.
+---@field sort? table The sort column: `back`, `base`, `normal`, `hover`, `current` (pieces), `text`, `fit`, `fit_w`. Since 2.6.0.
+---@field scroll? rq.UiScrollPieces The game's scroll bar. A theme with it gives `rq.uikit.list` that bar. Since 2.6.0.
+---@field close? {normal: rq.UiPiece, hover: rq.UiPiece} The close button. Since 2.6.0.
+---@field hub_page? table A page over the hub: `x`, `y`, `w`, `h`, `dim`, `outer`, `line` (colors), `title` (a text style), `pad`. Since 2.6.0.
+
+---A button style of the hub theme: two states of a grey button and its text.
+---
+---Since: 2.6.0
+---@class rq.UiButtonStyle
+---@field normal rq.UiPiece The button.
+---@field hover rq.UiPiece The button under the mouse.
+---@field w integer Its width, in pixels, when `opts.w` is not given.
+---@field h integer Its height, in pixels.
+---@field text rq.HudTextStyle The text, usually with `font = "game"`.
+---@field fit? number[] `{max size, min size, max spacing, min spacing}`: as the game's `FitText2`, a long text gets smaller, 2 pixels at a time, and tighter until it fits.
+---@field pad? integer Pixels kept free at each side of the text. Default 4.
+---@field hover_dy? integer The text moves down this much under the mouse, as on the footer's buttons.
+---@field cover? boolean The pulsing cover over it under the mouse, as on rect buttons.
+
+---A tabs style of the hub theme.
+---
+---Since: 2.6.0
+---@class rq.UiTabsStyle
+---@field normal rq.UiPiece A tab.
+---@field current rq.UiPiece The current tab.
+---@field w integer Each tab's width, in pixels, when `opts.w` is not given.
+---@field h integer The height, in pixels.
+---@field gap integer Pixels between tabs.
+---@field pad integer Pixels kept free at each side of the text.
+---@field cover boolean The pulsing cover over a tab under the mouse.
+---@field text rq.HudTextStyle The text.
+---@field fit? number[] As in `rq.UiButtonStyle`.
+
+---The pieces of the game's scroll bar.
+---
+---Since: 2.6.0
+---@class rq.UiScrollPieces
+---@field up rq.UiPiece The up arrow.
+---@field up_hover rq.UiPiece The up arrow under the mouse.
+---@field down rq.UiPiece The down arrow.
+---@field down_hover rq.UiPiece The down arrow under the mouse.
+---@field bar rq.UiPiece The bar.
+---@field track rq.UiPiece The track the bar runs in.
+---@field w integer The width, in pixels (20).
+---@field arrow integer Each arrow's height, in pixels (40).
+---@field min integer The bar's least length, in pixels (10).
 
 ---Where a widget goes.
 ---
@@ -5096,11 +5171,14 @@ function sound.set_volume(handle, volume, fade_ms) end
 ---@field items? (string|rq.UiMenuItem)[] The next level; picking this entry opens it.
 ---@field disabled? boolean The entry cannot be picked.
 
----Widgets in the look of the game's Config screen.
+---Widgets in the look of the game's Config screen and, since 2.6.0, of its hub.
 ---
 ---They are drawn with `rq.hud` from the game's own pictures: Config draws its labels into its
 ---pictures, so the kit cuts out the parts that carry no text and writes its own text on them. The kit
----is Lua on the public `rq.hud` calls.
+---is Lua on the public `rq.hud` calls. The hub's widgets write in the game's own font: grey buttons
+---in four sizes, Rance Castle's room rows, quest rows and the quest list, the town tabs, Frostbuy's
+---rack tiles, the sort column, the game's scroll bar and close button, and a page that covers the
+---hub. They take their pieces from the theme in use, else from `themes.hub`.
 ---
 ---It works in immediate mode: call the widgets from `rq.on_frame` on every update they show, keep the
 ---values yourself, and pass them back in. Each widget returns the new value and whether it changed on
@@ -5126,7 +5204,7 @@ function sound.set_volume(handle, volume, fade_ms) end
 ---```
 ---@class rq.uikit
 ---@field theme rq.UiTheme The theme in use.
----@field themes {config: rq.UiTheme} The built-in themes.
+---@field themes {config: rq.UiTheme, hub: rq.UiTheme} The built-in themes. `hub` came in 2.6.0.
 local uikit = {}
 
 ---Draws a line of text, white with a dark edge.
@@ -5146,13 +5224,22 @@ function uikit.label(text, opts) end
 ---pulses over it every 2 seconds. A click counts when the button is let go over the same button it
 ---went down on.
 ---
+---With `opts.style`, or a theme with `button_style`, it is one of the hub's grey buttons instead:
+---"large" (Rance Castle's rooms, 206x30), "choice" (the choice menu's, 340x27), "choice_tall"
+---(340x60) or "short" (the footer's Vault and Trivia, 98x26). Its size is the style's unless
+---`opts.w` or `h` is given, and a long text gets smaller until it fits, as the game's labels do.
+---
+---Raises an error for a style no theme has.
+---
 ---Since: 1.7.0
+---Changed: 2.6.0 Added `opts.style` and the theme's `button_style`.
 ---
 ---```lua
 ---if rq.uikit.button("Reset", { id = "reset" }) then reset() end
+---if rq.uikit.button("Open the shop", { style = "large", x = 120, y = 300 }) then open = true end
 ---```
 ---@param text string The text.
----@param opts? rq.UiPlace|{disabled?: boolean} Place, and `disabled` to grey it out.
+---@param opts? rq.UiPlace|{disabled?: boolean, style?: "large"|"choice"|"choice_tall"|"short"|string} Place, `disabled` to grey it out, and `style`.
 ---@return boolean clicked true on the update it is clicked.
 function uikit.button(text, opts) end
 
@@ -5193,10 +5280,14 @@ function uikit.slider(value, opts) end
 
 ---Draws Config's tabs side by side: normal, hovered and current.
 ---
+---With `opts.style = "town"` (or a theme's `tabs_style`) they are the hub's town tabs instead, 248
+---by 45 and 8 apart, the current one orange.
+---
 ---Since: 1.7.0
+---Changed: 2.6.0 Added `opts.style`.
 ---@param list string[] The tab texts.
 ---@param index integer The current tab.
----@param opts? rq.UiPlace Place; `w` is each tab's width (default 120).
+---@param opts? rq.UiPlace|{style?: "town"|string, gap?: integer} Place; `w` is each tab's width (default 120, or the style's). `style`, and `gap` between styled tabs.
 ---@return integer index The current tab.
 ---@return boolean changed true on the update it changed.
 function uikit.tabs(list, index, opts) end
@@ -5219,11 +5310,14 @@ function uikit.panel(opts, fn) end
 ---Draws rows on a dark block that scroll by the wheel.
 ---
 ---A bar shows when the rows do not fit. The list stays inside a clip of your own (`rq.hud.clip_push`).
+---With a theme that has `scroll` (the hub theme), the bar is the game's scroll bar, with arrows, when
+---the list is at least 100 high.
 ---
 ---Raises an error without `w` and `h`.
 ---
 ---Since: 1.7.0
 ---Changed: 2.5.0 Stays inside a clip of your own; before, its clip replaced yours.
+---Changed: 2.6.0 The game's scroll bar with a theme that has `scroll`.
 ---@param items (string|{text: string, disabled?: boolean})[] The rows.
 ---@param index? integer The chosen row; nil for none.
 ---@param opts rq.UiPlace|{row_h?: integer, block?: boolean} `w` and `h` are needed. `row_h` (default 30), `block = false` leaves out the dark block.
@@ -5345,6 +5439,139 @@ function uikit.use(theme) end
 ---@param h? integer Height. Default: the piece's own.
 ---@return rq.ImageLayer[] layers The layers.
 function uikit.layers(piece, x, y, w, h) end
+
+---Draws the close button of the hub's windows (24 by 20).
+---
+---Since: 2.6.0
+---@param opts? rq.UiPlace|{disabled?: boolean} Place, and `disabled`.
+---@return boolean clicked true on the update it is clicked.
+function uikit.close(opts) end
+
+---Draws a room row of Rance Castle: the grey button with the room's name, the face beside it, and
+---the NEW and heart marks.
+---
+---The row is 270 by 36; the button is at +3,+3 and 206 by 30, and a long name gets smaller until it
+---fits. The face is any CG, drawn at 24 by 29 in its frame; without one the frame is black.
+---
+---Raises an error for a mark that is not "heart" or "run".
+---
+---Since: 2.6.0
+---
+---```lua
+---if rq.uikit.castle_row({ x = 145, y = 82, text = "Lab", face = 12345, new = true, id = "lab" }) then
+---  page_open = true
+---end
+---```
+---@param opts rq.UiPlace|{text?: string, face?: integer, new?: boolean, mark?: "heart"|"run", disabled?: boolean} `text`, `face` (a CG number), `new`, `mark` ("heart", or "run" for MORU RUN), `disabled`.
+---@return boolean clicked true on the update its button is clicked.
+function uikit.castle_row(opts) end
+
+---Draws a quest row: the number, the yellow name, and the clear count in its box on the left.
+---
+---The row is 228 by 30. A number is written with three digits ("077"); a long name gets smaller until
+---it fits. `mark` past 9 shows "★", as the game does; 0 shows nothing. The box for the count is
+---38 pixels left of the row; `box = false` leaves it out.
+---
+---Since: 2.6.0
+---@param opts rq.UiPlace|{no?: integer|string, name?: string, mark?: integer|string, box?: boolean, current?: boolean, disabled?: boolean} `no`, `name`, `mark` (the clear count, or a text), `box`, `current` (covered in see-through cyan, as the game marks a quest it locks), `disabled`.
+---@return boolean clicked true on the update it is clicked.
+function uikit.quest_row(opts) end
+
+---Draws the quest list: rows 34 apart and the game's scroll bar 15 pixels right of them.
+---
+---13 rows show by default, as on the Quests screen. The wheel over the rows scrolls a row at a time;
+---the bar's arrows, its track and a drag of the bar scroll it too. A click on a row makes it the
+---current one. The scroll is kept by `opts.id` (`rq.uikit.state("questlist:<id>").top`).
+---
+---Since: 2.6.0
+---
+---```lua
+---local rows, pick = {}, nil
+---for i, q in ipairs(my_quests) do rows[i] = { no = q.no, name = q.name, mark = q.clears } end
+---rq.on_frame(function()
+---  pick = rq.uikit.quest_list(rows, pick, { x = 330, y = 130, id = "mine" })
+---end)
+---```
+---@param rows {no?: integer|string, name?: string, mark?: integer|string, disabled?: boolean}[] The rows.
+---@param index? integer The current row; nil for none.
+---@param opts? rq.UiPlace|{shown?: integer} Place, `id`, and `shown` (rows at once, default 13).
+---@return integer|nil index The current row.
+---@return boolean changed true on the update it changed.
+function uikit.quest_list(rows, index, opts) end
+
+---Draws the game's scroll bar, up and down: two arrows, the track and the bar.
+---
+---`top`, `count` and `shown` are in any unit: rows, or pixels with `opts.step`. The bar is
+---`shown / count` of the track, at least 10 pixels, as the game sizes it. The arrows move by `step`,
+---a click on the track by `shown` toward the click, and a drag of the bar goes where the bar goes. The
+---wheel over the bar, or over `opts.wheel`, moves by `step`, and the game does not get it.
+---
+---Raises an error without `h`, or with an `h` that leaves no room between the arrows.
+---
+---Since: 2.6.0
+---@param top integer The first shown.
+---@param count integer How many there are.
+---@param shown integer How many show at once.
+---@param opts rq.UiPlace|{step?: integer, wheel?: integer[], label?: string, disabled?: boolean} `h` is needed (with the two 40 high arrows). `step` (default 1), `wheel = {x, y, w, h}`, `label`, `disabled`.
+---@return integer top The new first shown.
+---@return boolean changed true on the update it changed.
+function uikit.scrollbar(top, count, shown, opts) end
+
+---Draws a Frostbuy rack tile: a dark see-through square in the shop's black and yellow lines, with
+---yellow text.
+---
+---The shop's own racks are painted into its picture, so the tile is drawn from shapes and the game's
+---font; its lettering is close to the painted one, not the same. "\n" starts a new line, and all
+---lines take the size that fits the widest. Under the mouse the game's cover pulses over it.
+---
+---Since: 2.6.0
+---
+---```lua
+---if rq.uikit.rack("MOD\nRACK", { x = 560, y = 123 }) then shop_open = true end
+---```
+---@param text string The text.
+---@param opts? rq.UiPlace|{disabled?: boolean} Place (`w` and `h` default 104 by 106), and `disabled`.
+---@return boolean clicked true on the update it is clicked.
+function uikit.rack(text, opts) end
+
+---Draws the sort column: "SORT" over up to 16 buttons, 30 apart, the current one framed in yellow.
+---
+---The game's column is see-through, on the Quests screen's parchment; the kit puts that parchment
+---under it unless `opts.back = false`. A long label gets smaller until it fits.
+---
+---Since: 2.6.0
+---@param list string[] The labels.
+---@param index? integer The current one; nil for none.
+---@param opts? rq.UiPlace|{back?: boolean, disabled?: boolean} Place, `back`, `disabled`.
+---@return integer|nil index The current one.
+---@return boolean changed true on the update it changed.
+function uikit.sort(list, index, opts) end
+
+---Draws a page of a mod's own over the hub and runs `fn` in a column inside it.
+---
+---The page covers the hub under the town tabs and above the footer (0, 56, 1024 by 536). The game
+---shows dimmed under it and gets no mouse and no keys (`rq.hud.capture_mouse`, `rq.hud.block_keys`),
+---so it is modal. With `title` the title sits on the current town tab's piece at the top left. The
+---page closes by its close button at the top right, a right click, or Esc; the right click and Esc
+---close when let go, so the game does not get them. Keep the page's state yourself: draw it while
+---it is open, and stop when it returns false. It does not open by itself; open it from a button of
+---your own or a key.
+---
+---Since: 2.6.0
+---
+---```lua
+---local open = false
+---rq.on_frame(function()
+---  if not open then return end
+---  open = rq.uikit.page({ id = "mine", title = "My Page" }, function(x, y, w, h)
+---    rq.uikit.button("Do it", { style = "large" })
+---  end)
+---end)
+---```
+---@param opts? rq.UiPlace|{title?: string, pad?: integer, gap?: integer} `x`, `y`, `w`, `h` (the hub's area by default), `id` (keeps its state), `title`, `pad` (default 16), `gap` between widgets.
+---@param fn? fun(x: integer, y: integer, w: integer, h: integer) The widgets inside, in a column at the box under the title, clipped to it.
+---@return boolean open false on the update it closes.
+function uikit.page(opts, fn) end
 
 ---A page in the Mods tab of the game's Config screen.
 ---

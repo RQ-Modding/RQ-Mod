@@ -227,6 +227,10 @@ bool key_is_down(enum sact_keycode code)
 #ifdef RQ_MODLOADER
 	/* The agent owns these buttons until ungrab. A mod HUD or a queued
 	 * OS mouse-up must not swallow the click the pipe just set. */
+	/* A mod page that captures the mouse hides it from the game, also from
+	 * the agent: the agent sees what a player sees. */
+	if (rq_hud_capture_mouse() && (code == VK_LBUTTON || code == VK_RBUTTON || code == VK_MBUTTON))
+		return false;
 	if (agent_input && (code == VK_LBUTTON || code == VK_RBUTTON || code == VK_MBUTTON))
 		return key_state[code];
 	if (rq_hud_block_mouse() && (code == VK_LBUTTON || code == VK_RBUTTON))
@@ -291,6 +295,21 @@ void agent_focus_window(void)
 
 void mouse_get_pos(int *x, int *y)
 {
+#ifdef RQ_MODLOADER
+	/* Off the screen while a mod page captures the mouse: the game's
+	 * buttons under it are not hovered. */
+	if (rq_hud_capture_mouse()) {
+		*x = -100;
+		*y = -100;
+		return;
+	}
+#endif
+	mouse_get_pos_raw(x, y);
+}
+
+/* Where the mouse is, also while a mod page captures it. */
+void mouse_get_pos_raw(int *x, int *y)
+{
 	int wx, wy;
 	if (forced_mouse) {
 		*x = forced_x;
@@ -354,6 +373,13 @@ static void wheel_step(int dir)
 
 void mouse_get_wheel(int *forward, int *back)
 {
+#ifdef RQ_MODLOADER
+	if (rq_hud_capture_mouse()) {
+		wheel_dir = 0;
+		*forward = *back = 0;
+		return;
+	}
+#endif
 	*forward = wheel_dir > 0;
 	*back = wheel_dir < 0;
 }

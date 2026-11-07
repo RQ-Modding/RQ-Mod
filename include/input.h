@@ -146,6 +146,8 @@ bool joy_key_is_down(uint8_t code);
 void joy_clear_flag(void);
 bool joy_get_stick_status(int controller, int type, float *deg, float *pow);
 void mouse_get_pos(int *x, int *y);
+/* The real position, also while a mod page captures the mouse (rq.hud.capture_mouse). */
+void mouse_get_pos_raw(int *x, int *y);
 void mouse_set_pos(int x, int y);
 /* Agent cursor. mouse_get_pos keeps returning this until mouse_release_agent. */
 void mouse_force_pos(int x, int y);

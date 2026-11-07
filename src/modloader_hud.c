@@ -111,6 +111,9 @@ static int g_profile;
 static int g_modal_n[MODAL_N];
 static int g_block_mouse;
 static int g_block_keys;
+/* rq.hud.capture_mouse (2.6.0): the game sees no mouse at all. Set for one
+ * update, and kept while a button that was down under it stays down. */
+static int g_capture_mouse;
 static int g_text_on;
 static int g_text_max;
 static char g_text[256];
@@ -556,6 +559,11 @@ int rq_hud_block_keys(void)
 	return g_block_keys;
 }
 
+int rq_hud_capture_mouse(void)
+{
+	return g_capture_mouse;
+}
+
 /* Text entry for mod dialogs (rename). Printable text only, and only what the
  * game's Gothic face can draw (JIS X 0208 plus ASCII). */
 static void text_on_input(const char *utf8)
@@ -658,6 +666,7 @@ void rq_hud_after_reset(void)
 	g_profile = 0;
 	modal_clear();
 	g_block_mouse = 0;
+	g_capture_mouse = 0;
 }
 
 int rq_hud_syscall(int code)
@@ -1451,6 +1460,15 @@ int rq_lua_hud_block(lua_State *L)
 	return 0;
 }
 
+int rq_lua_hud_capture_mouse(lua_State *L)
+{
+	(void)L;
+	g_capture_mouse = 1;
+	g_block_mouse = 1;
+	mouse_clear_wheel();
+	return 0;
+}
+
 /* Engine banner, bottom-left of the main menu. Mods cannot remove it. */
 static void draw_version_banner(void)
 {
@@ -1474,9 +1492,11 @@ int rq_hud_tick(void)
 	rq_ui_on_update();
 	g_block_mouse = 0;
 	g_block_keys = 0;
+	g_capture_mouse = g_capture_mouse &&
+		(key_is_down_raw(VK_LBUTTON) || key_is_down_raw(VK_RBUTTON));
 	clear_cmds();
 	g_drew = 0;
-	mouse_get_pos(&g_mx, &g_my);
+	mouse_get_pos_raw(&g_mx, &g_my);
 	g_left = key_is_down_raw(VK_LBUTTON);
 	g_right = key_is_down_raw(VK_RBUTTON);
 	g_left_edge = g_left && !g_prev_left;
