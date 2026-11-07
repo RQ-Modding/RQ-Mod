@@ -171,11 +171,18 @@ function ain.skip_sdl_msgbox() end
 
 ---Writes the AIN functions whose name contains `needle` to the log.
 ---
----Each line is `find '<needle>' fno=<number>`. At most 40 are listed.
+---Each line is `find '<needle>' fno=<number> <name>`, and the name is what `rq.ain.call` and
+---`rq.ain.hook` take (a method as `Class@method`). The match is on the game's own spelling, so
+---case and full-width letters count. At most 40 are listed; a longer needle narrows the list.
 ---
 ---Raises an error when the AIN is not loaded.
 ---
 ---Since: 0.2.0
+---Changed: 1.16.1 Each line also gives the function's name.
+---
+---```lua
+---rq.ain.find("Encount")   -- [rqmod] find 'Encount' fno=... T_Player@checkEncount, ...
+---```
 ---@param needle string Part of a name, in UTF-8.
 ---@return integer count How many were listed.
 function ain.find(needle) end
@@ -4168,7 +4175,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "1.16.0"
+rq.version = "1.16.1"
 
 rq.units = units
 rq.items = items

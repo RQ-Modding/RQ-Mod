@@ -744,7 +744,9 @@ static int log_matching_funcs(struct ain *ain, const char *utf8_needle)
 		const char *name = ain->functions[i].name;
 		if (!name || !strstr(name, sjis))
 			continue;
-		rq_log("find '%s' fno=%d", utf8_needle, i);
+		char *utf = sjis2utf(name, 0);
+		rq_log("find '%s' fno=%d %s", utf8_needle, i, utf ? utf : "?");
+		free(utf);
 		n++;
 		if (n >= 40)
 			break;
