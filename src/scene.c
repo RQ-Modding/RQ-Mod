@@ -74,8 +74,9 @@ void scene_unregister_sprite(struct sprite *sp)
 	scene_dirty();
 }
 
-void scene_render(void)
+void scene_render_split(int z, void (*mid)(void))
 {
+	bool mid_done = !mid;
 	rq_prof_begin(RQ_PROF_SCENE);
 	gfx_clear();
 	if (wp.handle) {
@@ -85,12 +86,23 @@ void scene_render(void)
 
 	struct sprite *sp;
 	TAILQ_FOREACH(sp, &sprite_list, entry) {
+		if (!mid_done && sp->z >= z) {
+			mid();
+			mid_done = true;
+		}
 		if (sp->render)
 			sp->render(sp);
 		else
 			WARNING("sprite in scene without render function");
 	}
+	if (!mid_done)
+		mid();
 	rq_prof_end(RQ_PROF_SCENE);
+}
+
+void scene_render(void)
+{
+	scene_render_split(0, NULL);
 }
 
 int scene_set_wp(int cg_no) {

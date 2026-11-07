@@ -249,10 +249,18 @@ int sact_Update(void)
 	}
 #endif
 	if (scene_is_dirty) {
-		scene_render();
 #ifdef RQ_MODLOADER
-		rq_hud_draw();
+		/* Under the game's choice menu while it shows, so a mod's page or HUD does not
+		 * cover it (2.7.0); above everything otherwise. */
+		if (rq_hud_choosing())
+			scene_render_split(RQ_HUD_UNDER_Z, rq_hud_draw);
+		else {
+			scene_render();
+			rq_hud_draw();
+		}
 		rq_debug_draw();
+#else
+		scene_render();
 #endif
 #ifdef RQ_PROFILE
 		if (split) {

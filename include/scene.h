@@ -51,6 +51,8 @@ extern bool scene_is_dirty;
 void scene_register_sprite(struct sprite *sp);
 void scene_unregister_sprite(struct sprite *sp);
 void scene_render(void);
+/* Draws the sprites under z, calls mid, then draws the rest (RQ MOD: the HUD under a game menu). */
+void scene_render_split(int z, void (*mid)(void));
 int scene_set_wp(int cg_no);
 int scene_set_wp_color(int r, int g, int b);
 int scene_set_wp_texture(struct texture *tex);

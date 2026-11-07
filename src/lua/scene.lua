@@ -59,7 +59,112 @@ rq.on_frame(function()
   step()
 end)
 
+-- rq.ui.choose (loader 2.7.0): the game's choice menu outside a scene, on the hub and the
+-- game's other screens. It opens at the next update from the callback below, as start does, and
+-- waits for the same things, and for a choice menu that is already open. The game's own code
+-- opens this menu from its update loop too (the vault's sort, アイテム倉庫_ソート選択): it is
+-- modal by itself, since the game's loop under it waits until it returns. The rows get ids 101 and
+-- up, past the ids rqmod-ctl names for the game's menus (1, 2, 11 to 28); Return is 999 as in
+-- the vault's menu, so rqmod-ctl lists it as "return".
+local BACK = 999
+local ask, asking -- the one queued, and the one open
+local call = rq.ain.call
+
+local function choose_rows(items, o)
+  if type(items) ~= "table" then error("rq.ui.choose: expected a list of rows", 3) end
+  local rows, ids, picks = {}, {}, 0
+  for i, it in ipairs(items) do
+    if it == "-" then
+      rows[#rows + 1] = { sep = true }
+    else
+      local text, id, r, g, b, comment, sound
+      if type(it) == "string" then
+        text, id = it, i
+      elseif type(it) == "table" then
+        text = it.text
+        if it.id ~= nil then id = it.id else id = i end
+        r, g, b, comment, sound = it.r, it.g, it.b, it.comment, it.sound
+      end
+      if type(text) ~= "string" then
+        error("rq.ui.choose: row " .. i .. " has no text", 3)
+      end
+      picks = picks + 1
+      ids[100 + picks] = id
+      rows[#rows + 1] = { no = 100 + picks, text = text, r = r or -1, g = g or -1, b = b or -1,
+        comment = comment or "", sound = sound or -1 }
+    end
+  end
+  if picks == 0 then error("rq.ui.choose: no row to pick", 3) end
+  if picks > 20 then error("rq.ui.choose: at most 20 rows; the menu does not scroll", 3) end
+  return rows, ids
+end
+
+function rq.ui.choose(items, fn, o)
+  if type(fn) ~= "function" then error("rq.ui.choose: expected a function", 2) end
+  o = o or {}
+  if o.message ~= nil and type(o.message) ~= "string" then
+    error("rq.ui.choose: message is a text", 2)
+  end
+  local rows, ids = choose_rows(items, o)
+  if ask or asking then return false end
+  local back = o.back
+  if back == nil or back == true then back = "Return" end
+  ask = { rows = rows, ids = ids, fn = fn, back = back, message = o.message,
+    cancel = o.cancel ~= false, cursor = o.cursor, x = o.x, y = o.y }
+  return true
+end
+
+local function open_choice(a)
+  if a.x then call("選択_位置設定", a.x, a.y or -1) end
+  if a.message then
+    for line in (a.message .. "\n"):gmatch("(.-)\n") do
+      call("選択_テキスト追加", line, -1, -1, -1)
+    end
+    call("選択_区切り追加")
+  end
+  local cursor
+  for _, r in ipairs(a.rows) do
+    if r.sep then
+      call("選択_区切り追加")
+    else
+      call("選択_項目追加", r.no, r.text, r.r, r.g, r.b, r.comment, r.sound)
+      if a.cursor ~= nil and a.ids[r.no] == a.cursor then cursor = r.no end
+    end
+  end
+  if a.back then
+    call("選択_区切り追加")
+    call("選択_項目追加", BACK, a.back, -1, -1, -1, "", -1)
+  end
+  if cursor then call("選択_カーソル設定", cursor) end
+  local no = call("選択_実行", a.cancel, 0, 0, false)
+  if no == BACK then return 0 end
+  local id = a.ids[no]
+  if id == nil then return 0 end
+  return id
+end
+
+rq.on_frame(function()
+  if not ask or asking or scene.active() or menu_open() or rq.ui.choosing() or game_scene() then
+    return
+  end
+  local a = ask
+  ask, asking = nil, a
+  local ok, id = pcall(open_choice, a)
+  asking = nil
+  if not ok then
+    if tostring(id):find("rq: the game went to the title", 1, true) then error(id, 0) end
+    rq.log("rq.ui.choose: " .. tostring(id))
+    return
+  end
+  local ok2, err = pcall(a.fn, id)
+  if not ok2 then
+    if tostring(err):find("rq: the game went to the title", 1, true) then error(err, 0) end
+    rq.log("rq.ui.choose: " .. tostring(err))
+  end
+end)
+
 -- The title ends the scene's coroutine under this callback, which then never gets back here.
 rq.on_reset(function()
   depth, pending, running = 0, nil, nil
+  ask, asking = nil, nil
 end)

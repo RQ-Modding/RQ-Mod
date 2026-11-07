@@ -564,6 +564,17 @@ int rq_hud_capture_mouse(void)
 	return g_capture_mouse;
 }
 
+int rq_hud_choosing(void)
+{
+	return g_modal_n[4] > 0;
+}
+
+int rq_lua_ui_choosing(lua_State *L)
+{
+	lua_pushboolean(L, rq_hud_choosing());
+	return 1;
+}
+
 /* Text entry for mod dialogs (rename). Printable text only, and only what the
  * game's Gothic face can draw (JIS X 0208 plus ASCII). */
 static void text_on_input(const char *utf8)
@@ -791,7 +802,8 @@ int rq_hud_install(struct ain *ain)
 	wrap_blocking(ain, "T_MapMessage@wait", MODAL_ADV, 0);
 	wrap_blocking(ain, "T_ADV@select", MODAL_ADV, 0);
 	wrap_blocking(ain, "T_ADV@wait", MODAL_ADV, 0);
-	wrap_blocking(ain, "T_Select@select", MODAL_SELECT, 0);
+	/* T_Select has no select method: open is its loop (2.7.0; before, nothing was wrapped). */
+	wrap_blocking(ain, "T_Select@open", MODAL_SELECT, 1);
 	return 1;
 }
 
@@ -1463,6 +1475,9 @@ int rq_lua_hud_block(lua_State *L)
 int rq_lua_hud_capture_mouse(lua_State *L)
 {
 	(void)L;
+	/* The game's choice menu over a page needs the mouse (2.7.0). */
+	if (rq_hud_choosing())
+		return 0;
 	g_capture_mouse = 1;
 	g_block_mouse = 1;
 	mouse_clear_wheel();

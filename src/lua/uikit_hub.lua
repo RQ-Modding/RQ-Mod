@@ -575,8 +575,12 @@ function ui.page(o, fn)
   local id = id_of(o, "page")
   local st = ui.state(id)
   local x, y, w, h = o.x or p.x, o.y or p.y, o.w or p.w, o.h or p.h
-  hud.capture_mouse()
-  hud.block_keys()
+  -- Under the game's choice menu (rq.ui.choose) the page stays drawn, under it, and leaves the
+  -- mouse and the keys to the menu.
+  if not frame.blind then
+    hud.capture_mouse()
+    hud.block_keys()
+  end
   frame.over = true
   local d = p.dim
   hud.rect(x, y, w, h, d.r, d.g, d.b, d.a)
@@ -593,13 +597,20 @@ function ui.page(o, fn)
     top = y + 8 + 45 + 8
   end
   local closed = ui.close({ x = x + w - 24 - pad, y = y + pad - 4, id = o.id ~= nil and o.id or "page" })
-  -- A right click or Esc closes when let go, so the game does not get the rest of it.
+  -- A right click or Esc closes when let go, so the game does not get the rest of it. Only a
+  -- press the page saw counts: not the one that closed a choice menu over it.
   local esc = input.key(ESC)
+  if frame.blind then
+    st.esc = nil
+  elseif esc and not st.esc_was then
+    st.esc = true
+  end
+  st.esc_was = esc
   if not closed and (mouse.right_released or (st.esc and not esc)) then
     closed = true
     play("click")
   end
-  st.esc = esc
+  if not esc then st.esc = nil end
   show("page", o.id or o.title or "page", o.title, x, y, w, h)
   if fn then
     local cx, cy, cw, ch = x + pad, top, w - 2 * pad, y + h - pad - top
@@ -610,4 +621,153 @@ function ui.page(o, fn)
   end
   if closed then st.esc = nil end
   return not closed
+end
+
+-- ---- The choice menu's look, inside a page ----
+
+-- The choice menu (T_Select, C_SelectCg): the base 10021 cut to the height, with its last 6 lines
+-- under it; buttons 10022 (10029 when fewer than 3) at +18; text rows on 10024 to 10026 (1 to 3
+-- lines) at +7; separators 10023 at +4. The space before a row depends on the row above it
+-- (T_Select::getSpace).
+hub.options = {
+  base = { cg = 10021, w = 380, h = 768 },
+  sep = { cg = 10023 },
+  panels = { { cg = 10024, ph = 35 }, { cg = 10025, ph = 60 }, { cg = 10026, ph = 85 } },
+  text = game { face = 258, size = 24, r = 0, g = 0, b = 0, space = -4,
+    shadow = { x = 1, y = 1, r = 255, g = 255, b = 255 } },
+  text_fit = { 24, 12, 0.95, 0.47 },
+  comment = game { face = 258, size = 18, r = 236, g = 232, b = 176, outline = { 0, 0, 0 } },
+}
+
+local function space(kind, prev)
+  if prev == nil then return 8 end
+  if prev == "button" then return 6 end
+  if prev == "text" then return kind == "text" and 0 or 8 end
+  return kind == "sep" and 1 or 6
+end
+
+-- Breaks a text into lines of at most maxw in style, at spaces when it can (the game's
+-- WordWrapText), and at each line break; keeps at most most lines.
+local function wrap_lines(text, style, maxw, most)
+  local out = {}
+  for para in (tostring(text) .. "\n"):gmatch("(.-)\n") do
+    local line = ""
+    for word in para:gmatch("%S+") do
+      local try = line == "" and word or (line .. " " .. word)
+      if line ~= "" and text_w(try, style) > maxw then
+        out[#out + 1] = line
+        line = word
+      else
+        line = try
+      end
+    end
+    out[#out + 1] = line
+  end
+  while #out > most do table.remove(out) end
+  return out
+end
+
+---The choice menu's look as a widget inside a page: not modal, drawn with the HUD. items: a text,
+---"-" for a separator, or {id, text, r, g, b, comment, disabled}; opts: x, y, id, message (text
+---rows at the top), back (a Return row, true or its text; picking it gives 0). Returns the id
+---picked on this update (the row's id, else its index), or nil.
+function ui.options(items, o)
+  o = o or {}
+  if type(items) ~= "table" then error("uikit.options: expected a list of rows", 2) end
+  local op = T("options")
+  local key = o.id ~= nil and tostring(o.id) or "options"
+  -- The rows, as the game lays them out.
+  local rows, picks = {}, 0
+  if o.message then
+    rows[#rows + 1] = { kind = "text", text = o.message }
+    rows[#rows + 1] = { kind = "sep" }
+  end
+  for i, it in ipairs(items) do
+    if it == "-" then
+      rows[#rows + 1] = { kind = "sep" }
+    else
+      local r = type(it) == "table" and it or { text = it }
+      if type(r.text) ~= "string" then error("uikit.options: row " .. i .. " has no text", 2) end
+      local id = r.id
+      if id == nil then id = i end
+      rows[#rows + 1] = { kind = "button", text = r.text, id = id, r = r.r, g = r.g, b = r.b,
+        comment = r.comment, disabled = r.disabled }
+      picks = picks + 1
+    end
+  end
+  local back = o.back
+  if back == true then back = "Return" end
+  if back then
+    rows[#rows + 1] = { kind = "sep" }
+    rows[#rows + 1] = { kind = "button", text = back, id = 0, back = true }
+    picks = picks + 1
+  end
+  local large = picks < 3
+  local bst = style_of("button", large and "choice_tall" or "choice")
+  local hh, prev = 0, nil
+  for _, r in ipairs(rows) do
+    hh = hh + space(r.kind, prev)
+    r.y = hh
+    if r.kind == "button" then
+      hh = hh + bst.h
+    elseif r.kind == "text" then
+      r.lines = wrap_lines(r.text, with(op.text, { spacing = op.text_fit[3] }), 346, 3)
+      hh = hh + op.panels[#r.lines].ph
+    else
+      hh = hh + 7
+    end
+    prev = r.kind
+  end
+  hh = min(hh + space(nil, prev), 762)
+  local W = 380
+  local x, y = place(o, W, hh + 6)
+  -- The base: its top cut to the height, then its last 6 lines.
+  hud.cg(x, y, op.base.cg, { src = { 0, 0, W, hh } })
+  hud.cg(x, y + hh, op.base.cg, { src = { 0, 762, W, 6 } })
+  local picked, over_comment
+  for i, r in ipairs(rows) do
+    local ry = y + r.y
+    if r.kind == "sep" then
+      ui.draw(op.sep, x + 4, ry)
+    elseif r.kind == "text" then
+      local n = #r.lines
+      ui.draw(op.panels[n], x + 7, ry)
+      for li, l in ipairs(r.lines) do
+        local s = fitted(l, op.text, op.text_fit, 346)
+        hud.text(x + 7, ry + 7 + (li - 1) * 25, l, with(s, { w = 362, align = "center" }))
+      end
+    else
+      local st = bst
+      if r.r or r.g or r.b then
+        st = kit.copy(bst)
+        st.text = with(bst.text, { r = r.r or 196, g = r.g or 196, b = r.b or 196 })
+      end
+      local id = id_of({ id = key .. "." .. i }, "options")
+      local over, clicked = styled(st, r.text, x + 18, ry, bst.w, bst.h, id, r.disabled)
+      if over and not r.disabled then
+        -- The game frames the row under the mouse in yellow (createFrame 216, 255, 0, 102).
+        hud.rect(x + 18, ry, bst.w, bst.h, 216, 255, 0, floor(102 * (0.6 + 0.4 * pulse())))
+        if r.comment and r.comment ~= "" then over_comment = { r.comment, ry } end
+      end
+      local slug = r.back and "return" or (key .. "-" .. tostring(r.id))
+      show("button", slug, r.text, x + 18, ry, bst.w, bst.h, { disabled = r.disabled, value = tostring(r.id) })
+      if clicked then picked = r.id end
+    end
+  end
+  if inside(x, y, W, hh + 6) then
+    frame.over = true
+    hud.block_game_input()
+  end
+  if over_comment then
+    -- The game's comment box sits right of the menu (説明_表示 at 702); here, right of the base.
+    local c = op.comment
+    local lines = wrap_lines(over_comment[1], c, 260, 8)
+    local tw = 0
+    for _, l in ipairs(lines) do tw = max(tw, text_w(l, c)) end
+    local bx, by = x + W + 6, over_comment[2]
+    hud.rect(bx, by, tw + 16, #lines * (c.size + 4) + 10, 0, 0, 0, 200)
+    box_line(bx, by, tw + 16, #lines * (c.size + 4) + 10, T("hub_page").line)
+    for li, l in ipairs(lines) do hud.text(bx + 8, by + 5 + (li - 1) * (c.size + 4), l, c) end
+  end
+  return picked
 end

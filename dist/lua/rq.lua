@@ -502,13 +502,72 @@ function ui.shot(path) end
 ---@return boolean|nil ok true or false once when the shot ended; nil while it waits, or when no result is left.
 function ui.shot_result() end
 
+---One row of `rq.ui.choose`.
+---
+---Since: 2.7.0
+---@class rq.UiChoice
+---@field id? any What `fn` gets for this row: any value but nil. Default: its place in the list, counting separators.
+---@field text string The text.
+---@field r? integer Red, 0 to 255. Default: the game's grey.
+---@field g? integer Green, 0 to 255. Default: the game's grey.
+---@field b? integer Blue, 0 to 255. Default: the game's grey.
+---@field comment? string Shown in the game's comment box beside the menu while the row is under the mouse.
+---@field sound? integer A sound number the row plays when picked; default the game's.
+
+---Opens the game's own choice menu outside a scene, on the hub or any of the game's screens, and
+---calls `fn` with the row the player picks.
+---
+---The menu opens at the next update, and `fn` runs when it closes. It is modal: the game's screen
+---under it waits until the player picks, as under the vault's sort menu. It waits to open while the
+---System menu or Config is open, while a scene plays, and while another choice menu shows. The
+---menu does not scroll, so it takes at most 20 rows. With fewer than 3 rows it draws the game's tall
+---buttons.
+---
+---Under the menu, the HUD still draws (a mod's page stays on the screen, under the menu), but
+---`rq.uikit` widgets take no input and `rq.hud.capture_mouse` does nothing, so the menu gets the
+---mouse and the keys. The player cancels with a right click or Space, the game's cancel keys, or
+---the Return row; `fn` then gets 0. Esc does not cancel the game's menus. For a menu inside a scene
+---use `rq.scene.choice`; for its look as a widget on a page, `rq.uikit.options`.
+---
+---Raises an error without a function, with a row without text, with no row to pick, or with more
+---than 20 rows.
+---
+---Since: 2.7.0
+---
+---```lua
+---rq.ui.choose({ "Sell all", { id = "keep", text = "Keep the rare ones" }, "-", "Sort first" },
+---  function(id)
+---    if id == 0 then return end -- cancelled
+---    rq.log("picked", id)
+---  end, { message = "What now?" })
+---```
+---@param items (string|rq.UiChoice)[] The rows: a text, `"-"` for a separator, or a table.
+---@param fn fun(id: any) Called once with the picked row's id, or 0 when cancelled.
+---@param opts? {message?: string, back?: string|boolean, cancel?: boolean, cursor?: any, x?: integer, y?: integer} `message`: text rows over the list ("\n" starts a line). `back`: the Return row's text, or false for none (default "Return"). `cancel`: false turns off the right click and Space (default true). `cursor`: the id of the row the cursor starts on. `x`, `y`: the menu's top left (default the center).
+---@return boolean opened true when the menu will open; false when one is already waiting or open, and then `fn` is not called.
+---@see rq.ui.choosing
+---@see rq.uikit.options
+function ui.choose(items, fn, opts) end
+
+---Says whether the game's choice menu shows: one of the game's own, `rq.scene.choice` or
+---`rq.ui.choose`.
+---
+---While it does, the HUD draws under the menu, and `rq.uikit` widgets take no input until the
+---mouse buttons are up after it.
+---
+---Since: 2.7.0
+---@return boolean choosing true while the menu shows.
+function ui.choosing() end
+
 ---Draws text, boxes and CGs over the game, and reads clicks on them.
 ---
 ---The HUD is immediate mode: draw everything again on every `rq.on_frame`, and it shows for that
 ---frame. It is drawn on the game's own picture, after the game's scene, in game pixels. Every frame
----can hold up to 480 draw calls; past that, a call draws nothing.
+---can hold up to 480 draw calls; past that, a call draws nothing. While the game's choice menu
+---shows (`rq.ui.choosing`), the HUD is drawn under the menu, so a mod's page does not cover it.
 ---
 ---Since: 0.2.0
+---Changed: 2.7.0 Drawn under the game's choice menu while it shows.
 ---
 ---```lua
 ---local function button(x, y, w, h, label)
@@ -760,7 +819,11 @@ function hud.block_keys() end
 ---it comes up, also when the call stops. `rq.input.mouse`, `rq.input.scroll` and the HUD calls still
 ---see everything. Call it on every update while the page shows; `rq.uikit.page` does.
 ---
+---While the game's choice menu shows (`rq.ui.choosing`), the call does nothing: the menu, drawn over
+---the page, needs the mouse.
+---
 ---Since: 2.6.0
+---Changed: 2.7.0 Does nothing while the game's choice menu shows.
 ---
 ---```lua
 ---rq.on_frame(function()
@@ -4468,7 +4531,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.6.0"
+rq.version = "2.7.0"
 
 rq.units = units
 rq.items = items
@@ -5105,6 +5168,7 @@ function sound.set_volume(handle, volume, fade_ms) end
 ---@field scroll? rq.UiScrollPieces The game's scroll bar. A theme with it gives `rq.uikit.list` that bar. Since 2.6.0.
 ---@field close? {normal: rq.UiPiece, hover: rq.UiPiece} The close button. Since 2.6.0.
 ---@field hub_page? table A page over the hub: `x`, `y`, `w`, `h`, `dim`, `outer`, `line` (colors), `title` (a text style), `pad`. Since 2.6.0.
+---@field options? table The choice menu's look for `rq.uikit.options`: `base` (the menu's background), `sep`, `panels` (the text row's pieces for 1 to 3 lines, with `ph`, their height), `text`, `text_fit`, `comment` (text styles). Since 2.7.0.
 
 ---A button style of the hub theme: two states of a grey button and its text.
 ---
@@ -5177,8 +5241,9 @@ function sound.set_volume(handle, volume, fade_ms) end
 ---pictures, so the kit cuts out the parts that carry no text and writes its own text on them. The kit
 ---is Lua on the public `rq.hud` calls. The hub's widgets write in the game's own font: grey buttons
 ---in four sizes, Rance Castle's room rows, quest rows and the quest list, the town tabs, Frostbuy's
----rack tiles, the sort column, the game's scroll bar and close button, and a page that covers the
----hub. They take their pieces from the theme in use, else from `themes.hub`.
+---rack tiles, the sort column, the game's scroll bar and close button, a page that covers the
+---hub, and (2.7.0) the choice menu's look. They take their pieces from the theme in use, else from
+---`themes.hub`.
 ---
 ---It works in immediate mode: call the widgets from `rq.on_frame` on every update they show, keep the
 ---values yourself, and pass them back in. Each widget returns the new value and whether it changed on
@@ -5557,7 +5622,11 @@ function uikit.sort(list, index, opts) end
 ---it is open, and stop when it returns false. It does not open by itself; open it from a button of
 ---your own or a key.
 ---
+---A choice menu from `rq.ui.choose` shows over the page. While it does, the page leaves the mouse and
+---the keys to the menu, and the right click, Space or Esc that ends the menu does not close the page.
+---
 ---Since: 2.6.0
+---Changed: 2.7.0 Stays open, under it, while the game's choice menu shows over it.
 ---
 ---```lua
 ---local open = false
@@ -5572,6 +5641,42 @@ function uikit.sort(list, index, opts) end
 ---@param fn? fun(x: integer, y: integer, w: integer, h: integer) The widgets inside, in a column at the box under the title, clipped to it.
 ---@return boolean open false on the update it closes.
 function uikit.page(opts, fn) end
+
+---One row of `rq.uikit.options`.
+---
+---Since: 2.7.0
+---@class rq.UiOptionRow
+---@field id? any What `options` returns for this row. Default: its place in the list, counting separators.
+---@field text string The text.
+---@field r? integer Red, 0 to 255. Default: the game's grey.
+---@field g? integer Green, 0 to 255. Default: the game's grey.
+---@field b? integer Blue, 0 to 255. Default: the game's grey.
+---@field comment? string Shown in a box right of the list while the row is under the mouse.
+---@field disabled? boolean Greyed out; it cannot be picked.
+
+---Draws the game's choice menu as a widget: its green base, grey rows, separators and a text panel
+---at the top, laid out as the game lays out the menu. It is not modal and does not wait: it returns
+---the picked row's id on the update it is clicked. Use it inside a page; `rq.ui.choose` opens the
+---game's own menu instead.
+---
+---The list is 380 wide. With fewer than 3 rows to pick it draws the tall buttons, as the game does.
+---`message` goes in the text panel at the top, in up to 3 lines of 346 pixels. A long row text gets
+---smaller until it fits.
+---
+---Raises an error without a list or with a row without text.
+---
+---Since: 2.7.0
+---
+---```lua
+---local pick = rq.uikit.options({ "Attack", "Defense", "-", { id = "hp", text = "HP" } },
+---  { id = "sortby", message = "Sort by", back = true })
+---if pick == 0 then open = false elseif pick then sort_by(pick) end
+---```
+---@param items (string|rq.UiOptionRow)[] The rows: a text, `"-"` for a separator, or a table.
+---@param opts? rq.UiPlace|{message?: string, back?: string|boolean} Place and `id`; `message` (the text panel at the top); `back` (a Return row, true or its text; picking it gives 0).
+---@return any|nil id The picked row's id on the update it is clicked (0 for Return); nil otherwise.
+---@see rq.ui.choose
+function uikit.options(items, opts) end
 
 ---A page in the Mods tab of the game's Config screen.
 ---

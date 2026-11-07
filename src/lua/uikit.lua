@@ -140,7 +140,9 @@ end
 
 -- ---- Input and state ----
 
-local frame = { auto = 0, hot = nil, was_hot = nil, over = false, last = { 0, 0, 0, 0 } }
+-- blind: the game's choice menu shows, or did and a button that went down under it is still
+-- down (2.7.0). The kit then sees no mouse, so a click on the menu does not reach a widget under it.
+local frame = { auto = 0, hot = nil, was_hot = nil, over = false, last = { 0, 0, 0, 0 }, blind = false }
 local mouse = { x = 0, y = 0, down = false, pressed = false, released = false, scroll = 0,
   right = false, right_released = false }
 local active -- the widget the left button went down on, until it comes up
@@ -158,6 +160,8 @@ end
 
 -- kind-key, key being opts.id or the text; the same id twice gets -2, -3.
 local function show(kind, key, label, x, y, w, h, extra)
+  -- Under the game's choice menu the widgets take no input, so rqmod-ctl does not list them.
+  if frame.blind then return end
   local id = kind .. "-" .. (slug(key) ~= "" and slug(key) or tostring(#shown + 1))
   local n = shown_ids[id]
   shown_ids[id] = (n or 1) + 1
@@ -176,8 +180,18 @@ rq.on_frame(function()
   frame.was_hot, frame.hot, frame.auto, frame.over = frame.hot, nil, 0, false
   local was_right = mouse.right
   mouse.x, mouse.y, mouse.down, mouse.right, mouse.pressed, mouse.released = input.mouse()
+  if rq.ui.choosing() then
+    frame.blind = true
+  elseif frame.blind and not mouse.down and not mouse.right and not mouse.released then
+    frame.blind = false
+  end
+  if frame.blind then
+    mouse.x, mouse.y, mouse.down, mouse.right, mouse.pressed, mouse.released = -100000, -100000,
+      false, false, false, false
+    was_right = false
+  end
   mouse.right_released = was_right and not mouse.right
-  mouse.scroll = input.scroll()
+  mouse.scroll = frame.blind and 0 or input.scroll()
   if not mouse.down and not mouse.released then active = nil end
   if #stack > 0 then
     rq.log("uikit: a row or column was left open; closing it")
