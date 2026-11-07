@@ -273,6 +273,28 @@ def link_types(typ, model, here):
     return " ".join(res).replace("|", "\\|")
 
 
+def anchor(full):
+    """The heading anchor GitHub and the docs site both make for a function's full name."""
+    return re.sub(r"[^a-z0-9_-]", "", full.lower().replace(".", "").replace(":", ""))
+
+
+def ref_link(name, model, here):
+    """`rq.x.y` -> a link to that namespace, type or function; plain code when it is unknown."""
+    target = model["classes"].get(name) or next(
+        (c for c in model["classes"].values() if c["path"] == name), None)
+    if target:
+        kind = "types" if target["kind"] == "type" else "api"
+        rel = os.path.relpath(os.path.join(kind, page_name(target)), here).replace("\\", "/")
+        return "[`%s`](%s)" % (name, rel)
+    for c in model["classes"].values():
+        for f in c["functions"]:
+            if f["full"] == name:
+                kind = "types" if c["kind"] == "type" else "api"
+                rel = os.path.relpath(os.path.join(kind, page_name(c)), here).replace("\\", "/")
+                return "[`%s`](%s#%s)" % (name, rel, anchor(name))
+    return "`%s`" % name
+
+
 def cell(text):
     return (text or "").replace("|", "\\|").replace("\n", " ")
 
@@ -311,7 +333,7 @@ def md_function(f, model, here):
     for ch in f.get("changes", []):
         lines += ["> Changed in %s: %s" % (ch["version"], ch["text"]), ""]
     if f["see"]:
-        lines += ["See also: " + ", ".join("`%s`" % s for s in f["see"]), ""]
+        lines += ["See also: " + ", ".join(ref_link(s, model, here) for s in f["see"]), ""]
     return lines
 
 
@@ -348,14 +370,13 @@ def md_class(c, model, here):
             continue
         lines += ["## " + heading, "", "| Name | Summary |", "| --- | --- |"]
         for f in group:
-            anchor = re.sub(r"[^a-z0-9_-]", "", f["full"].lower().replace(".", "").replace(":", ""))
-            lines.append("| [`%s`](#%s) | %s |" % (f["full"], anchor, cell(f["summary"])))
+            lines.append("| [`%s`](#%s) | %s |" % (f["full"], anchor(f["full"]), cell(f["summary"])))
         lines.append("")
         for f in group:
             lines += md_function(f, model, here)
     used = used_by(c["name"], model) if c["kind"] == "type" else []
     if used:
-        lines += ["## Used by", "", ", ".join("`%s`" % u for u in used), ""]
+        lines += ["## Used by", "", ", ".join(ref_link(u, model, here) for u in used), ""]
     return lines
 
 
