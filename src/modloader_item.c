@@ -1416,4 +1416,22 @@ int rq_lua_item_on_create(lua_State *L)
 	return 0;
 }
 
+/* rq.item.lock, sell, donate and store: Lua over the game's own calls (lua/item.lua, loader 2.9.0). */
+extern const char rq_item_lua[];
+extern const unsigned rq_item_lua_len;
+
+void rq_item_open_lua(lua_State *L, int rq_index)
+{
+	if (luaL_loadbuffer(L, rq_item_lua, rq_item_lua_len, "=item") != LUA_OK) {
+		rq_log("item.lua: %s", lua_tostring(L, -1));
+		lua_pop(L, 1);
+		return;
+	}
+	lua_pushvalue(L, rq_index);
+	if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+		rq_log("item.lua: %s", lua_tostring(L, -1));
+		lua_pop(L, 1);
+	}
+}
+
 #endif /* RQ_MODLOADER */

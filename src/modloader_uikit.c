@@ -17,9 +17,28 @@ extern const char rq_uikit_lua[];
 extern const unsigned rq_uikit_lua_len;
 extern const char rq_uikit_hub_lua[];
 extern const unsigned rq_uikit_hub_lua_len;
+extern const char rq_uikit_vault_lua[];
+extern const unsigned rq_uikit_vault_lua_len;
 
-/* Runs uikit.lua with rq, then uikit_hub.lua with rq, the kit and its
- * internals, and sets the kit as rq.uikit. */
+/* Stack: ui, kit. Runs one part of the kit with rq, ui and kit; leaves the stack as it was. */
+static void run_part(lua_State *L, int rq_index, const char *buf, unsigned len, const char *name)
+{
+	if (luaL_loadbuffer(L, buf, len, name) != LUA_OK) {
+		rq_log("uikit: %s", lua_tostring(L, -1));
+		lua_pop(L, 1);
+		return;
+	}
+	lua_pushvalue(L, rq_index);
+	lua_pushvalue(L, -4);
+	lua_pushvalue(L, -4);
+	if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
+		rq_log("uikit: %s", lua_tostring(L, -1));
+		lua_pop(L, 1);
+	}
+}
+
+/* Runs uikit.lua with rq, then uikit_hub.lua (2.6.0) and uikit_vault.lua (2.8.0) with rq, the
+ * kit and its internals, and sets the kit as rq.uikit. */
 void rq_uikit_open(lua_State *L, int rq_index)
 {
 	if (luaL_loadbuffer(L, rq_uikit_lua, rq_uikit_lua_len, "=uikit") != LUA_OK) {
@@ -34,19 +53,9 @@ void rq_uikit_open(lua_State *L, int rq_index)
 		return;
 	}
 	/* stack: ui, kit */
-	if (luaL_loadbuffer(L, rq_uikit_hub_lua, rq_uikit_hub_lua_len, "=uikit_hub") != LUA_OK) {
-		rq_log("uikit: %s", lua_tostring(L, -1));
-		lua_pop(L, 2);
-	} else {
-		lua_pushvalue(L, rq_index);
-		lua_pushvalue(L, -4);
-		lua_pushvalue(L, -4);
-		if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
-			rq_log("uikit: %s", lua_tostring(L, -1));
-			lua_pop(L, 1);
-		}
-		lua_pop(L, 1);
-	}
+	run_part(L, rq_index, rq_uikit_hub_lua, rq_uikit_hub_lua_len, "=uikit_hub");
+	run_part(L, rq_index, rq_uikit_vault_lua, rq_uikit_vault_lua_len, "=uikit_vault");
+	lua_pop(L, 1);
 	lua_setfield(L, rq_index, "uikit");
 }
 
