@@ -1983,6 +1983,7 @@ static const char *menu_name(int id, const char **label)
 	case 910015: *label = "Backlog"; return "backlog";
 	case 910091: *label = "Title Screen"; return "title-screen";
 	case 910092: *label = "Exit Game"; return "quit";
+	case 910050: *label = "Mods"; return "mods"; /* rq.gamebutton, loader 2.16.0 */
 	default: *label = NULL; return NULL;
 	}
 }

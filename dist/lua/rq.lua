@@ -112,6 +112,30 @@ function ain.call(name, ...) end
 ---@return fun() remove Removes both sides of this hook.
 function ain.hook(name, opts) end
 
+---Calls a method of the game on the object a global reaches.
+---
+---`path` is a global's name, then indexes and field names as `rq.ain.global` takes them, and it must
+---end on a struct: `{"g_sSystemMenu"}`, `{"g_sCastle", "m_sList"}`. The method's class must be that
+---struct's (`T_SystemMenu@createButton` on a `T_SystemMenu`). The arguments are as `rq.ain.call`'s:
+---int, bool, float or string, all of them. The same cautions hold: a method that draws or waits
+---runs inside this call, and a bad value passed to the game can be a fatal error there.
+---
+---Raises an error for a path that is not a table, does not start with a known global or does not
+---reach a struct, an unknown function, a function that is not a method or not the struct's, a wrong
+---number of arguments, or a reference or struct argument.
+---
+---Since: 2.16.0
+---
+---```lua
+---local rows = rq.ain.method({ "g_sSystemMenu", "m_sButton" }, "T_ButtonGroup@getButtonCount")
+---```
+---@param path (string|integer)[] The global's name, then indexes and field names to the object.
+---@param name string The method, `Class@method`.
+---@param ... integer|boolean|number|string The arguments.
+---@return any result What the method returns; nil for none or a struct.
+---@see rq.ain.call
+function ain.method(path, name, ...) end
+
 ---Reads a game global that holds an int, bool, float or string.
 ---
 ---Give the game's own index for an array element, and a field name to go into a struct, mixed as the
@@ -4512,6 +4536,143 @@ local castle = {}
 ---@return rq.Castle castle A copy of the castle's state.
 function castle.get() end
 
+---A mod's room in Rance Castle, for `rq.castle.room`.
+---@class rq.CastleRoomSpec
+---@field name string The room's name, as the castle shows it on its button.
+---@field on_enter fun(room: rq.CastleRoomHandle) Runs when the player clicks the room. The castle stays open (it is not closed for cleaning), and the game goes back to the town's tabs after it, as with the Poster room.
+---@field id? string The mod's own name for the room, for `rq.castle.rooms`. Default `name`.
+---@field floor? integer|string The floor: 1 (Roof) to 9 (B2F), or "Roof", "6F" to "1F", "B1F", "B2F". Default "B2F", beside the Poster room.
+---@field shown? fun(): boolean Asked each time the castle opens; false leaves the room out this time. Default: always shown.
+---@field new? boolean|fun(): boolean The game's NEW mark on the room. Default false.
+---@field face? integer|fun(): integer A CG shown beside the name, as a character's face in the game's rooms. Default none.
+---@field chara? integer A character id: their face beside the name, as the game shows it (`Ｃ顔ＣＧ`). Use this or `face`.
+
+---Where a mod's room is this time, from a room's `where()`.
+---@class rq.CastleRoomPlace
+---@field floor string "Roof", "6F" to "1F", "B1F" or "B2F".
+---@field row integer 1 (Roof) to 9 (B2F).
+---@field col integer 1 to 3.
+---@field x integer The room's button, left edge in screen pixels.
+---@field y integer Top edge.
+---@field w integer Width, 207.
+---@field h integer Height, 30.
+
+---A mod's room, from `rq.castle.room`.
+---@class rq.CastleRoomHandle
+---@field area fun(): integer The game's area number of the room, 30 to 50.
+---@field floor fun(): string|nil The floor it was placed on the last time the castle opened, or nil.
+---@field where fun(): rq.CastleRoomPlace|nil Where it is while the castle shows it; nil when it is not placed.
+---@field set fun(opts: {name?: string, shown?: fun(): boolean, new?: boolean|fun(): boolean, floor?: integer|string}) Changes the room from the next time the castle opens.
+---@field remove fun() Takes the room out from the next time the castle opens. Its area number is not given again.
+
+---A mod's room, as `rq.castle.rooms` lists it.
+---@class rq.CastleRoomInfo
+---@field id string The room's id.
+---@field mod string The mod that made it.
+---@field name string Its name.
+---@field area integer Its area number.
+---@field shown boolean It was shown the last time the castle opened.
+---@field floor? string Where it is now, while the castle shows it.
+---@field col? integer Its column there, 1 to 3.
+
+---Adds a room of the mod's own to Rance Castle.
+---
+---The room is one of the game's own castle areas, numbers 30 to 50, which the game leaves free. The
+---castle rolls its rooms each time it opens; a mod's room is made each time as well, as the Gal
+---monsters and Poster rooms are, so the game draws its button, its name in the castle's font, the
+---face and the NEW mark, and moves the keys to it. It goes in a free cell of its floor; when the floor
+---is full that time, in the nearest floor with one (the one below first). The game's own rooms never
+---move. When the player clicks it, `on_enter` runs instead of the game's room code. A mod may open
+---a page, a choice menu or a scene there.
+---
+---Make rooms in `init.lua`; 21 at most, from every mod. The area numbers go in load order and are
+---kept in the save's castle arrays, which the game reads only for 1 to 29.
+---
+---Raises an error for a spec that is not a table, no name, no `on_enter`, a bad floor, a `shown`
+---that is not a function, a `new` or `face` of the wrong type, or no area left.
+---
+---Since: 2.16.0
+---
+---```lua
+---rq.castle.room({ id = "workshop", name = "Workshop", floor = "B2F", new = true,
+---  on_enter = function(room)
+---    rq.ui.choose({ "Craft", "Repair" }, function(id) rq.log("picked", id) end)
+---  end })
+---```
+---@param spec rq.CastleRoomSpec The room.
+---@return rq.CastleRoomHandle room The room, to change or remove it.
+function castle.room(spec) end
+
+---Lists every mod's room in Rance Castle.
+---
+---Since: 2.16.0
+---@return rq.CastleRoomInfo[] rooms In the order they were made; removed rooms are left out.
+function castle.rooms() end
+
+---An entry for `rq.gamebutton.add`.
+---@class rq.GameButtonSpec
+---@field id string The mod's own name for the entry; one per mod.
+---@field label string The text of its row in the list.
+---@field on_click fun(entry: rq.GameButtonHandle) Runs when the player picks it, after the menus close.
+---@field group? "system-menu" The game's group. Default "system-menu", the only one for now.
+---@field enabled? boolean|fun(): boolean false leaves it out of the list; a function is asked each time. Default true.
+---@field tip? string The game's comment beside the list while the row is under the mouse.
+
+---An entry, from `rq.gamebutton.add`.
+---@class rq.GameButtonHandle
+---@field id fun(): string `<mod id>.<id>`.
+---@field set fun(opts: {label?: string, enabled?: boolean|fun(): boolean, tip?: string}) Changes it; `tip = ""` removes the tip.
+---@field remove fun() Takes it out. With no entry left, the MODS row goes as well.
+
+---An entry, as `rq.gamebutton.groups` lists it.
+---@class rq.GameButtonInfo
+---@field id string `<mod id>.<id>`.
+---@field mod string The mod that added it.
+---@field label string Its text.
+---@field enabled boolean It is in the list now.
+
+---A group, from `rq.gamebutton.groups`.
+---@class rq.GameButtonGroup
+---@field name string "system-menu".
+---@field open boolean The group is on the screen now.
+---@field row boolean The loader's row is in it (some entry exists).
+---@field entries rq.GameButtonInfo[] The entries, in the order they were added.
+
+---Buttons of mods in the game's own menus, made by the game itself.
+---
+---One group so far, `"system-menu"`: the SYSTEM menu, from the town, a quest's map or anywhere the
+---game shows it. Mods add entries, not rows. While any entry exists the menu has one more row,
+---**MODS**, under Save (or Suspend Save), in the menu's own painted look; the keys reach it as any
+---row, and it is greyed while no entry is enabled. Picking it closes the menu as any row does and
+---lists every enabled entry in the game's choice menu (`rq.ui.choose`, 20 rows at most), in the
+---order they were added. Agents see the row as the control `mods` of the `system-menu` screen, and
+---the entries as that choice menu's rows.
+---
+---Since: 2.16.0
+---
+---```lua
+---rq.gamebutton.add({ id = "settings", label = "My Mod settings", tip = "Opens My Mod's page",
+---  on_click = function() rq.log("open my page here") end })
+---```
+---@class rq.gamebutton
+local gamebutton = {}
+
+---Adds an entry to a game menu.
+---
+---Raises an error for a spec that is not a table, an unknown group, no id or label, no `on_click`,
+---an `enabled` or `tip` of the wrong type, or an id the mod already has.
+---
+---Since: 2.16.0
+---@param spec rq.GameButtonSpec The entry.
+---@return rq.GameButtonHandle entry The entry, to change or remove it.
+function gamebutton.add(spec) end
+
+---Lists the groups and their entries.
+---
+---Since: 2.16.0
+---@return rq.GameButtonGroup[] groups One for each group.
+function gamebutton.groups() end
+
 ---The game's numbers by name: characters, items, monsters, quests, skills, and the small lists the
 ---game names (classes, states, races, character types, elements, item kinds, skill targets).
 ---
@@ -4700,13 +4861,14 @@ function ids.name(kind, no) end
 ---@field uikit rq.uikit
 ---@field config rq.config
 ---@field ids rq.ids
+---@field gamebutton rq.gamebutton
 rq = {}
 
 ---The loader version.
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.15.0"
+rq.version = "2.16.0"
 
 rq.units = units
 rq.items = items
@@ -7021,3 +7183,4 @@ rq.scene = scene
 rq.image = image
 rq.item = item
 rq.ids = ids
+rq.gamebutton = gamebutton

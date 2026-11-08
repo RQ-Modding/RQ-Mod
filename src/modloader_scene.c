@@ -259,9 +259,9 @@ static int field_number(lua_State *L, struct page *page, const char *global, con
 }
 
 /* Finds a global, then walks the indexes and field names at stack positions first..last. */
-static void walk_global(lua_State *L, int first, int last, struct page **page, int *varno, int *type)
+static void walk_global_at(lua_State *L, int name_idx, int first, int last, struct page **page, int *varno, int *type)
 {
-	const char *name = luaL_checkstring(L, 1);
+	const char *name = luaL_checkstring(L, name_idx);
 	char *sj;
 	int i, gi;
 
@@ -297,6 +297,11 @@ static void walk_global(lua_State *L, int first, int last, struct page **page, i
 	}
 }
 
+static void walk_global(lua_State *L, int first, int last, struct page **page, int *varno, int *type)
+{
+	walk_global_at(L, 1, first, last, page, varno, type);
+}
+
 static int l_global(lua_State *L)
 {
 	struct page *page;
@@ -326,6 +331,96 @@ static int l_set_global(lua_State *L)
 		luaL_checknumber(L, top);
 	variable_set(page, varno, type, lua_value(L, top, type));
 	return 0;
+}
+
+/* ---- rq.ain.method ---- */
+
+/* rq.ain.method(path, "Class@method", args...): calls a method of the game on the struct that
+ * path ({global, field or index, ...}) reaches, with plain arguments, as rq.ain.call does. */
+static int l_method(lua_State *L)
+{
+	const char *name;
+	struct page *page, *obj;
+	struct ain_function *fn;
+	int fno, i, n, k, base, want = 0, rt, varno, type, slot;
+	char *cls;
+	size_t cl;
+
+	luaL_checktype(L, 1, LUA_TTABLE);
+	name = luaL_checkstring(L, 2);
+	if (!ain || !heap || !heap_size || !heap[0].page)
+		return luaL_error(L, "rq.ain.method: the game is not running yet");
+	fno = find_fn(name);
+	if (fno < 0)
+		return luaL_error(L, "rq.ain.method: no function named %s", name);
+	fn = &ain->functions[fno];
+	if (!is_method(fn->name))
+		return luaL_error(L, "rq.ain.method: %s is not a method (use rq.ain.call)", name);
+	k = (int)lua_rawlen(L, 1);
+	if (k < 1)
+		return luaL_error(L, "rq.ain.method: the path needs a global's name");
+	n = lua_gettop(L) - 2;
+	for (i = 0; i < fn->nr_args; i++) {
+		int t = fn->vars[i].type.data;
+		if (t == AIN_VOID)
+			continue;
+		if (!is_plain(t))
+			return luaL_error(L, "rq.ain.method: %s: argument %d is a reference or a struct", name, want + 1);
+		want++;
+	}
+	if (n != want)
+		return luaL_error(L, "rq.ain.method: %s takes %d arguments, got %d", name, want, n);
+	for (i = 0, n = 3; i < fn->nr_args; i++) {
+		int t = fn->vars[i].type.data;
+		if (t == AIN_VOID)
+			continue;
+		if (t == AIN_STRING)
+			luaL_checkstring(L, n);
+		else if (!lua_isboolean(L, n))
+			luaL_checknumber(L, n);
+		n++;
+	}
+	/* The path onto the stack, then walked as rq.ain.global walks its arguments. */
+	base = lua_gettop(L);
+	for (i = 1; i <= k; i++)
+		lua_rawgeti(L, 1, i);
+	walk_global_at(L, base + 1, base + 2, base + k, &page, &varno, &type);
+	slot = page->values[varno].i;
+	obj = holds_page(type) && page_index_valid(slot) ? heap_get_page(slot) : NULL;
+	lua_settop(L, base);
+	if (!obj || obj->type != STRUCT_PAGE || obj->index < 0 || obj->index >= ain->nr_structures)
+		return luaL_error(L, "rq.ain.method: the path does not reach a struct");
+	/* The method's class must be the struct's: "T_Foo@bar" on a T_Foo. */
+	cls = sjis2utf(ain->structures[obj->index].name, 0);
+	cl = cls ? strlen(cls) : 0;
+	if (!cls || strncmp(name, cls, cl) || name[cl] != '@') {
+		lua_pushfstring(L, "rq.ain.method: %s is not a method of %s", name, cls ? cls : "?");
+		free(cls);
+		return lua_error(L);
+	}
+	free(cls);
+	for (i = 0, n = 3; i < fn->nr_args; i++) {
+		int t = fn->vars[i].type.data;
+		if (t == AIN_VOID)
+			continue;
+		stack_push(lua_value(L, n++, t));
+	}
+	vm_call_method(fno, slot);
+	rt = fn->return_type.data;
+	if (rt == AIN_VOID)
+		return 0;
+	{
+		union vm_value r = stack_pop();
+		if (!is_plain(rt)) {
+			if (rt == AIN_STRUCT)
+				heap_unref(r.i);
+			return 0;
+		}
+		push_value(L, rt, r);
+		if (rt == AIN_STRING)
+			heap_unref(r.i);
+	}
+	return 1;
 }
 
 static int l_global_len(lua_State *L)
@@ -989,6 +1084,8 @@ void rq_scene_open(lua_State *L, int rq_index)
 	lua_setfield(L, -2, "set_global");
 	lua_pushcfunction(L, l_global_len);
 	lua_setfield(L, -2, "global_len");
+	lua_pushcfunction(L, l_method);
+	lua_setfield(L, -2, "method");
 	lua_pop(L, 1);
 	lua_getfield(L, rq_index, "quests");
 	lua_pushcfunction(L, l_quest_current);
