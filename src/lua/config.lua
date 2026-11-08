@@ -20,6 +20,14 @@ local mods = false    -- the next Other 2 is the Mods page
 local building = false
 local open = false    -- the Mods page is on screen
 local hidden = false  -- a game dialog is over it
+-- The keys (2.12.0): the tab whose page shows (100009 for Mods), whether the kit has the cursor,
+-- and arrows still down after it gave the cursor back.
+local cur_tab = nil
+local kit_keys = false
+local let_go = false
+local RING = { 100001, 100002, 100003, 100004, 100005, 100006, 100007, 100009 }
+local LIST_ROW = "list:rq.config.pages."
+local ARROWS = { "up", "down", "left", "right" }
 
 local TABS = { "T_ConfigMessage", "T_ConfigSound", "T_ConfigWindow", "T_Config3D",
   "T_ConfigConfirm", "T_ConfigEtc", "T_ConfigEtc2" }
@@ -76,7 +84,8 @@ local function install()
     end,
     after = function() hidden = false end,
   })
-  for _, cls in ipairs(TABS) do
+  for i, cls in ipairs(TABS) do
+    hook(cls .. "@create", { before = function() cur_tab = 100000 + i end })
     hook(cls .. "@run", {
       after = function(h)
         if h.result == 9 then
@@ -92,6 +101,7 @@ local function install()
       -- Also when off: going to the title skips delete, so the flag may still be on.
       set_mods(mods)
       if not mods then return end
+      cur_tab = 100009
       building = true
       rq.image.compose(OTHER2, blank_page())
     end,
@@ -125,6 +135,56 @@ local function install()
       if building or open then h.skip = true end
     end,
   })
+  -- The tab row's Left and Right reach the Mods tab (2.12.0): the game's go round 100001 to
+  -- 100007 only, skipping the open tab (コンフィグ共通_左矢印 / 右矢印).
+  local function ring_step(id, d)
+    local at
+    for i, v in ipairs(RING) do if v == id then at = i end end
+    if not at then return nil end
+    for k = 1, #RING do
+      local v = RING[(at - 1 + d * k) % #RING + 1]
+      if v ~= cur_tab then return v end
+    end
+  end
+  hook("コンフィグ共通_右矢印", { after = function(h)
+    local r = ring_step(h.args[1], 1)
+    if r then h.result = r end
+  end })
+  hook("コンフィグ共通_左矢印", { after = function(h)
+    local r = ring_step(h.args[1], -1)
+    if r then h.result = r end
+  end })
+  -- On the Mods page, Down from a tab or the top buttons gives the cursor to the page's list (the
+  -- blank Other 2 page has nothing to go to): the game's cursor stays and is turned off, the kit's
+  -- starts. Other 2's checkboxes are made under the blank page; the game's cursor never goes there.
+  local function hand_in(h)
+    local id = h.args[1]
+    h.skip, h.result = true, id
+    pcall(rq.ain.call, "コンフィグ_選択設定", id, false)
+    ui.focus(LIST_ROW .. current)
+    kit_keys = true
+  end
+  local function on_page() return open and not hidden and #pages > 0 end
+  local function checkbox(id) return id > 200000 end
+  hook("T_ConfigEtc2@moveDown", { before = function(h)
+    local id = h.args[1]
+    if on_page() and (id >= 100001 and id <= 100013 or checkbox(id)) then hand_in(h) end
+  end })
+  hook("T_ConfigEtc2@moveUp", { before = function(h)
+    if on_page() and checkbox(h.args[1]) then h.skip, h.result = true, 100009 end
+  end })
+  for _, m in ipairs({ "moveLeft", "moveRight" }) do
+    hook("T_ConfigEtc2@" .. m, { before = function(h)
+      if on_page() and checkbox(h.args[1]) then hand_in(h) end
+    end })
+  end
+  -- The page's first place for the game's cursor (T_ConfigEtc2::run starts there, and its arrows
+  -- fall back to it) is the Mods tab, not a hidden checkbox.
+  for _, m in ipairs({ "getFirstCheckBox", "getLastCheckBox" }) do
+    hook("T_ConfigEtc2@" .. m, { before = function(h)
+      if (mods or open) and #pages > 0 then h.skip, h.result = true, 100009 end
+    end })
+  end
   -- Other 2 greys out its own tab; on the Mods page it is the Mods tab that is current.
   hook("T_ButtonGroup@setButtonActive", {
     before = function(h)
@@ -161,8 +221,29 @@ local function draw_page()
   end
 end
 
+-- Up past the page's top widget gives the cursor back to the tab row, on the Mods tab. The arrow
+-- stays hidden from the game until it is let go.
+local function hand_back(dir)
+  if dir ~= "up" then return end
+  kit_keys, let_go = false, true
+  ui.focus(nil)
+  pcall(rq.ain.call, "コンフィグ_選択設定", 100009, true)
+end
+
 rq.on_frame(function()
-  if open and not hidden and #pages > 0 then draw_page() end
+  if open and not hidden and #pages > 0 then
+    draw_page()
+    -- The kit has the cursor while one of its widgets is under it: given by Down, or by the mouse.
+    if ui.focused() ~= nil then kit_keys = true elseif kit_keys and not let_go then kit_keys = false end
+    if kit_keys then ui.keys({ edge = hand_back }) end
+  else
+    kit_keys = false
+  end
+  if let_go then
+    local down = false
+    for _, k in ipairs(ARROWS) do if rq.input.key(rq.input.code(k)) then down = true end end
+    if down then rq.hud.block_keys(ARROWS) else let_go = false end
+  end
 end)
 
 ---rq.config.page{ id, title, draw = function(ui, box) end, on_open, on_close }

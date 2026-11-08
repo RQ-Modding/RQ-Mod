@@ -115,6 +115,9 @@ static int g_profile;
 static int g_modal_n[MODAL_N];
 static int g_block_mouse;
 static int g_block_keys;
+/* rq.hud.block_keys(list) (2.12.0): only these keys, for this update. */
+static unsigned char g_block_key[VK_NR_KEYCODES];
+static int g_block_some;
 /* rq.hud.capture_mouse (2.6.0): the game sees no mouse at all. Set for one
  * update, and kept while a button that was down under it stays down. */
 static int g_capture_mouse;
@@ -563,6 +566,13 @@ int rq_hud_block_mouse(void)
 	return g_block_mouse;
 }
 
+int rq_hud_key_blocked(int code)
+{
+	if (g_block_keys)
+		return 1;
+	return g_block_some && code >= 0 && code < VK_NR_KEYCODES && g_block_key[code];
+}
+
 int rq_hud_block_keys(void)
 {
 	return g_block_keys;
@@ -670,10 +680,30 @@ int rq_lua_hud_text_end(lua_State *L)
 	return 0;
 }
 
+static int input_code_at(lua_State *L, int idx);
+
+/* rq.hud.block_keys([keys]): every key, or only the keys listed (names or codes), for this update. */
 int rq_lua_hud_block_keys(lua_State *L)
 {
-	(void)L;
-	g_block_keys = 1;
+	int i, n;
+	if (lua_isnoneornil(L, 1)) {
+		g_block_keys = 1;
+		return 0;
+	}
+	luaL_checktype(L, 1, LUA_TTABLE);
+	n = (int)lua_rawlen(L, 1);
+	for (i = 1; i <= n; i++) {
+		int code;
+		lua_rawgeti(L, 1, i);
+		code = input_code_at(L, lua_gettop(L));
+		lua_pop(L, 1);
+		if (code < 0 || code >= VK_NR_KEYCODES)
+			return luaL_error(L, "hud.block_keys: no key %d", code);
+		if (code == VK_LBUTTON || code == VK_RBUTTON || code == VK_MBUTTON)
+			return luaL_error(L, "hud.block_keys: the mouse buttons are rq.hud.block_game_input's");
+		g_block_key[code] = 1;
+		g_block_some = 1;
+	}
 	return 0;
 }
 
@@ -1571,6 +1601,10 @@ int rq_hud_tick(void)
 	rq_ui_on_update();
 	g_block_mouse = 0;
 	g_block_keys = 0;
+	if (g_block_some) {
+		memset(g_block_key, 0, sizeof g_block_key);
+		g_block_some = 0;
+	}
 	g_capture_last = g_capture_seen;
 	g_capture_seen = 0;
 	g_capture_mouse = g_capture_mouse &&

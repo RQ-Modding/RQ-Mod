@@ -103,6 +103,7 @@ struct ui_ctrl {
 	int has_visible;
 	int visible;
 	int covered; /* a game control under a mod's kit widget or a captured mouse (2.11.0) */
+	int focused; /* a kit widget under the kit's keys cursor (2.12.0) */
 };
 
 struct party_row {
@@ -1205,6 +1206,8 @@ static void build_json(char *dst, int dstsz)
 			cJSON_AddBoolToObject(c, "hoverOnly", 1);
 		if (g_ctrls[i].covered)
 			cJSON_AddBoolToObject(c, "covered", 1);
+		if (g_ctrls[i].focused)
+			cJSON_AddBoolToObject(c, "focused", 1);
 		if (g_ctrls[i].cursor_hover)
 			cJSON_AddStringToObject(c, "cursor", "hover-only");
 		cJSON_AddItemToArray(controls, c);
@@ -1749,6 +1752,7 @@ struct kit_ctrl {
 	int x, y, w, h;
 	int enabled;
 	int has_select, selected;
+	int focused; /* the kit's keys cursor (2.12.0) */
 };
 
 static struct kit_ctrl g_kit[KIT_MAX];
@@ -4372,6 +4376,7 @@ static void emit_kit_controls(void)
 		c->selected = copy[i].selected;
 		c->has_visible = 1;
 		c->visible = 1;
+		c->focused = copy[i].focused;
 	}
 }
 
@@ -4426,6 +4431,9 @@ int rq_lua_agent_widgets(lua_State *L)
 		lua_getfield(L, -1, "selected");
 		c->has_select = !lua_isnil(L, -1);
 		c->selected = lua_toboolean(L, -1);
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "focused");
+		c->focused = lua_toboolean(L, -1);
 		lua_pop(L, 1);
 		lua_pop(L, 1);
 		if (!agent_id_ok(c->id) || c->w <= 0 || c->h <= 0)

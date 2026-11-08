@@ -48,6 +48,8 @@ int main(int argc, char **argv)
 			"  A game control under a mod's widget, or under a page that\n"
 			"  captures the mouse, is \"covered\": true; press refuses it\n"
 			"  (err covered by a mod's widget), as a player could not click it.\n"
+			"  The kit control under the kit's keys cursor is \"focused\": true;\n"
+			"  key down / key enter move and click it where the kit has the keys.\n"
 			"  Hub ids: rance-castle frostbuy party quests, member-1..5,\n"
 			"  status-1..5 and party-summary (hoverOnly, see \"visible\"),\n"
 			"  system vault trivia, info: title money charisma charisma-progress\n"

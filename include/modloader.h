@@ -316,6 +316,7 @@ int rq_hud_tick(void);
 void rq_hud_draw(void);
 int rq_hud_block_mouse(void);
 int rq_hud_block_keys(void);
+int rq_hud_key_blocked(int code);
 int rq_hud_capture_mouse(void);
 int rq_hud_captured(void);
 /* The game's choice menu shows (T_Select::open runs): the HUD is drawn under it (2.7.0). */
@@ -471,7 +472,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.11.0"
+#define RQ_VERSION "2.12.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -605,6 +606,7 @@ static inline int rq_sprite_tick(void) { return 0; }
 static inline void rq_hud_draw(void) {}
 static inline int rq_hud_block_mouse(void) { return 0; }
 static inline int rq_hud_block_keys(void) { return 0; }
+static inline int rq_hud_key_blocked(int code) { (void)code; return 0; }
 static inline int rq_hud_capture_mouse(void) { return 0; }
 static inline int rq_hud_captured(void) { return 0; }
 static inline int rq_hud_choosing(void) { return 0; }

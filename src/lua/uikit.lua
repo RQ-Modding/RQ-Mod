@@ -153,6 +153,22 @@ local stack = {} -- the open rows and columns
 -- when the list is whole.
 local shown, shown_ids, published = {}, {}, 0
 
+-- The keys' cursor (2.12.0), as the game's T_InputKeyboard: one selection for the mouse and the
+-- keys. Every interact box is a stop; the arrows move between the stops of the last whole update.
+-- src "mouse": the stop under the mouse (it draws as hovered); "keys": the one an arrow reached.
+local KEY_FIRST, KEY_NEXT = 250, 50 -- the game's repeat: T_InputKeyboard::arrow*
+local focus_update
+local focus = {
+  id = nil, src = "mouse",
+  stops = {}, last = {},     -- {id, oid, x, y, w, h, nav, group}, in call order
+  groups = {}, lgroups = {}, -- gid -> {ids = {...}, wrap, home, box}
+  gorder = {}, lgorder = {}, -- the gids in call order
+  on = false, was_on = false, -- rq.uikit.keys() on this update / the last
+  edge = nil, ledge = nil,    -- keys{edge = fn} on this update / the last
+  enter = false, page = 0,   -- Enter, and Page Up / Page Down (-1 / 1), on this update
+  rep = {}, mx = nil, my = nil, moved = false, hit = false,
+}
+
 local function slug(str)
   str = tostring(str or ""):lower():gsub("[^%w]+", "-"):gsub("^%-+", ""):gsub("%-+$", "")
   return str:sub(1, 28)
@@ -168,7 +184,181 @@ local function show(kind, key, label, x, y, w, h, extra)
   if n then id = id .. "-" .. n end
   local row = { id = id, type = kind, label = label and tostring(label) or id, x = x, y = y, w = w, h = h }
   if extra then for k, v in pairs(extra) do row[k] = v end end
+  -- The keys' cursor: the shown box whose middle is in the focused stop (2.12.0).
+  local f = focus.fstop
+  if f and focus.was_on then
+    local cx, cy = x + w / 2, y + h / 2
+    if cx >= f.x and cy >= f.y and cx < f.x + f.w and cy < f.y + f.h then
+      row.focused = true
+      focus.fstop = nil
+    end
+  end
   shown[#shown + 1] = row
+end
+
+local function center(b) return b.x + b.w / 2, b.y + b.h / 2 end
+
+local function stop_of(list, id)
+  if id == nil then return nil end
+  for i, st in ipairs(list) do
+    if st.id == id or st.oid == id then return st, i end
+  end
+end
+
+local function short_id(id) return type(id) == "string" and id:match("^[^:#]+:(.+)$") or nil end
+
+-- A row of a list's cursor group, by the kit's id or the mod's (without the kind).
+local function group_of(id)
+  if id == nil then return nil end
+  for gid, g in pairs(focus.lgroups) do
+    for i, gi in ipairs(g.ids) do
+      if gi == id or short_id(gi) == id then return g, i, gid, gi end
+    end
+  end
+end
+
+local function set_focus(id)
+  if id ~= nil then focus.id, focus.src = id, "keys" end
+end
+
+-- The nearest stop past cur in the arrow's direction (its center past cur's edge that way): the
+-- gap along the arrow plus twice the offset across it (0 when the boxes overlap across). Ties by
+-- call order. wrap: with none, the stop the other way that lines up best, the farthest of those.
+local function nearest(cur, dir, skip, wrap)
+  local cx, cy = center(cur)
+  local vert = dir == "up" or dir == "down"
+  local sign = (dir == "down" or dir == "right") and 1 or -1
+  local best, bs
+  for _, st in ipairs(focus.last) do
+    if st ~= cur and not (skip and st.group == skip) then
+      local sx, sy = center(st)
+      local past
+      if vert then past = sign > 0 and sy > cur.y + cur.h or sign < 0 and sy < cur.y
+      else past = sign > 0 and sx > cur.x + cur.w or sign < 0 and sx < cur.x end
+      if past then
+        local gap, across
+        if vert then
+          gap = sign > 0 and st.y - (cur.y + cur.h) or cur.y - (st.y + st.h)
+          across = math.max(0, st.x - (cur.x + cur.w), cur.x - (st.x + st.w))
+        else
+          gap = sign > 0 and st.x - (cur.x + cur.w) or cur.x - (st.x + st.w)
+          across = math.max(0, st.y - (cur.y + cur.h), cur.y - (st.y + st.h))
+        end
+        local score = math.max(0, gap) + 2 * across
+        if not bs or score < bs then best, bs = st, score end
+      end
+    end
+  end
+  if best or not wrap then return best end
+  -- Wrap: the far end the other way, lined up best.
+  for _, st in ipairs(focus.last) do
+    if st ~= cur and not (skip and st.group == skip) then
+      local sx, sy = center(st)
+      local back = vert and (cy - sy) * sign or (cx - sx) * sign
+      local across = vert and math.max(0, st.x - (cur.x + cur.w), cur.x - (st.x + st.w))
+        or math.max(0, st.y - (cur.y + cur.h), cur.y - (st.y + st.h))
+      local score = across * 100000 - back -- the best lined up first, then the farthest
+      if back >= 0 and (not bs or score < bs) then best, bs = st, score end
+    end
+  end
+  return best
+end
+
+local function nav(dir)
+  local stops = focus.last
+  if #stops == 0 then return end
+  local cur = stop_of(stops, focus.id)
+  local vert = dir == "up" or dir == "down"
+  local g, gi, gid = group_of(focus.id)
+  -- No stop yet: a group's home (the list's current row), else the first or the last stop.
+  if not cur and not g then
+    for _, hgid in ipairs(focus.lgorder) do
+      local hg = focus.lgroups[hgid]
+      if hg.home and vert then return set_focus(hg.home) end
+    end
+    return set_focus(((dir == "down" or dir == "right") and stops[1] or stops[#stops]).id)
+  end
+  -- Overrides, as the game's arrow callbacks.
+  local to
+  if cur and type(cur.nav) == "table" then to = cur.nav[dir]
+  elseif cur and type(cur.nav) == "function" then to = cur.nav(dir) end
+  if to ~= nil then
+    local st = stop_of(stops, to)
+    if st then return set_focus(st.id) end
+    local gfull = select(4, group_of(to))
+    if gfull then return set_focus(gfull) end
+  end
+  -- Up and Down go through a list's rows, also those scrolled out of sight; at an end a list that
+  -- wraps starts over, else the arrow goes on to the nearest stop outside, if any.
+  if g and vert then
+    local j = gi + (dir == "down" and 1 or -1)
+    if g.ids[j] then return set_focus(g.ids[j]) end
+    if g.wrap then return set_focus(g.ids[j < 1 and #g.ids or 1]) end
+    if not cur then cur = g.box end
+    if not cur then return end
+    local st = nearest(cur, dir, gid, false)
+    if st then set_focus(st.id) elseif focus.ledge then focus.ledge(dir) end
+    return
+  end
+  if not cur then cur = g and g.box end
+  if not cur then return end
+  -- With an edge callback the cursor does not wrap: the arrow leaves the kit's widgets.
+  local st = nearest(cur, dir, nil, focus.ledge == nil)
+  if st then set_focus(st.id) elseif focus.ledge then focus.ledge(dir) end
+end
+
+local function key_rep(name, first, nxt)
+  local down = input.key(input.code(name))
+  local at = focus.rep[name]
+  if not down then
+    focus.rep[name] = nil
+    return false
+  end
+  local now = rq.time_ms()
+  if not at then
+    -- A key already down when the cursor starts does not count.
+    focus.rep[name] = first and math.huge or now + KEY_FIRST
+    return not first
+  end
+  if now >= at then
+    focus.rep[name] = now + (nxt or KEY_NEXT)
+    return true
+  end
+  return false
+end
+
+focus_update = function()
+  local moved = focus.mx ~= nil and (mouse.x ~= focus.mx or mouse.y ~= focus.my)
+  focus.mx, focus.my = mouse.x, mouse.y
+  -- The mouse moved off every stop on the last update: the selection goes, as the game's.
+  if focus.moved and not focus.hit and focus.src == "mouse" then focus.id = nil end
+  focus.moved, focus.hit = moved or mouse.pressed, false
+  focus.last, focus.stops = focus.stops, {}
+  focus.lgroups, focus.groups = focus.groups, {}
+  focus.lgorder, focus.gorder = focus.gorder, {}
+  local first = not focus.was_on
+  focus.was_on, focus.on = focus.on, false
+  focus.ledge, focus.edge = focus.edge, nil
+  focus.enter, focus.page, focus.fstop = false, 0, nil
+  if not focus.was_on or frame.blind then
+    focus.rep = {}
+    if not focus.was_on and focus.src == "keys" then focus.id, focus.src = nil, "mouse" end
+    return
+  end
+  if first then
+    for _, k in ipairs({ "up", "down", "left", "right", "enter", "pageup", "pagedown" }) do key_rep(k, true) end
+    return
+  end
+  for _, dir in ipairs({ "up", "down", "left", "right" }) do
+    if key_rep(dir) then nav(dir) end
+  end
+  if key_rep("enter") and focus.rep.enter ~= math.huge then
+    focus.rep.enter = math.huge -- Enter does not repeat
+    focus.enter = focus.id ~= nil
+  end
+  -- Config's sliders: after 250 ms on every update (T_ConfigSlider::scroll).
+  if key_rep("pageup", false, 0) then focus.page = -1 end
+  if key_rep("pagedown", false, 0) then focus.page = 1 end
 end
 
 rq.on_frame(function()
@@ -193,6 +383,7 @@ rq.on_frame(function()
   mouse.right_released = was_right and not mouse.right
   mouse.scroll = frame.blind and 0 or input.scroll()
   if not mouse.down and not mouse.released then active = nil end
+  focus_update()
   if #stack > 0 then
     rq.log("uikit: a row or column was left open; closing it")
     stack = {}
@@ -225,21 +416,83 @@ local function inside(x, y, w, h)
 end
 
 -- Hover, press and click for a box. The game sees no mouse while a widget is under it.
--- Returns hovered, clicked (released over the box it went down on), held.
-local function interact(id, x, y, w, h, disabled)
+-- o (2.12.0): nav (false: no stop; a table of overrides), oid (the mod's id for nav), group (the
+-- list it is a row of), stop = false (takes the mouse only), view = {x, y, w, h} (the mouse counts
+-- only inside it).
+-- Returns hovered (by the mouse, or the keys' cursor), clicked (released over the box it went down
+-- on, or Enter on the cursor), held, and hovered by the mouse alone.
+local function interact(id, x, y, w, h, disabled, o)
   local over = inside(x, y, w, h)
+  if over and o and o.view then over = inside(o.view[1], o.view[2], o.view[3], o.view[4]) end
   if over then
     frame.over = true
     hud.block_game_input()
   end
-  if disabled then return false, false, false end
-  if over then
+  if disabled then return false, false, false, false end
+  local stop = not frame.blind and not (o and (o.nav == false or o.stop == false))
+  if stop then
+    local st = { id = id, oid = o and o.oid or short_id(id), x = x, y = y, w = w, h = h, nav = o and o.nav,
+      group = o and o.group }
+    focus.stops[#focus.stops + 1] = st
+    if focus.id == id then focus.fstop = st end
+    if over and focus.moved then
+      focus.id, focus.src, focus.hit = id, "mouse", true
+    end
+  end
+  local hot = over
+  if focus.was_on and focus.src == "keys" then hot = focus.id == id end
+  if hot then
     frame.hot = id
     if frame.was_hot ~= id and active == nil then play("hover") end
-    if mouse.pressed then active = id end
   end
+  if over and mouse.pressed then active = id end
   local clicked = over and mouse.released and active == id
-  return over, clicked, active == id and mouse.down
+  if focus.enter and focus.id == id and stop then
+    focus.enter = false
+    clicked = true
+  end
+  return hot, clicked, active == id and mouse.down, over
+end
+
+---The kit takes the arrow keys, Enter, Page Up and Page Down on this update (2.12.0): they move the
+---keys' cursor between widgets and are hidden from the game. ui.page calls it. opts.edge: a
+---function(dir) called when an arrow finds no widget that way; the cursor then does not wrap.
+function ui.keys(o)
+  if o ~= nil and type(o) ~= "table" then error("uikit.keys: opts is a table", 2) end
+  if o and o.edge ~= nil and type(o.edge) ~= "function" then error("uikit.keys: edge is a function", 2) end
+  if frame.blind then return end
+  focus.on = true
+  if o and o.edge then focus.edge = o.edge end
+  hud.block_keys({ "up", "down", "left", "right", "enter", "pageup", "pagedown" })
+end
+
+---The id of the widget under the keys' cursor (its opts.id, else the kit's own id), or nil.
+function ui.focused()
+  local st = stop_of(focus.last, focus.id)
+  if st then return st.oid or st.id end
+  if focus.id and group_of(focus.id) then return short_id(focus.id) or focus.id end
+  return nil
+end
+
+---Puts the keys' cursor on a widget by its opts.id (or the kit's id), as an arrow would.
+function ui.focus(id)
+  if id == nil then
+    focus.id, focus.src = nil, "mouse"
+    return
+  end
+  local st = stop_of(focus.last, id)
+  local gi = not st and select(4, group_of(id))
+  set_focus(st and st.id or gi or id)
+  ui.keys()
+end
+
+-- For lists (2.12.0): the rows of a list, all of them in order, so the arrows go through rows
+-- scrolled out of sight. wrap: Up and Down go round. home: the row the cursor starts on. box: the
+-- list's place, to leave it from a row that is out of sight.
+local function focus_group(gid, ids, opts)
+  opts = opts or {}
+  if not focus.groups[gid] then focus.gorder[#focus.gorder + 1] = gid end
+  focus.groups[gid] = { ids = ids, wrap = opts.wrap, home = opts.home, box = opts.box }
 end
 
 ---Runs fn now and draws what it draws on the top layer, over every widget (rq.hud.top, 2.11.0).
@@ -414,7 +667,7 @@ function ui.button(text, o)
   local id = id_of(o, "button")
   local tw = text_w(text, th.button_text)
   local x, y, w, h = place(o, math.max(150, tw + 30), 40)
-  local over, clicked = interact(id, x, y, w, h, o.disabled)
+  local over, clicked = interact(id, x, y, w, h, o.disabled, { nav = o.nav })
   ui.draw("button", x, y, w, h, o.disabled and { tint = { 128, 128, 128 } } or nil)
   hud.text(x, y, text, with(th.button_text, { w = w, h = h, align = "center", valign = "center" }))
   if over and not o.disabled then
@@ -435,7 +688,7 @@ function ui.checkbox(value, text, o)
   local style = th.label
   local tw = text and text ~= "" and text_w(text, style) or 0
   local x, y, w, h = place(o, 30 + (tw > 0 and 12 + tw + 8 or 0), 30)
-  local over, clicked = interact(id, x, y, w, h, o.disabled)
+  local over, clicked = interact(id, x, y, w, h, o.disabled, { nav = o.nav })
   local opts = o.disabled and { tint = { 128, 128, 128 } } or nil
   ui.draw("check_frame", x + 1, y + 1, 28, 28, opts)
   if value then ui.draw("check_mark", x, y, 30, 30, opts) end
@@ -491,11 +744,14 @@ function ui.slider(value, o)
   local hw = o.high and (text_w(o.high, dim) + 8) or 0
   local x, y, w, h = place({ x = o.x, y = o.y, h = o.h }, lw + tw + hw, 30)
   local tx, ty = x + lw, y + math.floor((h - 15) / 2) + 3
-  local over, _, held = interact(id, tx - 12, ty - 19, tw + 24, 35, o.disabled)
+  local over, _, held, mouse_over = interact(id, tx - 12, ty - 19, tw + 24, 35, o.disabled, { nav = o.nav })
   local old = value
   if held then
     value = snap(mn + (mouse.x - tx) / tw * (mx - mn), mn, mx, o.step)
-  elseif over and mouse.scroll ~= 0 then
+  elseif focus.page ~= 0 and focus.id == id and not o.disabled then
+    -- Page Up and Page Down on the keys' cursor, 5% a step as Config's (2.12.0).
+    value = snap(value + focus.page * (o.step or (mx - mn) / 20), mn, mx, o.step)
+  elseif mouse_over and mouse.scroll ~= 0 then
     local step = o.step or (mx - mn) / 20
     value = snap(value + mouse.scroll * step, mn, mx, o.step)
     input.scroll(true)
@@ -593,15 +849,28 @@ function ui.list(items, index, o)
   -- The hub theme has the game's scroll bar (2.6.0); it needs room for its two arrows.
   local game_bar = max_top > 0 and th.scroll and ui.scrollbar and view >= 100
   local cw = w - 2 * inner - (max_top > 0 and (game_bar and 22 or 8) or 0)
+  -- The keys' cursor goes through every row (2.12.0), and the list scrolls to keep it in sight.
+  local ids = {}
+  for i, it in ipairs(items) do
+    if not (type(it) == "table" and it.disabled) then ids[#ids + 1] = id .. "." .. i end
+  end
+  focus_group(id, ids, { home = index and (id .. "." .. index) or nil, box = { x = x, y = y, w = w, h = h } })
+  local fk = focus.src == "keys" and type(focus.id) == "string" and focus.id:sub(1, #id + 1) == id .. "."
+    and tonumber(focus.id:sub(#id + 2))
+  if fk then
+    local fy = (fk - 1) * rh
+    if fy < st.top then st.top = fy elseif fy + rh > st.top + view then st.top = fy + rh - view end
+    st.top = math.min(math.max(st.top, 0), max_top)
+  end
+  local vbox = { x + inner, y + inner, cw, view }
   hud.clip_push(x + inner, y + inner, cw, view)
   for i, it in ipairs(items) do
     local ry = y + inner + (i - 1) * rh - st.top
     if ry + rh > y and ry < y + h then
       local disabled = type(it) == "table" and it.disabled
-      local over, clicked = false, false
-      if inside(x + inner, y + inner, cw, view) then
-        over, clicked = interact(id .. "." .. i, x + inner, ry, cw, rh, disabled)
-      end
+      local whole = ry >= y + inner and ry + rh <= y + inner + view
+      local over, clicked = interact(id .. "." .. i, x + inner, ry, cw, rh, disabled,
+        { group = id, view = vbox, stop = whole })
       if i == index then ui.draw("hover_bar", x + inner, ry, cw, rh) end
       if over then ui.draw("hover_bar", x + inner, ry, cw, rh, { alpha = 128 }) end
       local style = with(th.list_text, { h = rh, valign = "center" })
@@ -666,7 +935,7 @@ end
 local kit = {
   copy = copy, piece = piece, interact = interact, show = show, place = place, play = play,
   with = with, id_of = id_of, inside = inside, pulse = pulse, text_w = text_w, run_box = run_box,
-  mouse = mouse, frame = frame,
+  mouse = mouse, frame = frame, focus = focus, focus_group = focus_group, set_focus = set_focus,
 }
 
 return ui, kit

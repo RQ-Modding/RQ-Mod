@@ -8,6 +8,7 @@ local hud, input = rq.hud, rq.input
 local interact, show, place, play = kit.interact, kit.show, kit.place, kit.play
 local with, id_of, inside, pulse, text_w = kit.with, kit.id_of, kit.inside, kit.pulse, kit.text_w
 local mouse, frame = kit.mouse, kit.frame
+local focus, focus_group = kit.focus, kit.focus_group
 local floor, max, min = math.floor, math.max, math.min
 
 -- ---- The hub theme ----
@@ -237,9 +238,9 @@ local function box_line(x, y, w, h, c)
 end
 
 -- A button of a style at a box: draws it, returns hovered and clicked.
-local function styled(st, text, x, y, w, h, id, disabled, noinput)
+local function styled(st, text, x, y, w, h, id, disabled, noinput, io)
   local over, clicked = false, false
-  if not noinput then over, clicked = interact(id, x, y, w, h, disabled) end
+  if not noinput then over, clicked = interact(id, x, y, w, h, disabled, io) end
   local hot = over and not disabled
   ui.draw(hot and st.hover or st.normal, x, y, w, h, disabled and GREY or nil)
   if text and text ~= "" then
@@ -266,7 +267,7 @@ function ui.button(text, o)
   local st = style_of("button", name)
   local id = id_of(o, "button")
   local x, y, w, h = place(o, st.w, st.h)
-  local _, clicked = styled(st, text, x, y, w, h, id, o.disabled)
+  local _, clicked = styled(st, text, x, y, w, h, id, o.disabled, nil, { nav = o.nav })
   show("button", o.id or text, text, x, y, w, h, { disabled = o.disabled })
   return clicked
 end
@@ -308,7 +309,7 @@ function ui.close(o)
   local c = T("close")
   local id = id_of(o, "close")
   local x, y, w, h = place(o, 24, 20)
-  local over, clicked = interact(id, x, y, w, h, o.disabled)
+  local over, clicked = interact(id, x, y, w, h, o.disabled, { nav = o.nav })
   ui.draw((over and not o.disabled) and c.hover or c.normal, x, y, w, h, o.disabled and GREY or nil)
   if clicked then play("click") end
   show("button", o.id ~= nil and ("close-" .. tostring(o.id)) or "close", "Close", x, y, w, h, { disabled = o.disabled })
@@ -325,7 +326,8 @@ function ui.castle_row(o)
   local id = id_of(o, "castle")
   local x, y, w, h = place(o, 270, 36)
   ui.draw(c.base, x, y)
-  local _, clicked = styled(style_of("button", "large"), o.text, x + 3, y + 3, 206, 30, id, o.disabled)
+  local _, clicked = styled(style_of("button", "large"), o.text, x + 3, y + 3, 206, 30, id, o.disabled, nil,
+    { nav = o.nav })
   ui.draw(c.frame, x + 212, y + 3)
   if o.face then
     hud.cg(x + 213, y + 4, o.face, { w = 24, h = 29 })
@@ -357,7 +359,7 @@ function ui.quest_row(o)
   local q = T("quest")
   local id = id_of(o, "quest")
   local x, y, w, h = place(o, 228, 30)
-  local over, clicked = interact(id, x, y, w, h, o.disabled)
+  local over, clicked = interact(id, x, y, w, h, o.disabled, { nav = o.nav, group = o.group })
   ui.draw((over and not o.disabled) and q.hover or q.normal, x, y, w, h, o.disabled and GREY or nil)
   local no = o.no
   if type(no) == "number" then no = string.format("%03d", floor(no)) end
@@ -412,11 +414,13 @@ function ui.scrollbar(top, count, shown, o)
   local dis = o.disabled or max_top == 0
   -- The arrows and the track move on the press, as T_ScrollBar does; held, they wait 250 ms and
   -- then move on every update while the button stays down, wherever the mouse goes.
-  local up_over, _, up_held = interact(id .. ".up", x, y, aw, ah, dis or top <= 0)
-  local dn_over, _, dn_held = interact(id .. ".down", x, y + h - ah, aw, ah, dis or top >= max_top)
-  local _, _, held = interact(id .. ".bar", x, ty + pos, aw, size, dis)
+  -- The bar's parts take the mouse only: the keys' cursor scrolls the lists by their rows.
+  local MO = { stop = false }
+  local up_over, _, up_held = interact(id .. ".up", x, y, aw, ah, dis or top <= 0, MO)
+  local dn_over, _, dn_held = interact(id .. ".down", x, y + h - ah, aw, ah, dis or top >= max_top, MO)
+  local _, _, held = interact(id .. ".bar", x, ty + pos, aw, size, dis, MO)
   local on_bar = inside(x, ty + pos, aw, size)
-  local _, _, tr_held = interact(id .. ".track", x, ty, aw, len, dis or (on_bar and not st.paging) or held)
+  local _, _, tr_held = interact(id .. ".track", x, ty, aw, len, dis or (on_bar and not st.paging) or held, MO)
   local now = rq.time_ms()
   local function repeats(on)
     if not on then return false end
@@ -492,12 +496,24 @@ function ui.quest_list(rows, index, o)
   st.top = min(max(st.top or 0, 0), max_top)
   local key = o.id ~= nil and tostring(o.id) or "quests"
   local changed = false
+  -- The keys' cursor goes through every row and the list follows it (2.12.0).
+  local ids, pre = {}, "quest:" .. key .. "."
+  for k, r in ipairs(rows) do
+    if not r.disabled then ids[#ids + 1] = pre .. k end
+  end
+  focus_group(id, ids, { home = index and (pre .. index) or nil, box = { x = x, y = y, w = 228, h = h } })
+  local fk = focus.src == "keys" and type(focus.id) == "string" and focus.id:sub(1, #pre) == pre
+    and tonumber(focus.id:sub(#pre + 1))
+  if fk then
+    if fk <= st.top then st.top = fk - 1 elseif fk > st.top + n then st.top = fk - n end
+    st.top = min(max(st.top, 0), max_top)
+  end
   for i = 1, n do
     local k = st.top + i
     local r = rows[k]
     if r then
       local c = ui.quest_row({ x = x, y = y + (i - 1) * rh, no = r.no, name = r.name, mark = r.mark,
-        disabled = r.disabled, current = k == index, id = key .. "." .. k })
+        disabled = r.disabled, current = k == index, id = key .. "." .. k, group = id })
       if c and k ~= index then index, changed = k, true end
     end
   end
@@ -525,7 +541,7 @@ function ui.rack(text, o)
   local r = T("rack")
   local id = id_of(o, "rack")
   local x, y, w, h = place(o, r.w, r.h)
-  local over, clicked = interact(id, x, y, w, h, o.disabled)
+  local over, clicked = interact(id, x, y, w, h, o.disabled, { nav = o.nav })
   box_line(x, y, w, h, r.outer)
   box_line(x + 1, y + 1, w - 2, h - 2, r.line)
   local f = r.fill
@@ -608,6 +624,7 @@ function ui.page(o, fn)
   if not frame.blind then
     hud.capture_mouse()
     hud.block_keys()
+    ui.keys() -- the arrows, Enter, Page Up and Down move the kit's cursor (2.12.0)
   end
   frame.over = true
   local d = p.dim
@@ -680,7 +697,8 @@ local function code(name)
   return c
 end
 
--- A key's presses as the game repeats them: on the press, then after 400 ms every 80 ms. Kept in
+-- A key's presses as the game repeats them: on the press, then after 250 ms every 50 ms
+-- (T_InputKeyboard::arrow*; 400 and 80 before 2.12.0, which were not the game's). Kept in
 -- the widget's state. A key held while the game's choice menu shows (its Enter, say) counts again
 -- only once it is let go.
 local function key_hit(st, name)
@@ -701,11 +719,11 @@ local function key_hit(st, name)
   local now, at = rq.time_ms(), k[name]
   if not at then
     -- A key already down when the widget first sees it does not count.
-    k[name] = st.keys_seen and now + 400 or math.huge
+    k[name] = st.keys_seen and now + 250 or math.huge
     return st.keys_seen and true or false
   end
   if now >= at then
-    k[name] = now + 80
+    k[name] = now + 50
     return true
   end
   return false
@@ -813,38 +831,31 @@ function ui.options(items, o)
   hud.cg(x, y, op.base.cg, { src = { 0, 0, W, hh } })
   hud.cg(x, y + hh, op.base.cg, { src = { 0, 762, W, 6 } })
   local picked, over_comment
-  -- The keys' cursor: one of the rows that can be picked. The mouse moves it when it moves.
+  -- The rows that can be picked are a list for the keys' cursor, wrapping as the game's menu
+  -- (2.12.0: the kit's cursor; before, a cursor of its own).
+  local gid, pre = "options:" .. key, "options:" .. key .. "."
+  local ids = {}
+  for i, r in ipairs(rows) do
+    if r.kind == "button" and not r.disabled then ids[#ids + 1] = pre .. i end
+  end
+  focus_group(gid, ids, { wrap = true, box = { x = x, y = y, w = W, h = hh } })
+  local fi = type(focus.id) == "string" and focus.id:sub(1, #pre) == pre and tonumber(focus.id:sub(#pre + 1))
+  if fi and focus.src == "keys" and scroll and rows[fi] and rows[fi].y >= head then
+    -- The keys' cursor stays in sight.
+    local r = rows[fi]
+    if r.y - head < ss.top then ss.top = r.y - head end
+    if r.y + bst.h - head > ss.top + view then ss.top = r.y + bst.h - head - view end
+    ss.top = min(max(ss.top, 0), max_top)
+  end
   local ks = o.keys and ui.state("optionskeys:" .. key)
   if ks then
-    local list, pos = {}, nil
-    for i, r in ipairs(rows) do
-      if r.kind == "button" and not r.disabled then
-        list[#list + 1] = i
-        if i == ks.cursor then pos = #list end
-      end
+    ui.keys()
+    if back and key_hit(ks, "esc") then
+      picked = 0
+      play("click")
     end
-    if #list > 0 then
-      local was = pos
-      if key_hit(ks, "down") then pos = pos and pos % #list + 1 or 1 end
-      if key_hit(ks, "up") then pos = pos and (pos - 2) % #list + 1 or #list end
-      if pos ~= was then play("hover") end
-      ks.cursor = pos and list[pos] or nil
-      if pos ~= was and ks.cursor and scroll then
-        -- The keys' cursor stays in sight.
-        local r = rows[ks.cursor]
-        if r.y - head < ss.top then ss.top = r.y - head end
-        if r.y + bst.h - head > ss.top + view then ss.top = r.y + bst.h - head - view end
-      end
-      if ks.cursor and key_hit(ks, "enter") then picked = rows[ks.cursor].id end
-    else
-      ks.cursor = nil
-    end
-    if back and key_hit(ks, "esc") then picked = 0 end
-    if picked ~= nil then play("click") end
     keys_seen(ks)
-    if not frame.blind then hud.block_keys() end
-    ks.moved = ks.mx ~= mouse.x or ks.my ~= mouse.y
-    ks.mx, ks.my = mouse.x, mouse.y
+    if not frame.blind then hud.block_keys({ "esc" }) end
   end
   if scroll then
     ss.top = ui.scrollbar(ss.top, full - head, view, { x = x + W + 2, y = y + head, h = view,
@@ -882,9 +893,9 @@ function ui.options(items, o)
         st.text = with(bst.text, { r = r.r or 196, g = r.g or 196, b = r.b or 196 })
       end
       local id = id_of({ id = key .. "." .. i }, "options")
-      local over, clicked = styled(st, r.text, x + 18, ry, bst.w, bst.h, id, r.disabled, below and not in_view)
-      if ks and over and not r.disabled and ks.moved then ks.cursor = i end
-      if (ks and ks.cursor == i) or (not ks and over and not r.disabled) then
+      local over, clicked = styled(st, r.text, x + 18, ry, bst.w, bst.h, id, r.disabled, false,
+        { group = gid, stop = whole, view = below and { x, y + head, W, view } or nil })
+      if over and not r.disabled then
         -- The game frames the row under the mouse in yellow (createFrame 216, 255, 0, 102).
         hud.rect(x + 18, ry, bst.w, bst.h, 216, 255, 0, floor(102 * (0.6 + 0.4 * pulse())))
         if r.comment and r.comment ~= "" then over_comment = { r.comment, ry } end
@@ -892,7 +903,7 @@ function ui.options(items, o)
       local slug = r.back and "return" or (key .. "-" .. tostring(r.id))
       if whole then
         show("button", slug, r.text, x + 18, ry, bst.w, bst.h, { disabled = r.disabled, value = tostring(r.id),
-          selected = ks and ks.cursor == i or nil })
+          selected = ks and (over and not r.disabled) or nil })
       end
       if clicked then picked = r.id end
     end

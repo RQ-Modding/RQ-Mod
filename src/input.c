@@ -236,7 +236,7 @@ bool key_is_down(enum sact_keycode code)
 	 * not swallow the click the pipe just set. */
 	if (agent_input && (code == VK_LBUTTON || code == VK_RBUTTON || code == VK_MBUTTON))
 		return key_state[code];
-	if (rq_hud_block_keys() && code != VK_LBUTTON && code != VK_RBUTTON && code != VK_MBUTTON)
+	if (rq_hud_key_blocked(code) && code != VK_LBUTTON && code != VK_RBUTTON && code != VK_MBUTTON)
 		return false;
 	if (rq_debug_swallows((int)code))
 		return false;

@@ -11,6 +11,7 @@ local T, fitted, cover, GREY = H.T, H.fitted, H.cover, H.GREY
 local interact, show, place, play = kit.interact, kit.show, kit.place, kit.play
 local with, id_of, inside, text_w = kit.with, kit.id_of, kit.inside, kit.text_w
 local frame = kit.frame
+local focus, focus_group = kit.focus, kit.focus_group
 local floor, max, min = math.floor, math.max, math.min
 local call = rq.ain.call
 local hub = H.theme
@@ -431,15 +432,15 @@ function ui.item_row(row, o)
         local bname = (name == "lock" and r.locked) and "unlock" or name
         local b = v.buttons[bname]
         local bid = id_of({ id = key .. "." .. bname }, "itembtn")
-        local over, clicked = interact(bid, x + b.x, y + b.y, b.w, b.h, false)
-        if over then on_button = true end
+        local over, clicked, _, mouse_on = interact(bid, x + b.x, y + b.y, b.w, b.h, false)
+        if mouse_on then on_button = true end
         if clicked then pressed = bname end
         btns[#btns + 1] = { b = b, over = over, name = bname }
       end
     end
   end
   local rid = id_of({ id = key }, "itemrow")
-  local over, clicked = interact(rid, x, y, w, h, o.disabled or on_button)
+  local over, clicked = interact(rid, x, y, w, h, o.disabled or on_button, { group = o.group, nav = o.nav })
   ui.draw(bg, x, y, w, h, o.disabled and GREY or nil)
   if r.name and r.name ~= "" then draw_name(x + 2, y + 1, r.name, v) end
   if r.icon and r.icon > 0 then
@@ -514,30 +515,43 @@ function ui.item_list(rows, index, o)
   st.top = min(max(st.top or 0, 0), max_top)
   local key = o.id ~= nil and tostring(o.id) or "items"
   local changed, button, at, chosen = false, nil, nil, false
+  -- The rows are a list for the kit's keys' cursor (2.12.0): Up and Down go through them and the
+  -- list follows; at its ends they go on to the widget beyond. Enter clicks the row under it.
+  local pre = "itemrow:" .. key .. "."
+  local ids = {}
+  for k, r in ipairs(rows) do
+    if not (type(r) == "table" and r.disabled) then ids[#ids + 1] = pre .. k end
+  end
+  -- With keys, the cursor starts on the current row, else the first, as the list's keys did.
+  local home = index or (o.keys and #rows > 0 and 1) or nil
+  focus_group(id, ids, { home = home and (pre .. home) or nil, box = { x = x, y = y, w = 381, h = h } })
+  local fk = focus.src == "keys" and type(focus.id) == "string" and focus.id:sub(1, #pre) == pre
+    and tonumber(focus.id:sub(#pre + 1))
   -- Keys first, so the row they make current draws as current on this update.
   if o.keys and #rows > 0 then
+    ui.keys()
     local old = index
-    local i = index or 0
-    if key_hit(st, "down") then i = i + 1 end
-    if key_hit(st, "up") then i = i - 1 end
+    -- With keys, the cursor's row is the current one, as the vault's.
+    local i = fk or index or 0
     if key_hit(st, "pagedown") then i = i + n end
     if key_hit(st, "pageup") then i = i - n end
     if key_hit(st, "home") then i = 1 end
     if key_hit(st, "end") then i = #rows end
-    if i ~= (index or 0) then
+    if i ~= (index or 0) and i ~= 0 then
       i = min(max(i, 1), #rows)
       if i ~= old then
         index, changed = i, true
-        play("hover")
+        if i ~= fk then play("hover") end
       end
-      if i <= st.top then st.top = i - 1 elseif i > st.top + n then st.top = i - n end
-    end
-    if index and key_hit(st, "enter") then
-      chosen = true
-      play("click")
+      if i ~= fk then kit.set_focus(pre .. i) end
+      fk = i
     end
     keys_seen(st)
-    if not frame.blind then hud.block_keys() end
+    if not frame.blind then hud.block_keys({ "home", "end", "l", "s", "d" }) end
+  end
+  if fk then
+    if fk <= st.top then st.top = fk - 1 elseif fk > st.top + n then st.top = fk - n end
+    st.top = min(max(st.top, 0), max_top)
   end
   for i = 1, n do
     local k = st.top + i
@@ -546,7 +560,7 @@ function ui.item_list(rows, index, o)
       local ry = y + (i - 1) * 128
       local dis = type(r) == "table" and r.disabled
       local c, b = ui.item_row(r, { x = x, y = ry, style = o.style, buttons = o.buttons,
-        current = k == index, id = key .. "." .. k, disabled = dis, keys = o.keys })
+        current = k == index, id = key .. "." .. k, disabled = dis, keys = o.keys, group = id })
       if c and not (drag and drag.moved) then
         if k ~= index then index, changed = k, true end
         chosen = true
