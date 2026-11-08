@@ -2116,6 +2116,8 @@ extern const char rq_castle_lua[];
 extern const unsigned rq_castle_lua_len;
 extern const char rq_gamebutton_lua[];
 extern const unsigned rq_gamebutton_lua_len;
+extern const char rq_skilllist_lua[];
+extern const unsigned rq_skilllist_lua_len;
 
 static void run_embedded(lua_State *L, int rq_index, const char *code, unsigned len, const char *name)
 {
@@ -2140,6 +2142,9 @@ void rq_battle_lua_open(lua_State *L, int rq_index)
 	run_embedded(L, rq_index, rq_castle_lua, rq_castle_lua_len, "=castle");
 	/* rq.gamebutton (lua/gamebutton.lua, loader 2.16.0): the SYSTEM menu's MODS row. */
 	run_embedded(L, rq_index, rq_gamebutton_lua, rq_gamebutton_lua_len, "=gamebutton");
+	/* rq.skilllist (lua/skilllist.lua, loader 2.18.0): the paged buy list, over the game's own
+	 * arrays made longer; its old page buttons are "skill-window" entries. */
+	run_embedded(L, rq_index, rq_skilllist_lua, rq_skilllist_lua_len, "=skilllist");
 }
 
 #endif /* RQ_MODLOADER */

@@ -177,6 +177,25 @@ function ain.set_global(name, ...) end
 ---@return integer size The number of elements.
 function ain.global_len(name, ...) end
 
+---Makes an array global longer or shorter, as the game's own `Realloc` does.
+---
+---Values that fit are kept; new elements are 0, false, an empty string or an empty struct. Only an
+---array of one dimension. The array is the game's own state and goes into the next save at its new
+---size, and a save made before brings back the old size, so grow it again where it is used (for
+---example in a `before` hook). It is there only once the game runs, not while `init.lua` loads.
+---
+---Raises an error for an unknown name, a value that is not an array, more than one dimension, or a
+---size below 0 or above 65536.
+---
+---Since: 2.18.0
+---
+---```lua
+---if rq.ain.global_len("取得可能スキル") < 145 then rq.ain.set_global_len("取得可能スキル", 145) end
+---```
+---@param name string The global's name.
+---@param ... integer|string Indexes and field names to reach an inner array, then the new size.
+function ain.set_global_len(name, ...) end
+
 ---Removes the game's message boxes whose text contains `needle`.
 ---
 ---Every `system.MsgBox` call that shows a string holding `needle` is taken out of the code.
@@ -1380,16 +1399,26 @@ function skill.sort_as(id, as_id) end
 
 ---Pages the Potential Skills grid, 36 skills a page.
 ---
----The engine keeps up to 144 buy-list rows (index 0 to 143) and cuts each page's 36. Lua decides the
----page. Opening the menu goes back to page 1. Known Skills is not paged. A page is 36 rows of the
----filtered buy list in the order they were added, then sorted with `compSkill`.
+---The game keeps the skills a character can buy in rows 1 to 60 of three arrays (`取得可能スキル`,
+---`取得可能スキルポイント`, `取得不可能スキル説明`) and shows the first 36. With `install`, the arrays
+---hold rows 1 to 144 and the list shows them 36 at a time. A page is 36 rows of the game's own
+---filtered list (no panel color 104, none the character holds) in the order they were added, then
+---sorted with `compSkill` as the game sorts. Opening the window goes back to page 1. Known Skills is
+---not paged.
+---
+---It is Lua over the game's own code (`src/lua/skilllist.lua`): the arrays are made longer with
+---`rq.ain.set_global_len` whenever the game fills them, `スキルポン` stops at row 145 instead of 54,
+---and while the window builds its list `取得可能スキル_数` and `取得可能スキル_番号` answer the page's
+---rows. The buy is the game's own. Rows 61 to 144 are emptied when the window closes, so a save holds
+---only what the game's 60 rows would.
 ---
 ---The page buttons are a mod's own: `install{ buttons = false }`, then `rq.gamebutton` entries in the
 ---`"skill-window"` group that set the page and call `rq.skilllist.refresh`. `install()` with no
----options also draws the engine's old Previous Page and Next Page, for mods made before 2.17.0;
----`on_buttons` belongs to those.
+---options adds two such entries for the mod, Previous Page and Next Page (`<mod id>.skilllist-prev`
+---and `-next`), for mods made before 2.17.0; `on_page` greys them and `on_buttons` gets their ids.
 ---
 ---Since: 0.2.0
+---Changed: 2.18.0 Lua over the game's own arrays, made longer; 144 rows (were 143).
 ---
 ---```lua
 ---rq.skilllist.install({ buttons = false })
@@ -1404,24 +1433,26 @@ function skill.sort_as(id, as_id) end
 ---@class rq.skilllist
 local skilllist = {}
 
----Patches the buy list and the cut at 36, and with `buttons` the engine's two page buttons.
+---Turns the paged list on, and with `buttons` adds Previous Page and Next Page.
 ---
----Calling it again does nothing more, except that a call with `buttons` adds the engine's buttons
----when an earlier call left them out.
+---Calling it again does nothing more, except that a call with `buttons` adds the two buttons when an
+---earlier call left them out.
+---
+---Raises an error for `opts` that is not a table, or when `スキルポン`'s stop at 54 is not found.
 ---
 ---Since: 0.2.0
----Changed: 2.17.0 `opts.buttons`; the engine's buttons are at y 660 (were 652), under the list's
----picture.
----@param opts? {buttons?: boolean} `buttons = false` leaves out the engine's Previous Page and Next Page, for a mod that makes its own with `rq.gamebutton`. Default true.
+---Changed: 2.17.0 `opts.buttons`; the buttons are at y 660 (were 652), under the list's picture.
+---Changed: 2.18.0 The buttons are the calling mod's `"skill-window"` entries, placed in the order
+---entries were added (before, they always took the first row).
+---@param opts? {buttons?: boolean} `buttons = false` leaves out Previous Page and Next Page, for a mod that makes its own with `rq.gamebutton`. Default true.
 ---@return boolean ok true when the patch is in place.
 function skilllist.install(opts) end
 
 ---Calls `fn` when the Potential Skills menu opens, after the page is set to 1 and before the grid is
 ---built.
 ---
----Up to 16 callbacks.
----
 ---Since: 0.2.0
+---Changed: 2.18.0 No limit on the number of callbacks (was 16).
 ---Changed: 0.14.0 Every mod's callback runs.
 ---Changed: 0.23.0 Returns a remover.
 ---@param fn fun() Runs on open.
@@ -1438,23 +1469,27 @@ function skilllist.on_open(fn) end
 ---
 ---It is also called once per arrow while the buttons are built: false or nil greys that arrow out, so
 ---its click plays the game's deny sound and does not call Lua. An enabled click calls it again. The
----last callback that answers (not nil) decides; all nil denies. Up to 16 callbacks.
+---last callback that answers (not nil) decides; all nil denies. With no callback, the page moves while it
+---stays between 1 and the page count.
 ---
 ---Since: 0.2.0
 ---Changed: 0.14.0 Every mod's callback runs; the last answer decides.
+---Changed: 2.18.0 No limit on the number of callbacks (was 16).
 ---Changed: 0.23.0 Returns a remover.
 ---@param fn fun(ctx: rq.SkillListCtx): integer|false|nil Returns the page to show, or false to deny.
 ---@return fun() remove Removes this callback.
 function skilllist.on_page(fn) end
 
----Calls `fn` after the engine's Previous and Next were made, and again whenever the window makes them again.
+---Calls `fn` after each build of the list, with the ids of the Previous and Next that `install()` added.
 ---
----Pass the ids to `rq.agent.control` so tests can press them. Only with the engine's buttons
----(`install()` without `buttons = false`); a mod's own buttons are named by `rq.gamebutton`. Up to 16
----callbacks.
+---Pass the ids to `rq.agent.control` so tests can press them. Only with those buttons (`install()`
+---without `buttons = false`); they are also agent controls already, `<mod id>.skilllist-prev` and
+---`-next`, as every `rq.gamebutton` entry.
 ---
 ---Since: 0.2.0
 ---Changed: 0.14.0 Every mod's callback runs.
+---Changed: 2.18.0 The ids are those of `"skill-window"` cells, 200101 to 200104 (were 200037 and
+---200038); no limit on the number of callbacks (was 16).
 ---Changed: 0.23.0 Returns a remover.
 ---@param fn fun(prev_id: integer, next_id: integer) Gets the `T_Button` ids; 0 for an arrow that was not made.
 ---@return fun() remove Removes this callback.
@@ -1949,16 +1984,16 @@ function chara.on_offer(fn) end
 
 ---Lists the rows of the skill buy list that hold a skill.
 ---
----With the paged buy list of `rq.skilllist` on, these are the rows its buttons read; otherwise the
----game's `取得可能スキル`.
+---They are the game's `取得可能スキル`: rows 1 to 60, or 1 to 144 with `rq.skilllist` on.
 ---
 ---Since: 0.2.0
+---Changed: 2.18.0 With `rq.skilllist`, the game's own arrays (made longer) instead of the engine's copy.
 ---@return rq.OfferRow[] rows The rows in order; empty when there is no buy list.
 function chara.offers() end
 
 ---Replaces the skill in a buy-list row.
 ---
----It writes both the game's list and the paged list's copy. The row's level text stays as it is.
+---It writes the game's list. The row's level text stays as it is.
 ---
 ---Raises an error for an index outside the list, or for `points` when the game has no price list.
 ---
@@ -4679,9 +4714,7 @@ function castle.rooms() end
 ---`"skill-window"` (2.17.0): buttons under the Potential Skills list (status, then Skills), in the
 ---look of the castle's buttons (CG 11153, 206 × 30, the label in the game's font, shrunk to fit).
 ---They sit two to a row under the list's picture: x 531 and 745, y 660 and 692, in the order they
----were added; a fifth is not placed (`placed` false, and the log says so). With the engine's own page
----buttons (`rq.skilllist.install()` without `buttons = false`) they take the first row, and entries
----start on the second. The window makes them again on each build of its list (open, a buy, a
+---were added; a fifth is not placed (`placed` false, and the log says so). The window makes them again on each build of its list (open, a buy, a
 ---character change, `rq.skilllist.refresh`), asking `enabled` each time. A greyed button is the
 ---game's inactive look and plays the deny sound. The arrow keys reach them: Down from a column's last
 ---skill goes to the button under it (a greyed one is skipped); from a button Up goes to that column's
@@ -4911,7 +4944,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.17.0"
+rq.version = "2.18.0"
 
 rq.units = units
 rq.items = items

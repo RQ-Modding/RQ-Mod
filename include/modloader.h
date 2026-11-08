@@ -293,19 +293,6 @@ int rq_shop_syscall(int code);
 int rq_lua_shop_on_stock(struct lua_State *L);
 int rq_lua_shop_in_stock(struct lua_State *L);
 int rq_lua_shop_stock(struct lua_State *L);
-int rq_skilllist_install(struct ain *ain, int buttons);
-int rq_skilllist_syscall(int code);
-int rq_lua_skilllist_on_open(struct lua_State *L);
-int rq_lua_skilllist_on_page(struct lua_State *L);
-int rq_lua_skilllist_on_buttons(struct lua_State *L);
-int rq_lua_skilllist_set_page(struct lua_State *L);
-int rq_lua_skilllist_page_count(struct lua_State *L);
-int rq_lua_skilllist_page(struct lua_State *L);
-int rq_skilllist_active(void);
-int rq_skilllist_page(void);
-int rq_skilllist_pages(void);
-int rq_skilllist_note_offer(int index, int skill, int has_points, int points);
-int rq_skilllist_offer_at(int index, int *skill, int *points);
 int rq_loot_install(struct ain *ain);
 int rq_loot_syscall(int code);
 int rq_loot_list(struct lua_State *L);
@@ -474,7 +461,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.17.0"
+#define RQ_VERSION "2.18.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -586,8 +573,6 @@ static inline int rq_battle_install(struct ain *ain) { (void)ain; return 0; }
 static inline int rq_battle_syscall(int code) { (void)code; return 0; }
 static inline int rq_shop_install(struct ain *ain) { (void)ain; return 0; }
 static inline int rq_shop_syscall(int code) { (void)code; return 0; }
-static inline int rq_skilllist_install(struct ain *ain, int buttons) { (void)ain; (void)buttons; return 0; }
-static inline int rq_skilllist_syscall(int code) { (void)code; return 0; }
 static inline int rq_chara_syscall(int code) { (void)code; return 0; }
 static inline int rq_roster_syscall(int code) { (void)code; return 0; }
 static inline bool rq_image_has(int id) { (void)id; return false; }

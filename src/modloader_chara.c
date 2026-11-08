@@ -340,7 +340,6 @@ static void add_offer(lua_State *L, int iic)
 		if (arr && pts && idx >= 0 && idx < arr->nr_vars && idx < pts->nr_vars
 		    && page_get_var(arr, idx).i == skill && page_get_var(pts, idx).i != 0) {
 			page_set_var(pts, idx, points);
-			rq_skilllist_note_offer(idx, skill, 1, points);
 		}
 	}
 }
@@ -977,16 +976,7 @@ int rq_lua_chara_offers(lua_State *L)
 	int i, n = 0;
 
 	lua_newtable(L);
-	/* Paged buy list reads its own cache. That is the list the buttons use. */
-	if (rq_skilllist_active()) {
-		for (i = 0; i < 144; i++) {
-			int skill = 0, points = 0;
-			if (!rq_skilllist_offer_at(i, &skill, &points))
-				break;
-			push_offer_row(L, &n, i, skill, points);
-		}
-		return 1;
-	}
+	/* rq.skilllist (2.18.0) makes the game's arrays longer; they are the list the window reads. */
 	if (!arr)
 		return 1;
 	for (i = 0; i < arr->nr_vars; i++) {
@@ -1018,8 +1008,6 @@ int rq_lua_chara_set_offer(lua_State *L)
 			page_set_var(pts, index, points);
 		}
 	}
-	if (rq_skilllist_note_offer(index, skill, has_pts, points))
-		wrote = 1;
 	if (!wrote)
 		return luaL_error(L, "offer index out of range");
 	return 0;

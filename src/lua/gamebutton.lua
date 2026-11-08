@@ -152,7 +152,6 @@ local SW_BASE = 200100
 -- Under the list's image (CG 11551's yellow band ends with its grey border at y 658).
 local SW_CELLS = { { 531, 660 }, { 745, 660 }, { 531, 692 }, { 745, 692 } }
 local SW_W, SW_H = 206, 30
-local SW_C_PREV = 200037      -- rq.skilllist's own Previous Page (install() with buttons)
 local MIN_INT = -2147483648
 
 local sw = {
@@ -175,7 +174,7 @@ local function m(path, name, ...)
   return r
 end
 
--- The label as rq.skilllist's C arrows drew it (T_TextSprite::textDrawCenter2 with space -4 and
+-- The label as the engine's C page buttons of 2.17.0 drew it (T_TextSprite::textDrawCenter2 with space -4 and
 -- spacing 0, size 24, face 258), the size shrunk by 2 down to 12 when it is wider than the button.
 local LABEL = { font = "game", face = 258, size = 24, space = -4, spacing = 0 }
 local function fit_label(text)
@@ -254,8 +253,6 @@ local function sw_build()
   local list = live("skill-window")
   if #list == 0 then return end
   local first = 1
-  local c = m(SW_GRID, "T_ButtonGroup@getButtonIndex", SW_C_PREV)
-  if c and c >= 0 then first = 3 end
   for i, e in ipairs(list) do
     local cell = first + i - 1
     if cell > #SW_CELLS then
@@ -356,18 +353,6 @@ local function sw_install()
     pcall(rq.ain.set_global, "g_sSkillPoint", "m_nCommentID", id)
   end })
 end
-
--- Rebuilds the list for the character shown, as the game does after a buy (T_SkillPoint::scroll).
-local function skilllist_refresh()
-  if not sw_open() then return false end
-  local chara = sw_chara()
-  m(SW_WIN, "T_SkillPoint@hideComment", -1)
-  if not m(SW_WIN, "T_SkillPoint@createSkill", chara, -1) then return false end
-  m(SW_WIN, "T_SkillPoint@setShow", true)
-  return true
-end
-
-if rq.skilllist then rq.skilllist.refresh = skilllist_refresh end
 
 local function check_text(v, what, where)
   if type(v) ~= "string" or v == "" then error(where .. ": " .. what .. " must be a non-empty string", 3) end

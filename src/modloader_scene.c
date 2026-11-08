@@ -437,6 +437,35 @@ static int l_global_len(lua_State *L)
 	return 1;
 }
 
+/* rq.ain.set_global_len(name, [step, ...,] size): makes a one-dimensional array global (or one a
+ * path reaches) `size` long, as the game's own Realloc does: values kept, new elements empty. */
+static int l_set_global_len(lua_State *L)
+{
+	struct page *page, *arr;
+	union vm_value dim;
+	int top = lua_gettop(L);
+	int varno, type, slot, struct_type, size;
+
+	if (top < 2)
+		return luaL_error(L, "rq.ain.set_global_len: expected a name and a size");
+	size = (int)luaL_checkinteger(L, top);
+	if (size < 0 || size > 65536)
+		return luaL_error(L, "rq.ain.set_global_len: size must be 0 to 65536");
+	walk_global(L, 2, top - 1, &page, &varno, &type);
+	slot = page->values[varno].i;
+	arr = holds_page(type) && page_index_valid(slot) ? heap_get_page(slot) : NULL;
+	if (!arr || arr->type != ARRAY_PAGE)
+		return luaL_error(L, "rq.ain.set_global_len: %s is not an array", lua_tostring(L, 1));
+	if (arr->array.rank != 1)
+		return luaL_error(L, "rq.ain.set_global_len: %s has more than one dimension", lua_tostring(L, 1));
+	if (arr->nr_vars == size)
+		return 0;
+	type = variable_type(page, varno, &struct_type, NULL);
+	dim.i = size;
+	heap_set_page(slot, realloc_array(arr, 1, &dim, type, struct_type, true));
+	return 0;
+}
+
 /* ---- rq.ain.hook ---- */
 
 static struct hook *hook_for(int fno)
@@ -1084,6 +1113,8 @@ void rq_scene_open(lua_State *L, int rq_index)
 	lua_setfield(L, -2, "set_global");
 	lua_pushcfunction(L, l_global_len);
 	lua_setfield(L, -2, "global_len");
+	lua_pushcfunction(L, l_set_global_len);
+	lua_setfield(L, -2, "set_global_len");
 	lua_pushcfunction(L, l_method);
 	lua_setfield(L, -2, "method");
 	lua_pop(L, 1);

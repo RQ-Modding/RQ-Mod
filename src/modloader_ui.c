@@ -4543,6 +4543,22 @@ static void emit_indexed_skills(struct page *group, struct page *mgr, const char
 	}
 }
 
+/* rq.skilllist.page() / page_count() (Lua since 2.18.0); 0 before install or on an error. */
+static int skilllist_int(const char *name)
+{
+	lua_State *L = rq_lua();
+	int top, v = 0;
+	if (!L)
+		return 0;
+	top = lua_gettop(L);
+	if (lua_getglobal(L, "rq") == LUA_TTABLE && lua_getfield(L, -1, "skilllist") == LUA_TTABLE
+	    && lua_getfield(L, -1, name) == LUA_TFUNCTION && lua_pcall(L, 0, 1, 0) == LUA_OK
+	    && lua_isinteger(L, -1))
+		v = (int)lua_tointeger(L, -1);
+	lua_settop(L, top);
+	return v;
+}
+
 static int fill_skillshop(struct page *sp)
 {
 	struct page *neu, *hold;
@@ -4554,8 +4570,8 @@ static int fill_skillshop(struct page *sp)
 	emit_indexed_skills(fpage(hold, "m_sButton"), hold, "m_rfsList", 300001, 17, "upgrade");
 	emit_indexed_skills(fpage(sp, "m_sButton"), hold, "m_rfsList", 0, 0, "forget");
 	g_has_skillshop = 1;
-	g_skill_page = rq_skilllist_page();
-	g_skill_pages = rq_skilllist_pages();
+	g_skill_page = skilllist_int("page");
+	g_skill_pages = skilllist_int("page_count");
 	g_skill_points = fint(fpage(fpage(sp, "m_sCard"), "m_sPoint"), "m_nValue");
 	snprintf(g_screen, sizeof g_screen, "skill-shop");
 	hover_from_rects();
