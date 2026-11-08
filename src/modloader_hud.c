@@ -970,7 +970,19 @@ int rq_lua_hud_text_width(lua_State *L)
 		struct rq_gametext gt;
 		int has_shadow, dx = 0, dy = 0, sr, sg, sb, sa;
 		if (game_style(L, 2, &gt, &has_shadow, &dx, &dy, &sr, &sg, &sb, &sa)) {
-			int tw = 0, th = 0;
+			int tw = 0, th = 0, measure;
+			lua_getfield(L, 2, "measure");
+			measure = lua_toboolean(L, -1);
+			lua_pop(L, 1);
+			if (measure) {
+				/* As the game's windows reckon it, not the drawn line (2.13.0). */
+				tw = rq_gametext_measure_game(utf ? utf : "", &gt);
+				if (tw < 0)
+					return luaL_error(L, "rq.hud.text_width: the game has no MeasureText");
+				lua_pushinteger(L, tw);
+				lua_pushinteger(L, gt.size);
+				return 2;
+			}
 			if (utf && *utf)
 				rq_gametext_measure(utf, &gt, &tw, &th);
 			lua_pushinteger(L, tw ? tw + (dx > 0 ? dx : -dx) * has_shadow : 0);

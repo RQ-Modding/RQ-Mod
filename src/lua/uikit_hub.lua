@@ -267,7 +267,7 @@ function ui.button(text, o)
   local st = style_of("button", name)
   local id = id_of(o, "button")
   local x, y, w, h = place(o, st.w, st.h)
-  local _, clicked = styled(st, text, x, y, w, h, id, o.disabled, nil, { nav = o.nav })
+  local _, clicked = styled(st, text, x, y, w, h, id, o.disabled, nil, { nav = o.nav, tip = o.tip, tip_wait = o.tip_wait })
   show("button", o.id or text, text, x, y, w, h, { disabled = o.disabled })
   return clicked
 end
@@ -288,7 +288,7 @@ function ui.tabs(list, index, o)
       local id = id_of({ id = key and (key .. "." .. i) }, "tab")
       local x, y, w, h = place(nil, tabw, st.h)
       local current = i == index
-      local over, clicked = interact(id, x, y, w, h, current)
+      local over, clicked = interact(id, x, y, w, h, current, { tip = o.tips and o.tips[i], tip_wait = o.tip_wait })
       ui.draw(current and st.current or st.normal, x, y, w, h)
       local ts = fitted(text, st.text, st.fit, w - 2 * st.pad)
       hud.text(x, y, text, with(ts, { w = w, h = h, align = "center", valign = "center" }))
@@ -309,7 +309,7 @@ function ui.close(o)
   local c = T("close")
   local id = id_of(o, "close")
   local x, y, w, h = place(o, 24, 20)
-  local over, clicked = interact(id, x, y, w, h, o.disabled, { nav = o.nav })
+  local over, clicked = interact(id, x, y, w, h, o.disabled, { nav = o.nav, tip = o.tip, tip_wait = o.tip_wait })
   ui.draw((over and not o.disabled) and c.hover or c.normal, x, y, w, h, o.disabled and GREY or nil)
   if clicked then play("click") end
   show("button", o.id ~= nil and ("close-" .. tostring(o.id)) or "close", "Close", x, y, w, h, { disabled = o.disabled })
@@ -327,7 +327,7 @@ function ui.castle_row(o)
   local x, y, w, h = place(o, 270, 36)
   ui.draw(c.base, x, y)
   local _, clicked = styled(style_of("button", "large"), o.text, x + 3, y + 3, 206, 30, id, o.disabled, nil,
-    { nav = o.nav })
+    { nav = o.nav, tip = o.tip, tip_wait = o.tip_wait })
   ui.draw(c.frame, x + 212, y + 3)
   if o.face then
     hud.cg(x + 213, y + 4, o.face, { w = 24, h = 29 })
@@ -359,7 +359,7 @@ function ui.quest_row(o)
   local q = T("quest")
   local id = id_of(o, "quest")
   local x, y, w, h = place(o, 228, 30)
-  local over, clicked = interact(id, x, y, w, h, o.disabled, { nav = o.nav, group = o.group })
+  local over, clicked = interact(id, x, y, w, h, o.disabled, { nav = o.nav, group = o.group, tip = o.tip, tip_wait = o.tip_wait })
   ui.draw((over and not o.disabled) and q.hover or q.normal, x, y, w, h, o.disabled and GREY or nil)
   local no = o.no
   if type(no) == "number" then no = string.format("%03d", floor(no)) end
@@ -513,7 +513,7 @@ function ui.quest_list(rows, index, o)
     local r = rows[k]
     if r then
       local c = ui.quest_row({ x = x, y = y + (i - 1) * rh, no = r.no, name = r.name, mark = r.mark,
-        disabled = r.disabled, current = k == index, id = key .. "." .. k, group = id })
+        disabled = r.disabled, current = k == index, id = key .. "." .. k, group = id, tip = r.tip, tip_wait = o.tip_wait })
       if c and k ~= index then index, changed = k, true end
     end
   end
@@ -541,7 +541,7 @@ function ui.rack(text, o)
   local r = T("rack")
   local id = id_of(o, "rack")
   local x, y, w, h = place(o, r.w, r.h)
-  local over, clicked = interact(id, x, y, w, h, o.disabled, { nav = o.nav })
+  local over, clicked = interact(id, x, y, w, h, o.disabled, { nav = o.nav, tip = o.tip, tip_wait = o.tip_wait })
   box_line(x, y, w, h, r.outer)
   box_line(x + 1, y + 1, w - 2, h - 2, r.line)
   local f = r.fill
@@ -588,7 +588,8 @@ function ui.sort(list, index, o)
     local id = id_of({ id = key .. "." .. i }, "sort")
     local current = i == index
     local again = o.again == true or o.again == i
-    local over, clicked = interact(id, x, by, 77, 26, (current and not again) or o.disabled)
+    local over, clicked = interact(id, x, by, 77, 26, (current and not again) or o.disabled,
+      { tip = o.tips and o.tips[i], tip_wait = o.tip_wait })
     ui.draw((over and (again or not current) and not o.disabled) and s.hover or s.normal, x, by, 77, 26)
     local text = tostring(list[i])
     hud.text(x, by, text, with(fitted(text, s.text, s.fit, s.fit_w), { w = 77, h = 26, align = "center",
@@ -681,7 +682,6 @@ hub.options = {
   text = game { face = 258, size = 24, r = 0, g = 0, b = 0, space = -4,
     shadow = { x = 1, y = 1, r = 255, g = 255, b = 255 } },
   text_fit = { 24, 12, 0.95, 0.47 },
-  comment = game { face = 258, size = 18, r = 236, g = 232, b = 176, outline = { 0, 0, 0 } },
 }
 
 -- ---- Keys ----
@@ -830,7 +830,7 @@ function ui.options(items, o)
   -- The base: its top cut to the height, then its last 6 lines.
   hud.cg(x, y, op.base.cg, { src = { 0, 0, W, hh } })
   hud.cg(x, y + hh, op.base.cg, { src = { 0, 762, W, 6 } })
-  local picked, over_comment
+  local picked
   -- The rows that can be picked are a list for the keys' cursor, wrapping as the game's menu
   -- (2.12.0: the kit's cursor; before, a cursor of its own).
   local gid, pre = "options:" .. key, "options:" .. key .. "."
@@ -894,11 +894,13 @@ function ui.options(items, o)
       end
       local id = id_of({ id = key .. "." .. i }, "options")
       local over, clicked = styled(st, r.text, x + 18, ry, bst.w, bst.h, id, r.disabled, false,
-        { group = gid, stop = whole, view = below and { x, y + head, W, view } or nil })
+        { group = gid, stop = whole, view = below and { x, y + head, W, view } or nil,
+          -- The game's comment window right of the menu, at the row (説明_位置設定(702, row y)).
+          tip = r.comment and r.comment ~= "" and { text = r.comment, x = x + W + 6 + (scroll and 22 or 0), y = ry }
+            or nil, tip_wait = o.tip_wait })
       if over and not r.disabled then
         -- The game frames the row under the mouse in yellow (createFrame 216, 255, 0, 102).
         hud.rect(x + 18, ry, bst.w, bst.h, 216, 255, 0, floor(102 * (0.6 + 0.4 * pulse())))
-        if r.comment and r.comment ~= "" then over_comment = { r.comment, ry } end
       end
       local slug = r.back and "return" or (key .. "-" .. tostring(r.id))
       if whole then
@@ -913,21 +915,146 @@ function ui.options(items, o)
     frame.over = true
     hud.block_game_input()
   end
-  if over_comment then
-    -- The game's comment box sits right of the menu (説明_表示 at 702); here, right of the base.
-    local c = op.comment
-    local lines = wrap_lines(over_comment[1], c, 260, 8)
-    local tw = 0
-    for _, l in ipairs(lines) do tw = max(tw, text_w(l, c)) end
-    local bx, by = x + W + 6 + (scroll and 22 or 0), over_comment[2]
-    -- On the top layer (2.11.0): over the widgets drawn after the list.
-    hud.top(function()
-      hud.rect(bx, by, tw + 16, #lines * (c.size + 4) + 10, 0, 0, 0, 200)
-      box_line(bx, by, tw + 16, #lines * (c.size + 4) + 10, T("hub_page").line)
-      for li, l in ipairs(lines) do hud.text(bx + 8, by + 5 + (li - 1) * (c.size + 4), l, c) end
-    end)
-  end
   return picked
+end
+
+-- ---- Skill tiles (2.15.0): C_SkillButton ----
+
+-- The name's color by the tile's CG (スキルボタン_テキスト描画情報); the red tiles leave 134 pixels for
+-- the name, the others 115.
+local SKILL_TEXT = {
+  [10112] = { 255, 200, 200 }, [10212] = { 255, 200, 200 },
+  [10113] = { 200, 255, 255 }, [10213] = { 200, 255, 255 },
+  [10117] = { 255, 220, 170 }, [10217] = { 255, 220, 170 }, [10118] = { 255, 220, 170 },
+  [10115] = { 140, 0, 0, wide = true }, [10116] = { 140, 0, 0, wide = true },
+}
+local SKILL_MARK = 10123 -- one mark for each rank above 1
+local SKILL_SLOT = 10121 -- an empty slot
+
+-- The name's size and spacing, as スキルボタン_スプライト描画 fits it: 18 pixels at spacing 1.0,
+-- else 16, 14, 12 at 0.95, until the name and the marks fit. (Its tries at 0.75 and 0.5 measure
+-- at the spacing set before, so they never fit where the first did not; a name too long at 12 is
+-- drawn at 0.5.) Returns the style, the name's width and the width with the marks.
+local function skill_fit(text, marks, mark_w, room)
+  local size = 18
+  while true do
+    local st = { font = "game", face = 258, size = size, spacing = size == 18 and 1.0 or 0.95, space = -4,
+      measure = true }
+    local w1 = text_w(text, st)
+    local w2 = w1 + mark_w * marks + (marks ~= 0 and 2 or 0)
+    if w2 <= room then return st, w1, w2 end
+    if size <= 12 then
+      st.spacing = 0.5
+      return st, w1, w2
+    end
+    size = size - 2
+  end
+end
+
+-- What the game says of a skill, read once: its tiles' CGs, name, header and comment.
+local skill_info = {}
+local function skill_of(skill)
+  local i = skill_info[skill]
+  if not i then
+    local call = rq.ain.call
+    i = { cg = call("スキルボタン_ＣＧ番号", skill), long = call("延長スキルボタン_ＣＧ番号", skill),
+      name = call("スキル_名前", skill) or "", header = call("テキスト_スキル名", skill),
+      text = call("スキル_説明文１", skill), action = call("スキル_行動", skill) }
+    skill_info[skill] = i
+  end
+  return i
+end
+
+local function skill_int(v, what)
+  if v ~= nil and math.type(v) ~= "integer" then error("uikit.skill_button: " .. what .. " is a whole number", 3) end
+  return v
+end
+
+---A skill's tile, as the status page draws it: the CG of its panel color, its name fitted in the
+---game's font, a mark for each rank above 1. opts: x, y, id, rank, chara (reads the rank), long
+---(the 167-wide tile), disabled, count and count_max (the uses, in the level font at x + 120 and,
+---on a long tile, x + 145; with chara, a skill that is an action shows its own, as the status page
+---does; false for none), tip (default the game's: the name and スキル_説明文１, right of the tile;
+---false for none), nav. skill nil with opts.slot: the empty slot with its number. Returns clicked.
+function ui.skill_button(skill, o)
+  o = o or {}
+  if type(o) ~= "table" then error("uikit.skill_button: opts is a table", 2) end
+  if skill == nil then
+    local n = o.slot
+    if math.type(n) ~= "integer" then error("uikit.skill_button: an empty slot needs slot, its number", 2) end
+    local W, H = hud.cg_size(SKILL_SLOT)
+    local x, y = place(o, W, H)
+    hud.cg(x, y, SKILL_SLOT)
+    -- The number in face 257 at 18 pixels, (205, 255, 86), blended at 153 (_スキルボタン_背景作成).
+    hud.text(x, y, tostring(n), { font = "game", face = 257, size = 18, r = 205, g = 255, b = 86, a = 153,
+      w = W, h = H, align = "center", valign = "center" })
+    show("slot", o.id or ("slot-" .. n), tostring(n), x, y, W, H)
+    return false
+  end
+  if math.type(skill) ~= "integer" or skill <= 0 then error("uikit.skill_button: skill is a skill number", 2) end
+  skill_int(o.rank, "rank")
+  skill_int(o.chara, "chara")
+  if o.count ~= false then skill_int(o.count, "count") end
+  if o.count_max ~= false then skill_int(o.count_max, "count_max") end
+  local info = skill_of(skill)
+  local cg = o.long and info.long or info.cg
+  if not cg or cg <= 0 then
+    error("uikit.skill_button: skill " .. skill .. " has no " .. (o.long and "long " or "") .. "tile", 2)
+  end
+  local W, H = o.long and 167 or 142, 24
+  local cw = hud.cg_size(cg)
+  if not cw then error("uikit.skill_button: no CG " .. cg, 2) end
+  local two = cw == W * 2 -- a CG of two cells: the tile and its hovered look
+  local x, y = place(o, W, H)
+  local id = id_of(o, "skill")
+  local name = info.name
+  local rank = o.rank or (o.chara and rq.ain.call("キャラスキル_ランク", o.chara, skill)) or 1
+  local tip = o.tip
+  if tip == nil then
+    tip = { header = info.header, text = info.text, game = true, x = x + W, y = y }
+  end
+  local over, clicked = interact(id, x, y, W, H + 2, o.disabled, { nav = o.nav, tip = tip, tip_wait = o.tip_wait })
+  local hot = over and not o.disabled
+  local over_off = o.disabled and not frame.blind and inside(x, y, W, H + 2)
+  -- The tile: its second cell when hovered; darkened by black at 128 when disabled.
+  hud.cg(x, y, cg, { src = { (two and hot) and W or 0, 0, W, H },
+    tint = o.disabled and { 127, 127, 127 } or nil })
+  local look = SKILL_TEXT[cg] or SKILL_TEXT[10112]
+  local marks = rank > 1 and rank - 1 or 0
+  local mw, mh = 0, 0
+  if marks > 0 then mw, mh = hud.cg_size(SKILL_MARK) end
+  local room = look.wide and 134 or 115
+  local st, w1, w2 = skill_fit(name, marks, mw or 0, room)
+  local tx = 4 + (room < w2 and 0 or (room - w2) // 2)
+  st.measure = nil
+  st.r, st.g, st.b = look[1], look[2], look[3]
+  if o.disabled then st.r, st.g, st.b = st.r // 2, st.g // 2, st.b // 2 end
+  st.h, st.valign = H, "center"
+  hud.text(x + tx, y, name, st)
+  for i = 0, marks - 1 do hud.cg(x + tx + w1 + 2 + i * mw, y + (H - mh) // 2, SKILL_MARK) end
+  -- The uses, as T_SkillButton: two digits of the level font (10122), padded with zeros, 99 at most.
+  local count, cmax = o.count, o.count_max
+  if o.chara and info.action then
+    if count == nil then count = rq.ain.call("キャラスキル_使用回数", o.chara, skill) end
+    if o.long and cmax == nil then cmax = rq.ain.call("キャラスキル_使用回数最大", o.chara, skill) end
+  end
+  -- A disabled tile's are darkened as the tile (black at 128).
+  local tint = o.disabled and { 127, 127, 127 } or nil
+  if count then
+    ui.number(math.min(math.max(count, 0), 99), { font = "level", x = x + 120, y = y + 5, digits = 2, tint = tint })
+  end
+  if o.long and cmax and cmax > 0 then
+    ui.number(math.min(cmax, 99), { font = "level", x = x + 145, y = y + 5, digits = 2, tint = tint })
+  end
+  -- The game's frame over it: yellow at 102 under the mouse, red at 128 on a disabled one.
+  if over_off then
+    hud.rect(x, y, W, H, 255, 0, 0, 128)
+  elseif hot then
+    hud.rect(x, y, W, H, 216, 255, 0, floor(102 * (0.6 + 0.4 * pulse())))
+  end
+  if clicked then play("click") end
+  show("skill", o.id or skill, name, x, y, W, H, { disabled = o.disabled, value = tostring(skill) })
+  return clicked
 end
 
 -- For the vault's widgets (uikit_vault.lua, loader 2.8.0).

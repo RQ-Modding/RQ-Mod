@@ -169,6 +169,12 @@ local focus = {
   rep = {}, mx = nil, my = nil, moved = false, hit = false,
 }
 
+-- A widget's tip (2.13.0): the widget hot on this update with a tip, since when, and how it
+-- came (the mouse, or the keys' cursor). hit: a tip widget was hot on this update.
+local TIP_WAIT = 500 -- the game's wait before its comment window (説明_表示(..., 500, ...))
+local tipst = { id = nil, t0 = 0, shown = false, src = "mouse", hit = false }
+local tip_show -- set below, by the comment window
+
 local function slug(str)
   str = tostring(str or ""):lower():gsub("[^%w]+", "-"):gsub("^%-+", ""):gsub("%-+$", "")
   return str:sub(1, 28)
@@ -383,6 +389,8 @@ rq.on_frame(function()
   mouse.right_released = was_right and not mouse.right
   mouse.scroll = frame.blind and 0 or input.scroll()
   if not mouse.down and not mouse.released then active = nil end
+  if not tipst.hit then tipst.id = nil end
+  tipst.hit = false
   focus_update()
   if #stack > 0 then
     rq.log("uikit: a row or column was left open; closing it")
@@ -428,7 +436,10 @@ local function interact(id, x, y, w, h, disabled, o)
     frame.over = true
     hud.block_game_input()
   end
-  if disabled then return false, false, false, false end
+  if disabled then
+    if over and o and o.tip and not frame.blind then tip_show(id, o.tip, o.tip_wait, x, y, w, h, "mouse") end
+    return false, false, false, false
+  end
   local stop = not frame.blind and not (o and (o.nav == false or o.stop == false))
   if stop then
     local st = { id = id, oid = o and o.oid or short_id(id), x = x, y = y, w = w, h = h, nav = o and o.nav,
@@ -440,10 +451,12 @@ local function interact(id, x, y, w, h, disabled, o)
     end
   end
   local hot = over
-  if focus.was_on and focus.src == "keys" then hot = focus.id == id end
+  local by_keys = focus.was_on and focus.src == "keys"
+  if by_keys then hot = focus.id == id end
   if hot then
     frame.hot = id
     if frame.was_hot ~= id and active == nil then play("hover") end
+    if o and o.tip and not frame.blind then tip_show(id, o.tip, o.tip_wait, x, y, w, h, by_keys and "keys" or "mouse") end
   end
   if over and mouse.pressed then active = id end
   local clicked = over and mouse.released and active == id
@@ -667,7 +680,7 @@ function ui.button(text, o)
   local id = id_of(o, "button")
   local tw = text_w(text, th.button_text)
   local x, y, w, h = place(o, math.max(150, tw + 30), 40)
-  local over, clicked = interact(id, x, y, w, h, o.disabled, { nav = o.nav })
+  local over, clicked = interact(id, x, y, w, h, o.disabled, { nav = o.nav, tip = o.tip, tip_wait = o.tip_wait })
   ui.draw("button", x, y, w, h, o.disabled and { tint = { 128, 128, 128 } } or nil)
   hud.text(x, y, text, with(th.button_text, { w = w, h = h, align = "center", valign = "center" }))
   if over and not o.disabled then
@@ -688,7 +701,7 @@ function ui.checkbox(value, text, o)
   local style = th.label
   local tw = text and text ~= "" and text_w(text, style) or 0
   local x, y, w, h = place(o, 30 + (tw > 0 and 12 + tw + 8 or 0), 30)
-  local over, clicked = interact(id, x, y, w, h, o.disabled, { nav = o.nav })
+  local over, clicked = interact(id, x, y, w, h, o.disabled, { nav = o.nav, tip = o.tip, tip_wait = o.tip_wait })
   local opts = o.disabled and { tint = { 128, 128, 128 } } or nil
   ui.draw("check_frame", x + 1, y + 1, 28, 28, opts)
   if value then ui.draw("check_mark", x, y, 30, 30, opts) end
@@ -713,7 +726,8 @@ function ui.choice(list, index, o)
   local key = o.id ~= nil and tostring(o.id) or nil
   local fn = function()
     for i, text in ipairs(list) do
-      local v, c = ui.checkbox(i == index, text, { id = key and (key .. "." .. i), disabled = o.disabled })
+      local v, c = ui.checkbox(i == index, text, { id = key and (key .. "." .. i), disabled = o.disabled,
+        tip = o.tips and o.tips[i], tip_wait = o.tip_wait })
       if c and v and i ~= index then
         index, changed = i, true
       end
@@ -744,7 +758,8 @@ function ui.slider(value, o)
   local hw = o.high and (text_w(o.high, dim) + 8) or 0
   local x, y, w, h = place({ x = o.x, y = o.y, h = o.h }, lw + tw + hw, 30)
   local tx, ty = x + lw, y + math.floor((h - 15) / 2) + 3
-  local over, _, held, mouse_over = interact(id, tx - 12, ty - 19, tw + 24, 35, o.disabled, { nav = o.nav })
+  local over, _, held, mouse_over = interact(id, tx - 12, ty - 19, tw + 24, 35, o.disabled,
+    { nav = o.nav, tip = o.tip, tip_wait = o.tip_wait })
   local old = value
   if held then
     value = snap(mn + (mouse.x - tx) / tw * (mx - mn), mn, mx, o.step)
@@ -781,7 +796,7 @@ function ui.tabs(list, index, o)
       local id = id_of({ id = key and (key .. "." .. i) }, "tab")
       local x, y, w, h = place(nil, tabw, 40)
       local current = i == index
-      local over, clicked = interact(id, x, y, w, h, current)
+      local over, clicked = interact(id, x, y, w, h, current, { tip = o.tips and o.tips[i], tip_wait = o.tip_wait })
       local look = current and "current" or (over and "hover" or "normal")
       ui.draw(th.tab[look], x, y, w, h)
       hud.text(x, y, text, with(th.tab_text[look], { w = w, h = h, align = "center", valign = "center" }))
@@ -870,7 +885,7 @@ function ui.list(items, index, o)
       local disabled = type(it) == "table" and it.disabled
       local whole = ry >= y + inner and ry + rh <= y + inner + view
       local over, clicked = interact(id .. "." .. i, x + inner, ry, cw, rh, disabled,
-        { group = id, view = vbox, stop = whole })
+        { group = id, view = vbox, stop = whole, tip = type(it) == "table" and it.tip or nil, tip_wait = o.tip_wait })
       if i == index then ui.draw("hover_bar", x + inner, ry, cw, rh) end
       if over then ui.draw("hover_bar", x + inner, ry, cw, rh, { alpha = 128 }) end
       local style = with(th.list_text, { h = rh, valign = "center" })
@@ -931,10 +946,311 @@ function ui.menu(tree, path, o)
   return changed and out or path, changed, leaf
 end
 
+-- ---- The game's comment window (2.13.0): T_Comment, 説明_表示 ----
+
+-- Three borders of 1 pixel, outside in, a paper CG inside them, a header and text in the
+-- game's font. "red" is the game's type 1 (_説明_表示 with 1, the red skill comments).
+local COMMENT = {
+  normal = { border = { { 76, 232, 255 }, { 0, 0, 0 }, { 255, 255, 255 } }, cg = 10050,
+    head = { 0, 0, 0 }, text = { 64, 64, 64 } },
+  red = { border = { { 255, 120, 200 }, { 0, 0, 0 }, { 170, 0, 0 } }, cg = 10049,
+    head = { 255, 215, 215 }, text = { 240, 160, 160 } },
+}
+local SUB = { 255, 0, 0 }
+local WRAP, MOST, LINE, HEAD = 520, 20, 18, 22 -- WordWrapText 520, 20 lines, 20 - 2, header 22
+local function cstyle(size, c)
+  -- measure: widths as the game's MeasureText reckons them (rq.hud.text_width, 2.13.0).
+  return { font = "game", face = 258, size = size, spacing = 0.95, space = -6, r = c[1], g = c[2], b = c[3],
+    measure = true }
+end
+
+local function letters(str)
+  local out = {}
+  for _, c in utf8.codes(str, true) do out[#out + 1] = utf8.char(c) end
+  return out
+end
+
+-- MeasureTextUntilPixel: how many letters fit in WRAP pixels.
+local function fit_count(chs, style)
+  if text_w(table.concat(chs), style) <= WRAP then return #chs end
+  local lo, hi = 0, #chs
+  while hi - lo > 1 do
+    local mid = (lo + hi) // 2
+    if text_w(table.concat(chs, "", 1, mid), style) <= WRAP then lo = mid else hi = mid end
+  end
+  return lo
+end
+
+-- T_Comment wraps at 520 pixels at spacing 1.0 (WordWrapText(text, ..., 520, 1.0, 1.0)), and
+-- draws at 0.95. A line breaks after the last word that fits; a word longer than the line breaks
+-- where it stops fitting, and a letter that is not ASCII (Japanese) can end a line. \n breaks a
+-- line, and @ and $ with game, as the game's texts.
+local function wrap(text, style, game)
+  local out = {}
+  if text == nil or text == "" then return out end
+  text = tostring(text)
+  if game then text = text:gsub("[@$]", "\n") end
+  local ms = with(style, { spacing = 1.0 })
+  for para in (text .. "\n"):gmatch("(.-)\n") do
+    local chs = letters(para)
+    while true do
+      local n = #chs
+      local fit = fit_count(chs, ms)
+      if fit >= n then
+        out[#out + 1] = table.concat(chs)
+        break
+      end
+      local i = math.max(fit, 1) -- 1-based: the last letter that fits
+      local function ascii_word(ch) return #ch == 1 and ch:byte() > 32 and ch:byte() < 128 end
+      while i > 1 and ascii_word(chs[i]) do i = i - 1 end
+      while i > 1 and #chs[i] == 1 and chs[i]:byte() <= 32 do i = i - 1 end
+      if i == 1 then i = math.max(fit, 1) end
+      out[#out + 1] = table.concat(chs, "", 1, i)
+      while i < n and #chs[i + 1] == 1 and chs[i + 1]:byte() <= 32 do i = i + 1 end
+      if i >= n then break end
+      chs = { table.unpack(chs, i + 1) }
+    end
+  end
+  return out
+end
+
+local function widest(lines, style)
+  local w = 0
+  for _, l in ipairs(lines) do w = math.max(w, text_w(l, style)) end
+  return w
+end
+
+-- The window's layout, as T_Comment::create lays it out.
+local function comment_layout(text, o)
+  if text ~= nil and type(text) ~= "string" then error("uikit.comment: text is a string", 3) end
+  if o.header ~= nil and type(o.header) ~= "string" then error("uikit.comment: header is a string", 3) end
+  if o.sub ~= nil and type(o.sub) ~= "string" then error("uikit.comment: sub is a string", 3) end
+  local look = COMMENT[o.style or "normal"]
+  if not look then error("uikit.comment: style is \"normal\" or \"red\"", 3) end
+  local ts, ss, hs = cstyle(20, look.text), cstyle(20, SUB), cstyle(HEAD, look.head)
+  local lines, subs = wrap(text, ts, o.game), wrap(o.sub, ss, o.game)
+  local header = o.header or ""
+  if #lines == 0 and #subs == 0 and header == "" then return nil end
+  if #lines + #subs > MOST then
+    while #lines > MOST do table.remove(lines) end
+    while #lines + #subs > MOST do table.remove(subs) end
+  end
+  local w1 = header ~= "" and text_w(header, hs) or 0
+  local w2 = math.max(widest(lines, ts), widest(subs, ss)) + 10
+  local W, H, tx, ty = math.max(w1, w2) + 8, 8, 4, 4
+  local h2, h3 = 0, 0
+  if #lines > 0 then h2 = LINE * #lines; H = H + h2 end
+  if #subs > 0 then
+    h3 = LINE * #subs
+    if h2 > 0 then h2, h3 = h2 + 3, h3 + 3 end
+    H = H + h3
+  end
+  if w1 > 0 then
+    H, ty = H + HEAD - 2, ty + HEAD - 2
+    if w1 > w2 then tx = tx + math.floor((w1 - w2) / 2) end
+  end
+  return { look = look, W = W, H = H, tx = tx, ty = ty, h2 = h2, lines = lines, subs = subs,
+    header = header, ts = ts, ss = ss, hs = hs }
+end
+
+-- Where it goes, as T_Comment::setPos: at the mouse (11 right, 20 down) unless x and y are
+-- given; left of the mouse (or ending at 1024) past the right edge, ending at 736 past the bottom.
+local function comment_place(L, x, y)
+  local W, H = L.W + 5, L.H + 5 -- with the shadow
+  local mx
+  if x == nil or y == nil then
+    mx = mouse.x
+    x, y = mouse.x + 11, mouse.y + 20
+  else
+    mx = 1024
+  end
+  if x + W > 1024 then x = mx - W end
+  if y + H > 736 then y = 736 - H end
+  return math.floor(x), math.floor(y)
+end
+
+local function comment_draw(L, x, y)
+  local W, H, look = L.W, L.H, L.look
+  hud.top(function()
+    -- The shadow: black at half, 5 pixels right and below.
+    hud.rect(x + W, y + 5, 5, H, 0, 0, 0, 128)
+    hud.rect(x + 5, y + H, W - 5, 5, 0, 0, 0, 128)
+    for i, c in ipairs(look.border) do
+      hud.rect(x + i - 1, y + i - 1, W - 2 * (i - 1), H - 2 * (i - 1), c[1], c[2], c[3], 255)
+    end
+    local n = #look.border
+    hud.cg(x + n, y + n, look.cg, { src = { 0, 0, W - 2 * n, H - 2 * n } })
+    if L.header ~= "" then hud.text(x + 4, y + 4, L.header, L.hs) end
+    for i, l in ipairs(L.lines) do hud.text(x + L.tx, y + L.ty + (i - 1) * LINE, l, L.ts) end
+    for i, l in ipairs(L.subs) do hud.text(x + L.tx, y + L.ty + L.h2 + (i - 1) * LINE, l, L.ss) end
+  end)
+end
+
+---The game's comment window (2.13.0), drawn now on the top layer. opts: header, sub (red, under
+---the text), style ("normal" or "red"), x and y (default at the mouse), game (@ breaks a line, as
+---in the game's texts), id. Returns x, y, w, h, or nil when there is nothing to show.
+function ui.comment(text, o)
+  o = o or {}
+  if type(o) ~= "table" then error("uikit.comment: opts is a table", 2) end
+  local L = comment_layout(text, o)
+  if not L then return nil end
+  local x, y = comment_place(L, o.x, o.y)
+  comment_draw(L, x, y)
+  show("comment", o.id or "comment", L.header ~= "" and L.header or (L.lines[1] or L.subs[1]), x, y, L.W, L.H,
+    { value = table.concat(L.lines, "\n") })
+  return x, y, L.W, L.H
+end
+
+---The size the comment window would have (2.13.0): w, h, without the shadow; nil for nothing.
+function ui.comment_size(text, o)
+  o = o or {}
+  if type(o) ~= "table" then error("uikit.comment_size: opts is a table", 2) end
+  local L = comment_layout(text, o)
+  if not L then return nil end
+  return L.W, L.H
+end
+
+-- A widget's tip: after the wait (500 ms) on the same widget, the comment shows with the game's
+-- sound 5001 (効果音_説明): at the mouse, or at the widget's right edge for the keys' cursor (as
+-- the battle's commands: left of it when it does not fit). tip: a text or {text, header, sub,
+-- style, game, x, y}.
+tip_show = function(id, tip, wait, x, y, w, h, src)
+  tipst.hit = true
+  local now = rq.time_ms()
+  if tipst.id ~= id then
+    tipst.id, tipst.t0, tipst.shown, tipst.src = id, now, false, src
+  end
+  if now - tipst.t0 < (wait or TIP_WAIT) then return end
+  local o = type(tip) == "table" and tip or { text = tip }
+  local L = comment_layout(o.text, o)
+  if not L then return end
+  if not tipst.shown then
+    tipst.shown = true
+    pcall(rq.sound.play, 5001)
+  end
+  local cx, cy = o.x, o.y
+  if cx == nil and tipst.src == "keys" then
+    cx, cy = x + w, y
+    if cx + L.W + 5 > 1024 then cx = x - L.W - 5 end
+  end
+  cx, cy = comment_place(L, cx, cy)
+  comment_draw(L, cx, cy)
+  show("comment", "tip", L.header ~= "" and L.header or (L.lines[1] or L.subs[1]), cx, cy, L.W, L.H,
+    { value = table.concat(L.lines, "\n") })
+end
+
+-- ---- Bars (2.14.0): T_Bar ----
+
+-- The game's bar CGs. dir "up": upright, filling from the bottom (T_Bar type 2).
+local BARS = {
+  hp = { cg = 10125 },       -- HP on the status card and the character card
+  mini = { cg = 10098 },     -- HP on the mini cards
+  monster = { cg = 10142 },  -- a monster's HP
+  exp = { cg = 10302 },      -- EXP on the battle results
+  charisma = { cg = 10013 }, -- the hub's system info: charisma's progress
+  quest = { cg = 11303 },    -- a quest on the map
+  magnum = { cg = 11316, dir = "up" }, -- the Magnum gauge
+}
+local bars = {} -- id -> {shown, from, to, t0, ms}
+
+local function num(v, what)
+  if type(v) ~= "number" or v ~= v then error("uikit.bar: " .. what .. " is a number", 3) end
+  return v
+end
+
+---A gauge, as the game's T_Bar: a CG (or a color) cut to value / max of its width, or of its height
+---from the bottom with dir "up"; a value above 0 shows at least 1 pixel. opts: style (a name in
+---BARS), cg, dir ("right" or "up"), color ({r, g, b, a}, with w and h, default 190 by 4), anim (ms:
+---the value shown moves to a new value in a straight line over that time, as T_Bar::anime), id,
+---x, y, tip, tip_wait. Returns the value shown.
+function ui.bar(value, max, o)
+  o = o or {}
+  if type(o) ~= "table" then error("uikit.bar: opts is a table", 2) end
+  value, max = num(value, "value"), num(max, "max")
+  local look = o.style ~= nil and BARS[o.style]
+  if o.style ~= nil and not look then
+    local names = {}
+    for k in pairs(BARS) do names[#names + 1] = k end
+    table.sort(names)
+    error("uikit.bar: style is one of " .. table.concat(names, ", "), 2)
+  end
+  local cg = o.cg or (look and look.cg)
+  local dir = o.dir or (look and look.dir) or "right"
+  if dir ~= "right" and dir ~= "up" then error("uikit.bar: dir is \"right\" or \"up\"", 2) end
+  if o.anim ~= nil and (math.type(o.anim) ~= "integer" or o.anim < 0) then
+    error("uikit.bar: anim is a whole number of ms, 0 or more", 2)
+  end
+  local W, H
+  local color = o.color
+  if cg then
+    if math.type(cg) ~= "integer" then error("uikit.bar: cg is a CG number", 2) end
+    W, H = hud.cg_size(cg)
+    if not W then error("uikit.bar: no CG " .. cg, 2) end
+  else
+    if color == nil then error("uikit.bar: give a style, a cg or a color", 2) end
+    if type(color) ~= "table" then error("uikit.bar: color is {r, g, b, a}", 2) end
+    W, H = 190, 4
+  end
+  local x, y, w, h = place(o, W, H)
+  if not cg then W, H = w, h end
+  -- The value shown: the game takes no more than max and moves from the old one over anim ms.
+  if max < 1 then return 0 end
+  value = math.max(0, math.min(value, max))
+  local id = id_of(o, "bar")
+  local st = bars[id]
+  local now = rq.time_ms()
+  if not st or not o.anim or o.anim == 0 then
+    st = { shown = value, to = value }
+    bars[id] = st
+  elseif st.to ~= value then
+    st.from, st.to, st.t0, st.ms = st.shown, value, now, o.anim
+  end
+  if st.t0 then
+    local t = now - st.t0
+    if t >= st.ms then
+      st.shown, st.t0 = st.to, nil
+    else
+      st.shown = st.from + (st.to - st.from) * t / st.ms
+    end
+  end
+  local v = st.shown
+  local function cut(full)
+    if v <= 0 then return 0 end
+    return math.max(1, math.floor(full * (v / max)))
+  end
+  if dir == "up" then
+    local ch = cut(H)
+    if ch > 0 then
+      if cg then
+        hud.cg(x, y + H - ch, cg, { src = { 0, H - ch, W, ch } })
+      else
+        hud.rect(x, y + H - ch, W, ch, color[1] or color.r or 0, color[2] or color.g or 0,
+          color[3] or color.b or 0, color[4] or color.a or 255)
+      end
+    end
+  else
+    local cw = cut(W)
+    if cw > 0 then
+      if cg then
+        hud.cg(x, y, cg, { src = { 0, 0, cw, H } })
+      else
+        hud.rect(x, y, cw, H, color[1] or color.r or 0, color[2] or color.g or 0,
+          color[3] or color.b or 0, color[4] or color.a or 255)
+      end
+    end
+  end
+  -- It takes no click and is no stop for the keys; a tip shows under the mouse.
+  if o.tip and not frame.blind and inside(x, y, W, H) then tip_show(id, o.tip, o.tip_wait, x, y, W, H, "mouse") end
+  show("bar", o.id or "bar", o.id ~= nil and tostring(o.id) or "bar", x, y, W, H,
+    { value = tostring(math.floor(v)) })
+  return v
+end
+
 -- What the hub's widgets (uikit_hub.lua) build on.
 local kit = {
   copy = copy, piece = piece, interact = interact, show = show, place = place, play = play,
   with = with, id_of = id_of, inside = inside, pulse = pulse, text_w = text_w, run_box = run_box,
+  comment_size = ui.comment_size,
   mouse = mouse, frame = frame, focus = focus, focus_group = focus_group, set_focus = set_focus,
 }
 

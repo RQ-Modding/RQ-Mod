@@ -440,7 +440,8 @@ function ui.item_row(row, o)
     end
   end
   local rid = id_of({ id = key }, "itemrow")
-  local over, clicked = interact(rid, x, y, w, h, o.disabled or on_button, { group = o.group, nav = o.nav })
+  local over, clicked = interact(rid, x, y, w, h, o.disabled or on_button,
+    { group = o.group, nav = o.nav, tip = o.tip, tip_wait = o.tip_wait })
   ui.draw(bg, x, y, w, h, o.disabled and GREY or nil)
   if r.name and r.name ~= "" then draw_name(x + 2, y + 1, r.name, v) end
   if r.icon and r.icon > 0 then
@@ -622,9 +623,22 @@ end
 
 -- ---- Counters ----
 
----A number: the vault's counter (font "count", default) or the gold digits ("gold"). opts: x, y,
----w (with align: "left", "center", the default, or "right"), digits (pads with zeros), gap
----(pixels between gold digits).
+-- The game's digit fonts (2.14.0), each a CG of 10 cells, by where the game uses them.
+local DIGITS = {
+  gold = 11103,      -- the vault's and the shop's gold
+  hp = 10096,        -- HP in battle, the mini cards' skill uses
+  level = 10122,     -- levels and maximums on the cards, skill uses on the status page
+  level_max = 10124, -- a level at its maximum, on the cards
+  status = 10321,    -- the status page's points, EXP and gold, the level up, the results
+  small = 10210,     -- the mini-mini cards' skill uses
+  world = 10507,     -- the world level on the title
+  gallery = 12252,   -- the CG mode's page numbers
+}
+
+---A number: the vault's counter (font "count", default), or a digit font of the game's: a name in
+---DIGITS or a CG number (2.14.0). opts: x, y, w (with align: "left", "center", the default, or
+---"right"), digits (pads with zeros), gap (pixels between digits), hyphen (the font's CG has an 11th
+---cell, "-", for negative numbers), tint (multiplies the digits' colors, 2.15.0). Returns x, y, w, h.
 function ui.number(value, o)
   o = o or {}
   if math.type(value) ~= "integer" then error("uikit.number: expected a whole number", 2) end
@@ -633,27 +647,45 @@ function ui.number(value, o)
     error("uikit.number: align is \"left\", \"center\" or \"right\"", 2)
   end
   local v = T("vault")
-  local s = tostring(value)
-  if o.digits and #s < o.digits then s = string.rep("0", o.digits - #s) .. s end
-  if o.font == "gold" then
-    local g = v.gold
+  local font = o.font
+  if font ~= nil and font ~= "count" then
+    -- A digit font (2.14.0): a CG cut across into 10 cells, 0 to 9, or 11 with a hyphen, as the
+    -- game's T_NumberCg (ＣＧ_分割_横).
+    local cg = DIGITS[font] or (math.type(font) == "integer" and font) or nil
+    if not cg then
+      local names = {}
+      for k in pairs(DIGITS) do names[#names + 1] = '"' .. k .. '"' end
+      table.sort(names)
+      error("uikit.number: font is \"count\", " .. table.concat(names, ", ") .. " or a CG number", 2)
+    end
+    local cw, ch = hud.cg_size(cg)
+    if not cw then error("uikit.number: no CG " .. cg, 2) end
+    cw = cw // (o.hyphen and 11 or 10)
+    -- The game draws no less than 0; with a hyphen a negative number gets its "-".
+    local s = tostring(o.hyphen and value or math.max(0, value))
+    local minus = s:sub(1, 1) == "-"
+    if minus then s = s:sub(2) end
+    if o.digits and #s < o.digits then s = string.rep("0", o.digits - #s) .. s end
+    if minus then s = "-" .. s end
     local gap = o.gap or 0
-    local tw = #s * (g.w + gap) - gap
-    local x, y = place(o, o.w or tw, g.h)
+    local tw = #s * (cw + gap) - gap
+    local x, y = place(o, o.w or tw, ch)
     if o.w then
       if align == "center" then x = x + (o.w - tw) // 2 elseif align == "right" then x = x + o.w - tw end
     end
     for i = 1, #s do
-      local d = s:byte(i) - 48
-      if d >= 0 and d <= 9 then hud.cg(x + (i - 1) * (g.w + gap), y, g.cg, { src = { d * g.w, 0, g.w, g.h } }) end
+      local c = s:byte(i)
+      local d = c == 45 and 10 or c - 48
+      hud.cg(x + (i - 1) * (cw + gap), y, cg, { src = { d * cw, 0, cw, ch }, tint = o.tint })
     end
-    return
-  elseif o.font ~= nil and o.font ~= "count" then
-    error("uikit.number: font is \"count\" or \"gold\"", 2)
+    return x, y, tw, ch
   end
+  local s = tostring(value)
+  if o.digits and #s < o.digits then s = string.rep("0", o.digits - #s) .. s end
   local tw = text_w(s, v.count)
   local x, y = place(o, o.w or tw, v.count.size)
   hud.text(x, y, s, with(v.count, o.w and { w = o.w, align = align } or {}))
+  return x, y, o.w or tw, v.count.size
 end
 
 -- ---- Filters ----

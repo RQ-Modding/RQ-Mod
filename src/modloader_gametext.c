@@ -48,7 +48,7 @@ static struct gt_entry g_gt[GT_MAX];
 static int g_ngt;
 static unsigned g_gen = 1;  /* raised after each HUD draw: entries used since are kept */
 
-static int g_fno_draw = -2, g_fno_select, g_fno_size, g_fno_spacing, g_fno_fixed;
+static int g_fno_draw = -2, g_fno_select, g_fno_size, g_fno_spacing, g_fno_fixed, g_fno_measure;
 static int g_gi_font, g_gi_size, g_gi_spacing, g_gi_fixed;
 
 static int fn(const char *name)
@@ -66,6 +66,7 @@ static int ready(void)
 		g_fno_size = fn("SetFontSize");
 		g_fno_spacing = fn("SetSpacing");
 		g_fno_fixed = fn("SetFixedWidthSpacing");
+		g_fno_measure = fn("MeasureText");
 		g_gi_font = ain_get_global(ain, "currentFont");
 		g_gi_size = ain_get_global(ain, "currentFontSize");
 		g_gi_spacing = ain_get_global(ain, "currentSpacing");
@@ -153,6 +154,42 @@ static int draw_line(const char *utf8, const struct rq_gametext *st)
 		call_i(g_fno_fixed, saved_fixed);
 	}
 	return no > 0 ? no : 0;
+}
+
+/* The width as the game's own windows reckon it (New/MeasureText.jaf, MeasureText(text, true)):
+ * the kerning tables' advances, leaving out the spacing after the last letter. T_Comment sizes
+ * its window by it (2.13.0). -1 when the game has no MeasureText. */
+int rq_gametext_measure_game(const char *utf8, const struct rq_gametext *st)
+{
+	int saved_font = 0, saved_size = 0, saved_fixed = 0, have = 0, w;
+	float saved_spacing = 1.0f;
+
+	if (!ready() || g_fno_measure < 0)
+		return -1;
+	if (!utf8 || !*utf8)
+		return 0;
+	if (g_gi_font >= 0 && g_gi_size >= 0 && g_gi_spacing >= 0 && g_gi_fixed >= 0) {
+		saved_font = global_get(g_gi_font).i;
+		saved_size = global_get(g_gi_size).i;
+		saved_spacing = global_get(g_gi_spacing).f;
+		saved_fixed = global_get(g_gi_fixed).i;
+		have = 1;
+	}
+	call_i(g_fno_select, st->face);
+	call_i(g_fno_size, st->size);
+	call_f(g_fno_spacing, st->spacing);
+	call_i(g_fno_fixed, st->space);
+	stack_push(new_str(utf8));
+	stack_push(1);
+	vm_call(g_fno_measure, -1);
+	w = stack_pop().i;
+	if (have && saved_font > 0) {
+		call_i(g_fno_select, saved_font);
+		call_i(g_fno_size, saved_size);
+		call_f(g_fno_spacing, saved_spacing);
+		call_i(g_fno_fixed, saved_fixed);
+	}
+	return w;
 }
 
 static void make_key(char *buf, size_t n, const char *utf8, const struct rq_gametext *st)

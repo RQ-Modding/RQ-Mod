@@ -674,10 +674,22 @@ function hud.text(x, y, str, style) end
 ---`shadow`, `space` and `spacing`. With `font = "game"` it also gives the height of the line the game
 ---draws, which `valign` centers.
 ---
+---With `font = "game"` and `measure = true` it gives the width the game's own windows reckon instead
+---(its `MeasureText`): the letters' advances by its kerning tables, without the spacing after the
+---last letter, and the font size as the height. The game sizes its comment window and wraps its texts
+---by it, so a window laid out by it matches the game's to the pixel. It can be a pixel or two off the
+---line `rq.hud.text` draws.
+---
 ---Since: 0.2.0
 ---Changed: 2.5.0 Takes `font = "game"`, and then also gives the height.
+---Changed: 2.13.0 `measure`.
+---
+---```lua
+---local st = { font = "game", face = 258, size = 20, spacing = 0.95, space = -6, measure = true }
+---local w = rq.hud.text_width("Use for organization", st) -- 134, as the game's comment window
+---```
 ---@param str string The text.
----@param size_or_style? number|rq.HudTextStyle A font size, or a style. Default size 16.
+---@param size_or_style? number|rq.HudTextStyle|{measure?: boolean} A font size, or a style; `measure` with `font = "game"`. Default size 16.
 ---@return integer px Width in pixels; 0 for an empty text.
 ---@return integer|nil h With `font = "game"`: the height in pixels. nil for the HUD font.
 function hud.text_width(str, size_or_style) end
@@ -4694,7 +4706,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.12.0"
+rq.version = "2.15.0"
 
 rq.units = units
 rq.items = items
@@ -5331,7 +5343,7 @@ function sound.set_volume(handle, volume, fade_ms) end
 ---@field scroll? rq.UiScrollPieces The game's scroll bar. A theme with it gives `rq.uikit.list` that bar. Since 2.6.0.
 ---@field close? {normal: rq.UiPiece, hover: rq.UiPiece} The close button. Since 2.6.0.
 ---@field hub_page? table A page over the hub: `x`, `y`, `w`, `h`, `dim`, `outer`, `line` (colors), `title` (a text style), `pad`. Since 2.6.0.
----@field options? table The choice menu's look for `rq.uikit.options`: `base` (the menu's background), `sep`, `panels` (the text row's pieces for 1 to 3 lines, with `ph`, their height), `text`, `text_fit`, `comment` (text styles). Since 2.7.0.
+---@field options? table The choice menu's look for `rq.uikit.options`: `base` (the menu's background), `sep`, `panels` (the text row's pieces for 1 to 3 lines, with `ph`, their height), `text`, `text_fit` (text styles). Since 2.7.0; `comment` gone in 2.13.0 (the comment is the game's window).
 ---@field vault? table The vault's item rows: `rows` (the backgrounds by style: vault, storage, and since 2.9.0 shop and equip), `name`, `info`, `number`, `level_text`, `count` (text styles), `name_fit`, `info_fit`, `level_fit`, `level`, `locked`, `count_box`, `stock_box` (2.9.0) (pieces), `rank` (the first rank badge CG), `kinds` (the kind marks' CGs), `current` (a color), `buttons` (the row buttons' pieces and places), `gold` (the gold digits), `price` (2.9.0: the shop's price place, cells and gap). Since 2.8.0.
 ---@field filters? table The vault's filter column: `back`, `backs` (2.9.0: the column's grey by style), `cats`, `classes`, `lock`, `equip` (2.9.0) (each with `lit` and `dim` pieces), and `sub` (the sub-filters' panel: `base`, `title`, and by category `title`, `cgs`, `names`). Since 2.8.0.
 
@@ -5388,6 +5400,26 @@ function sound.set_volume(handle, volume, fade_ms) end
 ---@field h? integer Height in pixels.
 ---@field id? any Keeps the widget's state across updates (a drag, a list's scroll). Without one a widget is known by the order of the calls, so give one to widgets that show or hide.
 ---@field nav? false|{up?: any, down?: any, left?: any, right?: any}|fun(dir: "up"|"down"|"left"|"right"): any Where the arrow keys go from this widget, by the other widget's `id`, in place of the nearest one that way; a function returns the id or nil. false: the keys' cursor skips it. Since 2.12.0.
+---@field tip? string|rq.UiTip On a widget that takes a click: the game's comment window after the mouse or the keys' cursor stays on it `tip_wait` ms (see `rq.uikit.comment`). A text, or a table with a header and more; false for none where a widget has a tip of its own (`skill_button`). Since 2.13.0.
+---@field tip_wait? integer How long the cursor stays on the widget before its tip shows, in ms. Default 500, as the game's. Since 2.13.0.
+
+---A widget's tip: what `rq.uikit.comment` shows, and where.
+---
+---Since: 2.13.0
+---@class rq.UiTip: rq.UiCommentOpts
+---@field text? string The text.
+
+---What `rq.uikit.comment` takes besides the text.
+---
+---Since: 2.13.0
+---@class rq.UiCommentOpts
+---@field header? string A title over the text, in 22-pixel black (pink in "red").
+---@field sub? string Red lines under the text, 3 pixels apart from it, as the game's "cannot use" notes.
+---@field style? "normal"|"red" "normal" (default): the paper window with a cyan border. "red": the game's red one, as for the skills of a character who cannot use them.
+---@field x? integer Left edge, in game pixels. Default: 11 right of the mouse.
+---@field y? integer Top edge, in game pixels. Default: 20 under the mouse.
+---@field game? boolean `@` and `$` break a line too, as in the game's own texts (`rq.ain` strings). Default false: only `\n` does.
+---@field id? any The window's id in `rqmod-ctl ui` (as `"comment-" .. id`). Default "comment".
 
 ---A row or column for `rq.uikit.row` and `col`.
 ---@class rq.UiBox: rq.UiPlace
@@ -5431,8 +5463,16 @@ function sound.set_volume(handle, volume, fade_ms) end
 ---Config's Mods tab, and where a mod calls it. Elsewhere its widgets over the game's screens are
 ---for the mouse, and the arrows stay the game's.
 ---
+---Tips (2.13.0): every widget that takes a click has `tip`, the game's comment window
+---(`rq.uikit.comment`) shown when the mouse or the keys' cursor has stayed on it 500 ms, with the
+---game's sound 5001. Under the mouse it goes at the mouse, as the game's; from the keys, at the
+---widget's right edge (left of it when it does not fit). It goes when the cursor leaves. A disabled
+---widget shows its tip under the mouse too. `tabs`, `choice` and `sort` take `tips`, one for each
+---entry; `list` and `quest_list` rows take `tip`.
+---
 ---Since: 1.7.0
 ---Changed: 2.12.0 The keys' cursor.
+---Changed: 2.13.0 Tips.
 ---
 ---```lua
 ---local ui = rq.uikit
@@ -5506,7 +5546,7 @@ function uikit.checkbox(value, text, opts) end
 ---Since: 1.7.0
 ---@param list string[] The texts.
 ---@param index? integer The checked one; nil for none.
----@param opts? rq.UiPlace|{dir?: "col"|"row", gap?: integer, disabled?: boolean} `dir` (default "col"), `gap` in pixels (default 20), `disabled`.
+---@param opts? rq.UiPlace|{dir?: "col"|"row", gap?: integer, disabled?: boolean, tips?: (string|rq.UiTip)[]} `dir` (default "col"), `gap` in pixels (default 20), `disabled`, `tips` (2.13.0: one for each checkbox).
 ---@return integer|nil index The checked one.
 ---@return boolean changed true on the update it changed.
 function uikit.choice(list, index, opts) end
@@ -5536,7 +5576,7 @@ function uikit.slider(value, opts) end
 ---Changed: 2.6.0 Added `opts.style`.
 ---@param list string[] The tab texts.
 ---@param index integer The current tab.
----@param opts? rq.UiPlace|{style?: "town"|string, gap?: integer} Place; `w` is each tab's width (default 120, or the style's). `style`, and `gap` between styled tabs.
+---@param opts? rq.UiPlace|{style?: "town"|string, gap?: integer, tips?: (string|rq.UiTip)[]} Place; `w` is each tab's width (default 120, or the style's). `style`, and `gap` between styled tabs. `tips` (2.13.0): one for each tab.
 ---@return integer index The current tab.
 ---@return boolean changed true on the update it changed.
 function uikit.tabs(list, index, opts) end
@@ -5567,7 +5607,7 @@ function uikit.panel(opts, fn) end
 ---Since: 1.7.0
 ---Changed: 2.5.0 Stays inside a clip of your own; before, its clip replaced yours.
 ---Changed: 2.6.0 The game's scroll bar with a theme that has `scroll`.
----@param items (string|{text: string, disabled?: boolean})[] The rows.
+---@param items (string|{text: string, disabled?: boolean, tip?: string|rq.UiTip})[] The rows; `tip` since 2.13.0.
 ---@param index? integer The chosen row; nil for none.
 ---@param opts rq.UiPlace|{row_h?: integer, block?: boolean} `w` and `h` are needed. `row_h` (default 30), `block = false` leaves out the dark block.
 ---@return integer|nil index The chosen row.
@@ -5632,6 +5672,140 @@ function uikit.last() end
 ---Since: 1.7.0
 ---@return boolean hovered true when a widget drawn so far is under the mouse.
 function uikit.hovered() end
+
+---Draws the game's comment window, its tooltip, on this update.
+---
+---It is the game's own look (`T_Comment`): a paper window with three thin borders, a shadow, a
+---header, the text in the game's font and red `sub` lines under it, laid out as the game lays its
+---own out, to the pixel. The text wraps at 520 pixels, as the game's, and shows 20 lines at most.
+---It is drawn on the top layer (`rq.uikit.top`), over every widget. Call it on every update it
+---should show; it does not wait. For a tip that waits for the mouse, give a widget `tip`.
+---
+---Without `x` and `y` it goes at the mouse, 11 right and 20 under it; past the screen's right edge it
+---goes left of the mouse, and past the bottom it ends at 736, as the game's. A given `x` past the
+---right edge ends at 1024. It takes no clicks and covers no game control: `rqmod-ctl` lists it in
+---the section "kit" with the type "comment" and its text as `value`.
+---
+---Raises an error when the text, `header` or `sub` is not a string, `style` is unknown or `opts` is
+---not a table.
+---
+---Since: 2.13.0
+---
+---```lua
+---rq.on_frame(function()
+---  if hovering_my_icon then
+---    rq.uikit.comment("Doubles the gold from quests.", { header = "Golden Touch", sub = "Not in the tutorial." })
+---  end
+---end)
+---```
+---@param text string|nil The text. `\n` breaks a line.
+---@param opts? rq.UiCommentOpts `header`, `sub`, `style`, `x`, `y`, `game`, `id`.
+---@return integer|nil x The window's left edge, or nil when there is nothing to show (no text, header or sub).
+---@return integer|nil y Its top edge.
+---@return integer|nil w Its width, without the 5-pixel shadow.
+---@return integer|nil h Its height, without the shadow.
+---@see rq.uikit.comment_size
+function uikit.comment(text, opts) end
+
+---Returns the size the comment window would have, without drawing it.
+---
+---Raises an error as `comment` does.
+---
+---Since: 2.13.0
+---@param text string|nil The text.
+---@param opts? rq.UiCommentOpts `header`, `sub`, `style`, `game`.
+---@return integer|nil w The width without the 5-pixel shadow; nil when there is nothing to show.
+---@return integer|nil h The height without the shadow.
+function uikit.comment_size(text, opts) end
+
+---What `rq.uikit.bar` takes.
+---
+---Since: 2.14.0
+---@class rq.UiBarOpts: rq.UiPlace
+---@field style? "hp"|"mini"|"monster"|"exp"|"charisma"|"quest"|"magnum" One of the game's bars: `"hp"` (10125, the status and character cards' HP), `"mini"` (10098, the mini cards' HP), `"monster"` (10142, a monster's HP), `"exp"` (10302, EXP on the battle results), `"charisma"` (10013, the hub's), `"quest"` (11303, a quest on the map), `"magnum"` (11316, the Magnum gauge, upright).
+---@field cg? integer Any CG as the bar, a mod image included; it is the bar's size.
+---@field dir? "right"|"up" "right" (default): it fills from the left. "up": from the bottom. Default "up" for `"magnum"`.
+---@field color? integer[]|{r: integer, g: integer, b: integer, a?: integer} A bar of one color, `w` by `h` (default 190 by 4, as the battle's).
+---@field anim? integer In ms: a new value is reached in a straight line over this time, as the game's bars move. Default 0, at once. Needs an `id`, or the same call order.
+
+---Draws one of the game's bars, a gauge: its CG cut to `value / max` of its width, as the game's
+---`T_Bar`.
+---
+---With `dir = "up"` it is cut to that part of its height and fills from the bottom. A value above 0
+---shows at least 1 pixel. A value is kept between 0 and `max`; a `max` under 1 draws nothing. With
+---`anim` the value shown moves from the old value to a new one over that many ms.
+---
+---Only the bar: the frames round the game's bars are parts of each screen's background. It takes no
+---click and is not on the keys' cursor; `tip` shows under the mouse. It is listed for `rqmod-ctl
+---ui` with the type "bar" and the value it shows, and never covers a game control.
+---
+---Raises an error for a `value` or `max` that is not a number, an unknown `style` or `dir`, a CG that
+---is not there, no `style`, `cg` or `color`, or an `anim` that is not a whole number of 0 or more.
+---
+---Since: 2.14.0
+---
+---```lua
+---rq.on_frame(function()
+---  local c = rq.chara.get(1)
+---  rq.uikit.bar(c.hp, c.hp_max, { style = "hp", x = 74, y = 394, id = "hp", anim = 250 })
+---  rq.uikit.bar(fuel, 100, { color = { 255, 200, 0 }, x = 400, y = 600, w = 120, h = 6, tip = "Fuel" })
+---end)
+---```
+---@param value number The value.
+---@param max number The value of a full bar.
+---@param opts? rq.UiBarOpts `style`, `cg` or `color`; `dir`, `anim`; place, `id`, `tip`.
+---@return number shown The value the bar shows on this update (moving with `anim`).
+function uikit.bar(value, max, opts) end
+
+---What `rq.uikit.skill_button` takes.
+---
+---Since: 2.15.0
+---@class rq.UiSkillOpts: rq.UiPlace
+---@field rank? integer The skill's rank: a mark for each rank above 1, after the name. Default 1, or the character's with `chara`.
+---@field chara? integer A character number: the rank, and for a skill that is an action its uses, are the character's (`キャラスキル_ランク`, `キャラスキル_使用回数`), as the status page shows them.
+---@field long? boolean The long tile, 167 wide, of a red, blue or item skill (`延長スキルボタン_ＣＧ番号`). The game draws it 25 to the left of the normal tile's place.
+---@field count? integer|false The uses, in the level digits at the tile's x + 120, two digits padded with zeros, 99 at most. Default: the character's with `chara`. false: none.
+---@field count_max? integer|false On a long tile: the most uses, at x + 145. Default: the character's with `chara`.
+---@field disabled? boolean Darkened as the game greys a skill: the tile and its uses at half, the name's color halved. It cannot be clicked; under the mouse it gets the game's red frame, and its tip still shows.
+---@field slot? integer With `skill` nil: the empty slot, with this number on it.
+
+---Draws a skill's tile, as the game's status page draws it, and returns whether it was clicked.
+---
+---The tile is the CG of the skill's panel color, the game's own pick (`スキルボタン_ＣＧ番号`), 142 by
+---24. The name is in the game's font, fitted as the game fits it: 18 pixels, else 16, 14 or 12 until
+---the name and the rank marks fit, then squeezed. Under the mouse it shows the CG's hovered look
+---and the game's yellow frame; Enter and the keys' cursor work as on every widget.
+---
+---Its `tip` is the game's comment for the skill, its name and `スキル_説明文１`, right of the tile as
+---the status page shows it; give a `tip` of your own, or false for none. With `skill` nil and `slot`
+---it draws the empty slot (CG 10121) with its number.
+---
+---It is listed for `rqmod-ctl ui` with the type "skill" and the skill number as `value`; an empty
+---slot with the type "slot", which takes no click.
+---
+---Raises an error for a skill that is not a whole number above 0 or has no tile (no long tile, with
+---`long`), no `slot` without a skill, or a `rank`, `chara`, `count` or `count_max` that is not a whole
+---number.
+---
+---Since: 2.15.0
+---
+---```lua
+---rq.on_frame(function()
+---  if not open then return end
+---  open = rq.uikit.page({ id = "skills", title = "Skills" }, function(x, y)
+---    for i, skill in ipairs(my_skills) do
+---      if rq.uikit.skill_button(skill, { x = x + 20, y = y + i * 26, chara = chara, id = skill }) then
+---        pick(skill)
+---      end
+---    end
+---    rq.uikit.skill_button(nil, { x = x + 200, y = y + 26, slot = 1 })
+---  end)
+---end)
+---```
+---@param skill integer|nil A skill number, or nil for an empty slot.
+---@param opts? rq.UiSkillOpts `rank` or `chara`, `long`, `count`, `count_max`, `disabled`, `slot`; place, `id`, `tip`, `nav`.
+---@return boolean clicked true on the update it is clicked.
+function uikit.skill_button(skill, opts) end
 
 ---Runs a function now and draws what it draws on top of every widget, as `rq.hud.top` does.
 ---
@@ -5808,7 +5982,7 @@ function uikit.quest_row(opts) end
 ---  pick = rq.uikit.quest_list(rows, pick, { x = 330, y = 130, id = "mine" })
 ---end)
 ---```
----@param rows {no?: integer|string, name?: string, mark?: integer|string, disabled?: boolean}[] The rows.
+---@param rows {no?: integer|string, name?: string, mark?: integer|string, disabled?: boolean, tip?: string|rq.UiTip}[] The rows; `tip` since 2.13.0.
 ---@param index? integer The current row; nil for none.
 ---@param opts? rq.UiPlace|{shown?: integer} Place, `id`, and `shown` (rows at once, default 13).
 ---@return integer|nil index The current row.
@@ -5866,7 +6040,7 @@ function uikit.rack(text, opts) end
 ---Changed: 2.10.0 `again`, and the button clicked.
 ---@param list string[] The labels.
 ---@param index? integer The current one; nil for none.
----@param opts? rq.UiPlace|{back?: boolean, again?: boolean|integer, disabled?: boolean} Place, `back`, `again` (true, or the index of the button that can be clicked while current), `disabled`.
+---@param opts? rq.UiPlace|{back?: boolean, again?: boolean|integer, disabled?: boolean, tips?: (string|rq.UiTip)[]} Place, `back`, `again` (true, or the index of the button that can be clicked while current), `disabled`, `tips` (2.13.0: one for each button).
 ---@return integer|nil index The current one.
 ---@return boolean changed true on the update it changed.
 ---@return integer|nil clicked The index of the button clicked on this update, current or not.
@@ -5914,7 +6088,7 @@ function uikit.page(opts, fn) end
 ---@field r? integer Red, 0 to 255. Default: the game's grey.
 ---@field g? integer Green, 0 to 255. Default: the game's grey.
 ---@field b? integer Blue, 0 to 255. Default: the game's grey.
----@field comment? string Shown in a box right of the list while the row is under the mouse.
+---@field comment? string Shown in the game's comment window right of the list, at the row, while the mouse or the keys' cursor stays on the row (as the game's menu shows it). Before 2.13.0, a plain box at once.
 ---@field disabled? boolean Greyed out; it cannot be picked.
 
 ---Draws the game's choice menu as a widget: its green base, grey rows, separators and a text panel
@@ -5944,6 +6118,7 @@ function uikit.page(opts, fn) end
 ---Changed: 2.10.0 `h`, and rows past it scroll.
 ---Changed: 2.11.0 A row's `comment` box is drawn on the top layer, over widgets drawn later.
 ---Changed: 2.12.0 The rows are on the kit's keys cursor; Left and Right leave the list.
+---Changed: 2.13.0 A row's `comment` is the game's comment window, after 500 ms, as the game's menu shows it.
 ---
 ---```lua
 ---local pick = rq.uikit.options({ "Attack", "Defense", "-", { id = "hp", text = "HP" } },
@@ -6128,20 +6303,45 @@ function uikit.item_dropped(group) end
 ---@return "vault"|"storage"|nil where Where it went.
 function uikit.item_storage(opts) end
 
----Draws a number as the vault does: its counters (`font = "count"`: the game's font, 20 pixels, bold,
----white), or the gold digits (`"gold"`: CG 11103, 16 by 23 each).
+---Draws a number as the game does: the vault's counters (`font = "count"`: the game's font, 20
+---pixels, bold, white), or one of the game's digit fonts.
 ---
----Raises an error for a number that is not whole, another font, or another `align`.
+---A digit font is a CG cut across into 10 equal cells, 0 to 9, as the game's `T_NumberCg`. By name:
+---
+---| `font` | CG | Where the game uses it |
+---| --- | --- | --- |
+---| `"gold"` | 11103 | The vault's and the shop's gold, 16 by 23 |
+---| `"hp"` | 10096 | HP in battle, skill uses on the mini cards |
+---| `"level"` | 10122 | Levels and maximums on the cards, skill uses on the status page |
+---| `"level_max"` | 10124 | A level at its maximum, on the cards (red) |
+---| `"status"` | 10321 | The status page's points, EXP and gold; the level up; the results |
+---| `"small"` | 10210 | Skill uses on the mini-mini cards |
+---| `"world"` | 10507 | The world level on the title |
+---| `"gallery"` | 12252 | The CG mode's page numbers |
+---
+---Any other CG number works as a font too, a mod image from `rq.image.add` included. With `hyphen` its
+---CG has an 11th cell, a "-", and a negative number gets it; without, a negative number draws as 0,
+---as the game's.
+---
+---Raises an error for a number that is not whole, an unknown font name, a CG that is not there, or
+---another `align`.
 ---
 ---Since: 2.8.0
 ---Changed: 2.9.0 `align` and `gap`.
+---Changed: 2.14.0 The game's digit fonts by name or CG number, `hyphen`, and it returns its place.
+---Changed: 2.15.0 `tint`.
 ---
 ---```lua
 ---rq.uikit.number(#list, { x = 957, y = 31, w = 39 })
 ---rq.uikit.number(price, { x = 758, y = 2, font = "gold", w = 118, align = "right", gap = 1 }) -- the shop's
+---rq.uikit.number(level, { x = 300, y = 200, font = level >= max and "level_max" or "level" })
 ---```
----@param value integer The number; it should not be negative.
----@param opts? rq.UiPlace|{font?: "count"|"gold", digits?: integer, align?: "left"|"center"|"right", gap?: integer} Place (`w` with `align` places it in that width, default centered); `font` (default "count"); `digits` (pads with zeros to that many); `gap` (pixels between gold digits, default 0).
+---@param value integer The number.
+---@param opts? rq.UiPlace|{font?: "count"|"gold"|"hp"|"level"|"level_max"|"status"|"small"|"world"|"gallery"|integer, digits?: integer, align?: "left"|"center"|"right", gap?: integer, hyphen?: boolean, tint?: integer[]} Place (`w` with `align` places it in that width, default centered); `font` (default "count"; a name or a CG number); `digits` (pads with zeros to that many); `gap` (pixels between digits, default 0); `hyphen` (the CG has an 11th cell, "-"); `tint` (2.15.0: multiplies a digit font's colors, as `rq.hud.cg`'s).
+---@return integer x The left edge of what was drawn.
+---@return integer y Its top edge.
+---@return integer w Its width, in pixels.
+---@return integer h Its height.
 function uikit.number(value, opts) end
 
 ---A filter state for `rq.uikit.filters` and `rq.uikit.item_filter`: what the vault's filter column

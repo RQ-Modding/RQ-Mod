@@ -98,6 +98,7 @@ struct texture;
 int rq_gametext_available(void);
 struct texture *rq_gametext_texture(const char *utf8, const struct rq_gametext *st);
 int rq_gametext_measure(const char *utf8, const struct rq_gametext *st, int *w, int *h);
+int rq_gametext_measure_game(const char *utf8, const struct rq_gametext *st);
 unsigned char *rq_gametext_rgba(const char *utf8, const struct rq_gametext *st, int *w, int *h);
 int rq_gametext_center_y(const struct rq_gametext *st, int box_h, int line_h);
 void rq_gametext_after_draw(void);
@@ -472,7 +473,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.12.0"
+#define RQ_VERSION "2.15.0"
 
 struct rq_qbattle_skill {
 	int id;

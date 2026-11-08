@@ -4452,6 +4452,13 @@ int rq_lua_agent_widgets(lua_State *L)
 	return 1;
 }
 
+/* A kit entry that takes no click: a comment window (2.13.0), a bar (2.14.0) or an empty skill slot
+ * (2.15.0). It is neither the hover nor over a game control. */
+static int kit_passive(const struct ui_ctrl *c)
+{
+	return !strcmp(c->type, "comment") || !strcmp(c->type, "bar") || !strcmp(c->type, "slot");
+}
+
 static void hover_agent(void)
 {
 	int i, mx, my, active, best = -1, best_area = 0;
@@ -4463,7 +4470,7 @@ static void hover_agent(void)
 		int area;
 		if (strcmp(c->section, "agent") != 0 && strcmp(c->section, "kit") != 0)
 			continue;
-		if (!c->enabled || !c->armed || c->w <= 0 || c->h <= 0)
+		if (!c->enabled || !c->armed || c->w <= 0 || c->h <= 0 || kit_passive(c))
 			continue;
 		if (mx < c->x || my < c->y || mx >= c->x + c->w || my >= c->y + c->h)
 			continue;
@@ -6104,13 +6111,14 @@ static const int g_aim_at[][2] = {
 	{ 50, 70 }, { 70, 50 }, { 20, 20 }, { 80, 20 }, { 20, 80 }, { 80, 80 }
 };
 
-/* Whether a point is inside one of the kit widgets listed (section "kit"). */
+/* Whether a point is inside one of the kit widgets listed (section "kit"). A comment window takes
+ * no clicks, as the game's (2.13.0), and neither does a bar (2.14.0), so they cover nothing. */
 static int kit_at(const struct ui_ctrl *a, int n, int px, int py)
 {
 	int i;
 	for (i = 0; i < n; i++) {
 		const struct ui_ctrl *o = &a[i];
-		if (strcmp(o->section, "kit") != 0 || o->w <= 0 || o->h <= 0)
+		if (strcmp(o->section, "kit") != 0 || o->w <= 0 || o->h <= 0 || kit_passive(o))
 			continue;
 		if (px >= o->x && py >= o->y && px < o->x + o->w && py < o->y + o->h)
 			return 1;
