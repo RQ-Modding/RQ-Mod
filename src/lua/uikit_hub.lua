@@ -116,8 +116,8 @@ hub.rack = {
 
 -- The sort column (T_Sort, vertical): the top of 10042 (77 wide, "SORT" and the row lines) cut
 -- to 21 + 30 a row, then its last line; buttons 10043 (two states of 77x26) from +21, 30 apart;
--- the current one framed by 10018 at -2,-2. Text 18 px black at 80% (the game's faint white
--- shadow, at 25%, is left out: a shadow here has no alpha).
+-- the current one framed by 10018 at -2,-2. Text 18 px black at 80%, with the game's faint white
+-- shadow right and down at 25% (setShadowRate(64), shadow.a since 2.11.0).
 hub.sort = {
   -- The column is see-through; on the Quests screen it lies on parchment, cut from there for
   -- under it (opts.back = false leaves it out).
@@ -126,7 +126,8 @@ hub.sort = {
   normal = { cg = 10043, src = { 0, 0, 77, 26 } },
   hover = { cg = 10043, src = { 77, 0, 77, 26 } },
   current = { cg = 10018 },
-  text = game { face = 258, size = 18, r = 0, g = 0, b = 0, a = 204, space = -6 },
+  text = game { face = 258, size = 18, r = 0, g = 0, b = 0, a = 204, space = -6,
+    shadow = { x = 1, y = 1, r = 255, g = 255, b = 255, a = 64 } },
   fit = { 18, 12, 0.95, 0.5 },
   fit_w = 73,
 }
@@ -908,9 +909,12 @@ function ui.options(items, o)
     local tw = 0
     for _, l in ipairs(lines) do tw = max(tw, text_w(l, c)) end
     local bx, by = x + W + 6 + (scroll and 22 or 0), over_comment[2]
-    hud.rect(bx, by, tw + 16, #lines * (c.size + 4) + 10, 0, 0, 0, 200)
-    box_line(bx, by, tw + 16, #lines * (c.size + 4) + 10, T("hub_page").line)
-    for li, l in ipairs(lines) do hud.text(bx + 8, by + 5 + (li - 1) * (c.size + 4), l, c) end
+    -- On the top layer (2.11.0): over the widgets drawn after the list.
+    hud.top(function()
+      hud.rect(bx, by, tw + 16, #lines * (c.size + 4) + 10, 0, 0, 0, 200)
+      box_line(bx, by, tw + 16, #lines * (c.size + 4) + 10, T("hub_page").line)
+      for li, l in ipairs(lines) do hud.text(bx + 8, by + 5 + (li - 1) * (c.size + 4), l, c) end
+    end)
   end
   return picked
 end

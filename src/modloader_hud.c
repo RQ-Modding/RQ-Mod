@@ -50,6 +50,7 @@ enum { ALIGN_START, ALIGN_CENTER, ALIGN_END };
 
 struct hud_cmd {
 	int kind;
+	int layer; /* 0 the HUD, 1 the top layer (rq.hud.top, 2.11.0) */
 	int x, y, w, h;
 	int r, g, b, a;
 	int cg;
@@ -61,7 +62,7 @@ struct hud_cmd {
 	int bw, bh, align, valign, no_edge, bold;
 	/* HUD_GTEXT: the line the game drew, its shadow and the shadow's offset. */
 	Texture *tex, *shadow;
-	int dx, dy;
+	int dx, dy, sa;
 	struct rq_gametext gt;
 };
 
@@ -70,13 +71,16 @@ struct hud_cmd {
 static struct { int x, y, w, h; } g_clip[HUD_MAX_CLIP];
 static int g_nclip;
 
+/* The layer new commands go to, and whether the top layer's last clip command turned a clip on. */
+static int g_layer, g_top_clip_on;
+
 static int game_style(lua_State *L, int idx, struct rq_gametext *gt, int *has_shadow,
-		      int *dx, int *dy, int *sr, int *sg, int *sb);
+		      int *dx, int *dy, int *sr, int *sg, int *sb, int *sa);
 
 int rq_hud_game_style(lua_State *L, int idx, struct rq_gametext *gt, int *has_shadow,
-		      int *dx, int *dy, int *sr, int *sg, int *sb)
+		      int *dx, int *dy, int *sr, int *sg, int *sb, int *sa)
 {
-	return game_style(L, idx, gt, has_shadow, dx, dy, sr, sg, sb);
+	return game_style(L, idx, gt, has_shadow, dx, dy, sr, sg, sb, sa);
 }
 
 /* sprite.f.glsl: the texture times multiply_color, alpha times blend_rate. */
@@ -114,6 +118,8 @@ static int g_block_keys;
 /* rq.hud.capture_mouse (2.6.0): the game sees no mouse at all. Set for one
  * update, and kept while a button that was down under it stays down. */
 static int g_capture_mouse;
+static int g_capture_last; /* captured on the last whole update (rq_hud_captured, 2.11.0) */
+static int g_capture_seen;
 static int g_text_on;
 static int g_text_max;
 static char g_text[256];
@@ -410,6 +416,8 @@ static void clear_cmds(void)
 {
 	int i;
 	g_nclip = 0;
+	g_layer = 0;
+	g_top_clip_on = 0;
 	for (i = 0; i < g_ncmd; i++)
 		free(g_cmd[i].text);
 	g_ncmd = 0;
@@ -423,6 +431,7 @@ static struct hud_cmd *push_cmd(int kind)
 	c = &g_cmd[g_ncmd++];
 	memset(c, 0, sizeof(*c));
 	c->kind = kind;
+	c->layer = g_layer;
 	g_drew = 1;
 	return c;
 }
@@ -559,6 +568,13 @@ int rq_hud_block_keys(void)
 	return g_block_keys;
 }
 
+/* Whether a page captured the mouse on this update or the last whole one (2.11.0): a dump built
+ * in the middle of an update sees the capture before the page's callback has run. */
+int rq_hud_captured(void)
+{
+	return g_capture_seen || g_capture_last;
+}
+
 int rq_hud_capture_mouse(void)
 {
 	return g_capture_mouse;
@@ -678,6 +694,8 @@ void rq_hud_after_reset(void)
 	modal_clear();
 	g_block_mouse = 0;
 	g_capture_mouse = 0;
+	g_capture_last = 0;
+	g_capture_seen = 0;
 }
 
 int rq_hud_syscall(int code)
@@ -920,8 +938,8 @@ int rq_lua_hud_text_width(lua_State *L)
 	char *sjis;
 	if (lua_istable(L, 2)) {
 		struct rq_gametext gt;
-		int has_shadow, dx = 0, dy = 0, sr, sg, sb;
-		if (game_style(L, 2, &gt, &has_shadow, &dx, &dy, &sr, &sg, &sb)) {
+		int has_shadow, dx = 0, dy = 0, sr, sg, sb, sa;
+		if (game_style(L, 2, &gt, &has_shadow, &dx, &dy, &sr, &sg, &sb, &sa)) {
 			int tw = 0, th = 0;
 			if (utf && *utf)
 				rq_gametext_measure(utf, &gt, &tw, &th);
@@ -1089,11 +1107,12 @@ static int color_part(lua_State *L, int t, const char *key, int idx, int def)
 /* Whether the style at idx asks for the game's font; fills gt from it. Raises an
  * error for a bad face or font. sx, sy, shadow color: the shadow, when it has one. */
 static int game_style(lua_State *L, int idx, struct rq_gametext *gt, int *has_shadow,
-		      int *dx, int *dy, int *sr, int *sg, int *sb)
+		      int *dx, int *dy, int *sr, int *sg, int *sb, int *sa)
 {
 	const char *font;
 	int t = lua_absindex(L, idx);
 	*has_shadow = 0;
+	*sa = 255;
 	if (!lua_istable(L, t))
 		return 0;
 	lua_getfield(L, t, "font");
@@ -1164,9 +1183,17 @@ static int game_style(lua_State *L, int idx, struct rq_gametext *gt, int *has_sh
 		*sr = color_part(L, o, "r", 1, 0);
 		*sg = color_part(L, o, "g", 2, 0);
 		*sb = color_part(L, o, "b", 3, 0);
+		/* The shadow's own alpha, as the game's setShadowRate (2.11.0). */
+		lua_getfield(L, o, "a");
+		if (!lua_isnil(L, -1)) {
+			*sa = (int)luaL_checkinteger(L, -1);
+			if (*sa < 0 || *sa > 255)
+				return luaL_error(L, "shadow.a must be 0 to 255, not %d", *sa);
+		}
+		lua_pop(L, 1);
 		*has_shadow = 1;
 	} else if (!lua_isnil(L, -1)) {
-		return luaL_error(L, "shadow must be a table {x = 1, y = 1, r, g, b}");
+		return luaL_error(L, "shadow must be a table {x = 1, y = 1, r, g, b, a = 255}");
 	}
 	lua_pop(L, 1);
 	return 1;
@@ -1177,9 +1204,9 @@ int rq_lua_hud_text(lua_State *L)
 	struct hud_cmd *c;
 	const char *s;
 	struct rq_gametext gt;
-	int has_shadow, dx = 0, dy = 0, sr = 0, sg = 0, sb = 0;
+	int has_shadow, dx = 0, dy = 0, sr = 0, sg = 0, sb = 0, sa = 255;
 
-	if (game_style(L, 4, &gt, &has_shadow, &dx, &dy, &sr, &sg, &sb)) {
+	if (game_style(L, 4, &gt, &has_shadow, &dx, &dy, &sr, &sg, &sb, &sa)) {
 		int x = (int)luaL_checkinteger(L, 1), y = (int)luaL_checkinteger(L, 2);
 		Texture *tex, *sh = NULL;
 		s = luaL_checkstring(L, 3);
@@ -1205,6 +1232,7 @@ int rq_lua_hud_text(lua_State *L)
 		c->shadow = sh;
 		c->dx = dx;
 		c->dy = dy;
+		c->sa = sa;
 		c->gt = gt;
 		c->r = c->g = c->b = 255;
 		c->a = 255;
@@ -1396,6 +1424,41 @@ static void emit_clip(int on, int x, int y, int w, int h)
 	c->w = w < 0 ? 0 : w;
 	c->h = h < 0 ? 0 : h;
 	c->cg = on;
+	if (g_layer == 1)
+		g_top_clip_on = on;
+}
+
+/* rq.hud.top(fn): runs fn now; what it draws goes on the top layer, drawn after the whole HUD of
+ * the update. Inside, the clip starts at the whole screen; the clip outside comes back after it,
+ * also when fn raises an error (which goes on to the caller). 2.11.0. */
+int rq_lua_hud_top(lua_State *L)
+{
+	struct { int x, y, w, h; } saved[HUD_MAX_CLIP];
+	int saved_layer = g_layer, saved_n = g_nclip, st;
+
+	luaL_checktype(L, 1, LUA_TFUNCTION);
+	memcpy(saved, g_clip, sizeof saved);
+	g_layer = 1;
+	g_nclip = 0;
+	if (g_top_clip_on)
+		emit_clip(0, 0, 0, 0, 0);
+	lua_settop(L, 1);
+	lua_pushvalue(L, 1);
+	st = lua_pcall(L, 0, LUA_MULTRET, 0);
+	memcpy(g_clip, saved, sizeof saved);
+	g_nclip = saved_n;
+	if (saved_layer == 1) {
+		/* Back in an outer top: its clip again. */
+		if (g_nclip > 0)
+			emit_clip(1, g_clip[g_nclip - 1].x, g_clip[g_nclip - 1].y,
+				  g_clip[g_nclip - 1].w, g_clip[g_nclip - 1].h);
+		else if (g_top_clip_on)
+			emit_clip(0, 0, 0, 0, 0);
+	}
+	g_layer = saved_layer;
+	if (st != LUA_OK)
+		return lua_error(L);
+	return lua_gettop(L) - 1; /* what fn returned */
 }
 
 /* rq.hud.clip_push(x, y, w, h): narrows the clip to this box inside the one before. */
@@ -1479,6 +1542,7 @@ int rq_lua_hud_capture_mouse(lua_State *L)
 	if (rq_hud_choosing())
 		return 0;
 	g_capture_mouse = 1;
+	g_capture_seen = 1;
 	g_block_mouse = 1;
 	mouse_clear_wheel();
 	return 0;
@@ -1507,6 +1571,8 @@ int rq_hud_tick(void)
 	rq_ui_on_update();
 	g_block_mouse = 0;
 	g_block_keys = 0;
+	g_capture_last = g_capture_seen;
+	g_capture_seen = 0;
 	g_capture_mouse = g_capture_mouse &&
 		(key_is_down_raw(VK_LBUTTON) || key_is_down_raw(VK_RBUTTON));
 	clear_cmds();
@@ -1600,8 +1666,16 @@ void rq_hud_draw(void)
 
 	white_tex();
 
+	/* The HUD, then the top layer (rq.hud.top); each with its own clips, off at its start. */
+	for (int layer = 0; layer < 2; layer++) {
+	if (clipped) {
+		glDisable(GL_SCISSOR_TEST);
+		clipped = 0;
+	}
 	for (i = 0; i < g_ncmd; i++) {
 		struct hud_cmd *c = &g_cmd[i];
+		if (c->layer != layer)
+			continue;
 		if (c->kind == HUD_RECT && c->w > 0 && c->h > 0) {
 			draw_part(white_tex(), 0, 0, 1, 1, c->x, c->y, c->w, c->h, c);
 		} else if (c->kind == HUD_CLIP) {
@@ -1646,9 +1720,12 @@ void rq_hud_draw(void)
 				y += rq_gametext_center_y(&c->gt, c->bh, th);
 			else if (c->valign == ALIGN_END)
 				y += c->bh - th;
-			if (c->shadow)
+			if (c->shadow && c->sa > 0) {
+				struct hud_cmd sw = white;
+				sw.a = c->a * c->sa / 255;
 				draw_part(c->shadow, 0, 0, c->shadow->w, c->shadow->h,
-					  x + c->dx, y + c->dy, c->shadow->w, c->shadow->h, &white);
+					  x + c->dx, y + c->dy, c->shadow->w, c->shadow->h, &sw);
+			}
 			draw_part(c->tex, 0, 0, tw, th, x, y, tw, th, &white);
 		} else if (c->kind == HUD_TEXT && c->text) {
 			Texture t;
@@ -1698,6 +1775,7 @@ void rq_hud_draw(void)
 			}
 			gfx_delete_texture(&t);
 		}
+	}
 	}
 	if (clipped)
 		glDisable(GL_SCISSOR_TEST);

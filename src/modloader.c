@@ -1188,6 +1188,7 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "cg_size", rq_lua_hud_cg_size);
 	set_cfn(L, "clip", rq_lua_hud_clip);
 	set_cfn(L, "clip_push", rq_lua_hud_clip_push);
+	set_cfn(L, "top", rq_lua_hud_top);
 	set_cfn(L, "clip_pop", rq_lua_hud_clip_pop);
 	set_cfn(L, "hit", rq_lua_hud_hit);
 	set_cfn(L, "clicked", rq_lua_hud_clicked);

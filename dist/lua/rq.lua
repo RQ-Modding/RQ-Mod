@@ -450,10 +450,15 @@ local ui = {}
 ---screen with no name, such as a black one during a change of scene, says `other`; `boot` is used
 ---only before the first named screen, and `title` only for the real title screen.
 ---
+---A game control a player cannot click has `covered = true`: every point of it is under a kit widget
+---of the last update (section `kit`), or a mod's page captures the mouse (`rq.hud.capture_mouse`).
+---`rqmod-ctl press` refuses it. A page closed on this update still covers until the next one.
+---
 ---It builds the whole list, so do not call it on every `rq.on_frame`.
 ---
 ---Since: 0.20.0
 ---Changed: 0.21.0 A screen with no name says `other`.
+---Changed: 2.11.0 `covered`.
 ---
 ---```lua
 ---local s = rq.ui.get()
@@ -465,11 +470,12 @@ function ui.get() end
 
 ---Returns the point a click on a control should land on.
 ---
----The point is inside the control and not covered by another control. It builds the list when
----nothing did during this update.
+---The point is inside the control and not covered by another control. For a game control it is also
+---away from the kit's widgets over it. It builds the list when nothing did during this update.
 ---
 ---Since: 0.20.0
 ---Changed: 0.21.0 Builds the list itself; before, it read the last `rq.ui.get`.
+---Changed: 2.11.0 Away from kit widgets over a game control.
 ---@param id string A control id, as `rq.ui.get` or `rqmod-ctl ui` lists it.
 ---@return integer|nil x Click x in game pixels, or nil when the control is not on screen.
 ---@return integer|nil y Click y in game pixels.
@@ -619,7 +625,7 @@ function hud.rect(x, y, w, h, r, g, b, a) end
 ---@field font? "hud"|"game" "game" draws in the game's own font, as its buttons and lists do: no dark edge, and `edge` does not count. Default "hud". Since 2.5.0.
 ---@field face? 256|257|258 With `font = "game"`: the game's font number. 258 is on most buttons, lists and the castle; 256 on item names; 257 on big marks. Default 258. Since 2.5.0.
 ---@field outline? integer[]|{r: integer, g: integer, b: integer, w?: integer} With `font = "game"`: an outline in this color, `w` pixels wide (1 to 4, default 1), as the castle's room names. Since 2.5.0.
----@field shadow? integer[]|{x?: integer, y?: integer, r: integer, g: integer, b: integer} With `font = "game"`: a copy of the text in this color, `x` and `y` pixels away (default 1 and 1), drawn under it. Since 2.5.0.
+---@field shadow? integer[]|{x?: integer, y?: integer, r: integer, g: integer, b: integer, a?: integer} With `font = "game"`: a copy of the text in this color, `x` and `y` pixels away (default 1 and 1), drawn under it. `a` is its opacity, 0 to 255, times the text's (default 255); the game's sort labels use 64. Since 2.5.0; `a` since 2.11.0.
 ---@field space? integer With `font = "game"`: the game's fixed spacing in pixels, for Japanese letters (`SetFixedWidthSpacing`). Default -4. Since 2.5.0.
 ---@field spacing? number With `font = "game"`: the game's letter spacing for English letters, 0 to 4 (`SetSpacing`); the game's lists use 0.95. Default 1. Since 2.5.0.
 
@@ -637,11 +643,13 @@ function hud.rect(x, y, w, h, r, g, b, a) end
 ---log says so once. It needs the game running: before the title it draws nothing.
 ---
 ---Raises an error for an unknown `align`, `valign` or `font`, a `face` other than 256 to 258, a
----`size` outside 6 to 96 with the game's font, or a bad `outline`, `shadow` or `spacing`.
+---`size` outside 6 to 96 with the game's font, or a bad `outline`, `shadow` (`shadow.a` outside 0 to
+---255) or `spacing`.
 ---
 ---Since: 0.2.0
 ---Changed: 1.8.0 The font is VL PGothic with letters at their own width (before, VL Gothic with half-width Latin letters).
 ---Changed: 2.5.0 Added `font = "game"` with `face`, `outline`, `shadow`, `space` and `spacing`.
+---Changed: 2.11.0 `shadow.a`.
 ---
 ---```lua
 ---rq.hud.text(0, 40, "Centered", { size = 20, w = 1024, align = "center" })
@@ -774,6 +782,41 @@ function hud.clip_push(x, y, w, h) end
 ---Since: 2.5.0
 function hud.clip_pop() end
 
+---Runs a function now and draws what it draws on top of the whole HUD.
+---
+---The HUD draws in call order, so a later draw covers an earlier one, also another mod's. What `fn`
+---draws goes to the top layer instead: it is drawn after every other HUD draw of the update, from
+---every mod, in the order it was called. Use it for what floats over other widgets: a dragged icon, a
+---comment box, a tooltip.
+---
+---Inside `fn` the clip starts at the whole screen, whatever clip was set outside; `rq.hud.clip`,
+---`clip_push` and `clip_pop` work inside it. After `fn` the clip from outside is back, also when `fn`
+---raises an error, which goes on to the caller. `top` inside `top` works the same way. The top layer
+---shares the 480 draws an update has. While the game's choice menu shows, the top layer is drawn
+---under the menu with the rest of the HUD.
+---
+---It only draws on top: the kit still decides clicks in call order, so a widget drawn after it under
+---the same pixels still gets the mouse.
+---
+---Raises an error when `fn` is not a function, and the error `fn` raises.
+---
+---Since: 2.11.0
+---
+---```lua
+---rq.on_frame(function()
+---  if dragging then
+---    local m = rq.input.mouse()
+---    rq.hud.top(function()
+---      rq.hud.cg(m.x - 50, m.y - 50, icon, { w = 100, h = 100 })
+---    end)
+---  end
+---  draw_my_page()   -- drawn later, still under the icon
+---end)
+---```
+---@param fn fun() The draws for the top layer.
+---@return any ... What `fn` returns.
+function hud.top(fn) end
+
 ---Returns whether the mouse is inside a box on this update.
 ---
 ---Since: 0.2.0
@@ -798,9 +841,11 @@ function hud.clicked(x, y, w, h) end
 ---Hides the mouse buttons from the game, so a click on the HUD does not also click the game.
 ---
 ---It lasts for this update and until the buttons come up. `rq.input.mouse` and the HUD calls still
----see the clicks.
+---see the clicks. It also hides the clicks `rqmod-ctl` drives, as a player's, and the kit's widgets
+---mark the game's controls under them `covered` in `rq.ui.get`.
 ---
 ---Since: 0.2.0
+---Changed: 2.11.0 It hides the clicks `rqmod-ctl` drives too (before, they reached the game).
 function hud.block_game_input() end
 
 ---Hides the keyboard from the game for this update.
@@ -2329,7 +2374,7 @@ function image.info(cg) end
 ---@field font? "hud"|"game" "game": the text in the game's own font, as `rq.hud.text` draws it; `face`, `outline`, `shadow`, `space` and `spacing` work as there, `color` gives the color. Since 2.5.0.
 ---@field face? 256|257|258 With `font = "game"`: the game's font number. Default 258. Since 2.5.0.
 ---@field outline? integer[]|{r: integer, g: integer, b: integer, w?: integer} With `font = "game"`: an outline. Since 2.5.0.
----@field shadow? integer[]|{x?: integer, y?: integer, r: integer, g: integer, b: integer} With `font = "game"`: a shadow under the text. Since 2.5.0.
+---@field shadow? integer[]|{x?: integer, y?: integer, r: integer, g: integer, b: integer, a?: integer} With `font = "game"`: a shadow under the text, `a` its opacity (default 255). Since 2.5.0; `a` since 2.11.0.
 ---@field space? integer With `font = "game"`: the game's fixed spacing. Default -4. Since 2.5.0.
 ---@field spacing? number With `font = "game"`: the game's letter spacing. Default 1. Since 2.5.0.
 
@@ -2349,6 +2394,7 @@ function image.info(cg) end
 ---
 ---Since: 1.8.0
 ---Changed: 2.5.0 Text layers take `font = "game"`.
+---Changed: 2.11.0 A text layer's `shadow.a`.
 ---
 ---```lua
 ---local TAB = rq.image.compose("mymod:tab", {
@@ -4637,7 +4683,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.10.0"
+rq.version = "2.11.0"
 
 rq.units = units
 rq.items = items
@@ -5557,6 +5603,25 @@ function uikit.last() end
 ---@return boolean hovered true when a widget drawn so far is under the mouse.
 function uikit.hovered() end
 
+---Runs a function now and draws what it draws on top of every widget, as `rq.hud.top` does.
+---
+---For a widget's floating part: its tooltip, its comment, an icon it drags. Widgets inside `fn` draw
+---as usual, but clicks are still decided in call order.
+---
+---Raises an error when `fn` is not a function, and the error `fn` raises.
+---
+---Since: 2.11.0
+---
+---```lua
+---if rq.uikit.hovered() then
+---  rq.uikit.top(function() rq.uikit.label("Sells for 120 G", { x = mx + 16, y = my }) end)
+---end
+---```
+---@param fn fun() The widgets and draws for the top layer.
+---@return any ... What `fn` returns.
+---@see rq.hud.top
+function uikit.top(fn) end
+
 ---Returns what the kit keeps for a widget.
 ---
 ---Since: 1.7.0
@@ -5796,6 +5861,7 @@ function uikit.page(opts, fn) end
 ---Since: 2.7.0
 ---Changed: 2.9.0 `keys`.
 ---Changed: 2.10.0 `h`, and rows past it scroll.
+---Changed: 2.11.0 A row's `comment` box is drawn on the top layer, over widgets drawn later.
 ---
 ---```lua
 ---local pick = rq.uikit.options({ "Attack", "Defense", "-", { id = "hp", text = "HP" } },
@@ -5901,8 +5967,9 @@ function uikit.item_row(row, opts) end
 ---chooses the current row, and L, S and D press its buttons. The keys are hidden from the game while
 ---the list shows (`rq.hud.block_keys`).
 ---
----With `drag`, a row pressed and moved more than 6 pixels is dragged: its icon follows the mouse, and
----a list of the same group under it lights up. Let go over another list of the group and
+---With `drag`, a row pressed and moved more than 6 pixels is dragged: its icon follows the mouse on
+---the top layer (`rq.hud.top`), over every widget and clip, and a list of the same group under it
+---lights up. Let go over another list of the group and
 ---`rq.uikit.item_dropped(group)` returns the row on that update; nothing moves by itself.
 ---`item_storage` is the game's storage screen built on this.
 ---
@@ -5910,6 +5977,7 @@ function uikit.item_row(row, opts) end
 ---
 ---Since: 2.8.0
 ---Changed: 2.9.0 `keys`, `drag`, and the fifth return.
+---Changed: 2.11.0 The dragged icon is drawn once, on the top layer.
 ---
 ---```lua
 ---local list = rq.uikit.item_sort(rq.uikit.item_filter(my_iis, { type = 1 }), 11)

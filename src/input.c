@@ -225,16 +225,17 @@ bool key_is_down(enum sact_keycode code)
 		return false;
 	}
 #ifdef RQ_MODLOADER
-	/* The agent owns these buttons until ungrab. A mod HUD or a queued
-	 * OS mouse-up must not swallow the click the pipe just set. */
-	/* A mod page that captures the mouse hides it from the game, also from
-	 * the agent: the agent sees what a player sees. */
+	/* A mod page that captures the mouse, or a mod widget under the mouse,
+	 * hides the click from the game, also the agent's: the agent sees what a
+	 * player sees (2.11.0; before, agent clicks went past the widget). */
 	if (rq_hud_capture_mouse() && (code == VK_LBUTTON || code == VK_RBUTTON || code == VK_MBUTTON))
 		return false;
-	if (agent_input && (code == VK_LBUTTON || code == VK_RBUTTON || code == VK_MBUTTON))
-		return key_state[code];
 	if (rq_hud_block_mouse() && (code == VK_LBUTTON || code == VK_RBUTTON))
 		return false;
+	/* The agent owns these buttons until ungrab. A queued OS mouse-up must
+	 * not swallow the click the pipe just set. */
+	if (agent_input && (code == VK_LBUTTON || code == VK_RBUTTON || code == VK_MBUTTON))
+		return key_state[code];
 	if (rq_hud_block_keys() && code != VK_LBUTTON && code != VK_RBUTTON && code != VK_MBUTTON)
 		return false;
 	if (rq_debug_swallows((int)code))

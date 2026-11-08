@@ -578,10 +578,14 @@ function ui.item_list(rows, index, o)
           play("click")
         end
       else
-        -- The row's icon follows the mouse, drawn again by each list of the group so the last
-        -- one drawn leaves it on top.
-        local dr = data_of(drag.row)
-        if dr and dr.icon and dr.icon > 0 then hud.cg(mouse.x - 50, mouse.y - 50, dr.icon, { w = 100, h = 100 }) end
+        -- The row's icon follows the mouse, drawn by the list it came from on the top layer
+        -- (2.11.0), over every widget and clip.
+        if drag.from == key then
+          local dr = data_of(drag.row)
+          if dr and dr.icon and dr.icon > 0 then
+            hud.top(function() hud.cg(mouse.x - 50, mouse.y - 50, dr.icon, { w = 100, h = 100 }) end)
+          end
+        end
         if inside(x, y, 381, h) and drag.from ~= key then
           local c = T("vault").current
           hud.rect(x, y, 381, h, c.r, c.g, c.b, 48)

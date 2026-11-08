@@ -67,7 +67,7 @@ struct layer {
 	int align, valign, edge, bold; /* LAYER_TEXT: align 0 start, 1 center, 2 end in the box w x h */
 	/* LAYER_TEXT in the game's font (2.5.0): drawn by the game when compose is called. */
 	unsigned char *gpix, *spix;
-	int game, shadow, sr, sg, sb;
+	int game, shadow, sr, sg, sb, sa;
 	int gw, gh, sw2, sh2, dx, dy;
 	struct rq_gametext gt;
 };
@@ -404,8 +404,12 @@ static void draw_game_text_layer(struct cg *dst, const struct layer *l)
 		ox += l->align == 1 ? (l->w - l->gw + 1) / 2 : l->w - l->gw;
 	if (l->h > 0 && l->valign)
 		oy += l->valign == 1 ? rq_gametext_center_y(&l->gt, l->h, l->gh) : l->h - l->gh;
-	if (l->spix)
-		blit_rgba(dst, l->spix, l->sw2, l->sh2, ox + l->dx, oy + l->dy, l);
+	if (l->spix && l->sa > 0) {
+		/* The shadow's own alpha (2.11.0). */
+		struct layer sl = *l;
+		sl.alpha = l->alpha * l->sa / 255;
+		blit_rgba(dst, l->spix, l->sw2, l->sh2, ox + l->dx, oy + l->dy, &sl);
+	}
 	blit_rgba(dst, l->gpix, l->gw, l->gh, ox, oy, l);
 }
 
@@ -861,8 +865,8 @@ static void parse_layer(lua_State *L, int t, struct layer *l)
 		l->bold = lua_toboolean(L, -1);
 		lua_pop(L, 1);
 		{
-			int has_shadow, dx = 0, dy = 0, sr = 0, sg = 0, sb = 0;
-			if (rq_hud_game_style(L, t, &l->gt, &has_shadow, &dx, &dy, &sr, &sg, &sb)) {
+			int has_shadow, dx = 0, dy = 0, sr = 0, sg = 0, sb = 0, sa = 255;
+			if (rq_hud_game_style(L, t, &l->gt, &has_shadow, &dx, &dy, &sr, &sg, &sb, &sa)) {
 				l->gt.r = l->r;
 				l->gt.g = l->g;
 				l->gt.b = l->b;
@@ -871,6 +875,7 @@ static void parse_layer(lua_State *L, int t, struct layer *l)
 				l->sr = sr;
 				l->sg = sg;
 				l->sb = sb;
+				l->sa = sa;
 				l->dx = dx;
 				l->dy = dy;
 				render_game_text(l);

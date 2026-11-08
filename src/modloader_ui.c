@@ -102,6 +102,7 @@ struct ui_ctrl {
 	int selected;
 	int has_visible;
 	int visible;
+	int covered; /* a game control under a mod's kit widget or a captured mouse (2.11.0) */
 };
 
 struct party_row {
@@ -288,6 +289,7 @@ static char g_texts[TEXT_MAX][TEXT_LEN];
 static int g_ntexts;
 static struct ui_ctrl g_ctrls[CTRL_MAX];
 static int g_nctrls;
+static void mark_covered(void);
 static int g_hover_no;
 static char g_screen[24];
 static char g_hover[40];
@@ -1201,6 +1203,8 @@ static void build_json(char *dst, int dstsz)
 			cJSON_AddBoolToObject(c, "selected", g_ctrls[i].selected ? 1 : 0);
 		if (g_ctrls[i].hover_only)
 			cJSON_AddBoolToObject(c, "hoverOnly", 1);
+		if (g_ctrls[i].covered)
+			cJSON_AddBoolToObject(c, "covered", 1);
 		if (g_ctrls[i].cursor_hover)
 			cJSON_AddStringToObject(c, "cursor", "hover-only");
 		cJSON_AddItemToArray(controls, c);
@@ -5792,6 +5796,7 @@ static void publish(void)
 	}
 	emit_agent_controls();
 	emit_kit_controls();
+	mark_covered();
 	hover_agent();
 	if (strcmp(g_screen, "boot") && strcmp(g_screen, "disclaimer") && strcmp(g_screen, "other"))
 		g_seen_screen = 1;
@@ -6085,6 +6090,49 @@ int rq_ui_has_control(const char *id)
 	return 0;
 }
 
+/* Where a press aims inside a control, in percent of its box, first choice first. */
+static const int g_aim_at[][2] = {
+	{ 50, 50 }, { 50, 30 }, { 30, 50 }, { 30, 30 }, { 70, 30 },
+	{ 50, 70 }, { 70, 50 }, { 20, 20 }, { 80, 20 }, { 20, 80 }, { 80, 80 }
+};
+
+/* Whether a point is inside one of the kit widgets listed (section "kit"). */
+static int kit_at(const struct ui_ctrl *a, int n, int px, int py)
+{
+	int i;
+	for (i = 0; i < n; i++) {
+		const struct ui_ctrl *o = &a[i];
+		if (strcmp(o->section, "kit") != 0 || o->w <= 0 || o->h <= 0)
+			continue;
+		if (px >= o->x && py >= o->y && px < o->x + o->w && py < o->y + o->h)
+			return 1;
+	}
+	return 0;
+}
+
+/* A game control a player cannot click: every aim point under a kit widget of the last update, or
+ * any while a mod page captures the mouse. The dump marks it and press refuses it (2.11.0). */
+static void mark_covered(void)
+{
+	int i, k, capture = rq_hud_captured();
+	for (i = 0; i < g_nctrls; i++) {
+		struct ui_ctrl *c = &g_ctrls[i];
+		c->covered = 0;
+		if (!strcmp(c->section, "kit") || !strcmp(c->section, "agent") || c->w <= 0 || c->h <= 0)
+			continue;
+		c->covered = 1;
+		if (capture)
+			continue;
+		for (k = 0; k < (int)(sizeof g_aim_at / sizeof g_aim_at[0]); k++) {
+			if (!kit_at(g_ctrls, g_nctrls, c->x + c->w * g_aim_at[k][0] / 100,
+				    c->y + c->h * g_aim_at[k][1] / 100)) {
+				c->covered = 0;
+				break;
+			}
+		}
+	}
+}
+
 static int point_clear(const struct ui_snap *s, int self, int px, int py)
 {
 	int i, area = s->ctrl[self].w * s->ctrl[self].h;
@@ -6102,10 +6150,6 @@ static int point_clear(const struct ui_snap *s, int self, int px, int py)
  * a member card spawns its status button over part of itself. */
 static int ctrl_center(const char *id, int *cx, int *cy)
 {
-	static const int at[][2] = {
-		{ 50, 50 }, { 50, 30 }, { 30, 50 }, { 30, 30 }, { 70, 30 },
-		{ 50, 70 }, { 70, 50 }, { 20, 20 }, { 80, 20 }, { 20, 80 }, { 80, 80 }
-	};
 	struct ui_snap snap;
 	int i, k;
 	if (!copy_snap(&snap))
@@ -6116,16 +6160,35 @@ static int ctrl_center(const char *id, int *cx, int *cy)
 			continue;
 		*cx = c->x + c->w / 2;
 		*cy = c->y + c->h / 2;
-		for (k = 0; k < (int)(sizeof at / sizeof at[0]); k++) {
-			int px = c->x + c->w * at[k][0] / 100;
-			int py = c->y + c->h * at[k][1] / 100;
-			if (point_clear(&snap, i, px, py)) {
+		for (k = 0; k < (int)(sizeof g_aim_at / sizeof g_aim_at[0]); k++) {
+			int px = c->x + c->w * g_aim_at[k][0] / 100;
+			int py = c->y + c->h * g_aim_at[k][1] / 100;
+			/* A game control is also aimed away from kit widgets over it (2.11.0). */
+			if (point_clear(&snap, i, px, py) &&
+			    (!strcmp(c->section, "kit") || !kit_at(snap.ctrl, snap.nctrl, px, py))) {
 				*cx = px;
 				*cy = py;
 				break;
 			}
 		}
 		return 1;
+	}
+	return 0;
+}
+
+/* Whether the last dump marked this control covered, and whether it is a kit widget (2.11.0). */
+static int ctrl_covered(const char *id, int *kit)
+{
+	struct ui_snap snap;
+	int i;
+	*kit = 0;
+	if (!copy_snap(&snap))
+		return 0;
+	for (i = 0; i < snap.nctrl; i++) {
+		if (!strcmp(snap.ctrl[i].id, id)) {
+			*kit = !strcmp(snap.ctrl[i].section, "kit");
+			return snap.ctrl[i].covered;
+		}
 	}
 	return 0;
 }
@@ -6237,7 +6300,7 @@ int rq_ui_cmd_hover(const char *id, char *err, int errsz)
 
 int rq_ui_cmd_press(const char *id, char *err, int errsz)
 {
-	int ok;
+	int ok, kit = 0;
 	long long start;
 	if (!id || !*id) {
 		if (err)
@@ -6249,6 +6312,11 @@ int rq_ui_cmd_press(const char *id, char *err, int errsz)
 	if (rq_dialog_open()) {
 		if (err)
 			snprintf(err, errsz, "native-dialog-open");
+		return 0;
+	}
+	if (ctrl_covered(id, &kit)) {
+		if (err)
+			snprintf(err, errsz, "covered by a mod's widget");
 		return 0;
 	}
 	if (!hover_is(id)) {
@@ -6270,7 +6338,10 @@ int rq_ui_cmd_press(const char *id, char *err, int errsz)
 		ok = 0;
 	if (ok) {
 		key_set_state(VK_LBUTTON, 1);
-		key_set_state(VK_RETURN, 1);
+		/* A kit widget takes the click only. Enter would reach the game's
+		 * control the mouse is over, under the widget (2.11.0). */
+		if (!kit)
+			key_set_state(VK_RETURN, 1);
 		start = rd_ll(&g_present_gen);
 		ok = wait_frames_or_dialog(start, PRESS_FRAMES, FRAME_MS);
 	}

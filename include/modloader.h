@@ -104,7 +104,7 @@ void rq_gametext_after_draw(void);
 struct lua_State;
 /* Reads a text style's font = "game" fields (modloader_hud.c); 0 for the HUD font. */
 int rq_hud_game_style(struct lua_State *L, int idx, struct rq_gametext *gt, int *has_shadow,
-		      int *dx, int *dy, int *sr, int *sg, int *sb);
+		      int *dx, int *dy, int *sr, int *sg, int *sb, int *sa);
 unsigned char *rq_hud_text_rgba(const char *utf8, float size, int r, int g, int b, int edge,
 				int bold, int *w, int *h, int *text_w);
 int rq_lua_image_add_gif(struct lua_State *L);
@@ -317,6 +317,7 @@ void rq_hud_draw(void);
 int rq_hud_block_mouse(void);
 int rq_hud_block_keys(void);
 int rq_hud_capture_mouse(void);
+int rq_hud_captured(void);
 /* The game's choice menu shows (T_Select::open runs): the HUD is drawn under it (2.7.0). */
 int rq_hud_choosing(void);
 #define RQ_HUD_UNDER_Z 9991
@@ -387,6 +388,7 @@ int rq_lua_input_scroll(struct lua_State *L);
 int rq_lua_hud_clip(struct lua_State *L);
 int rq_lua_hud_clip_push(struct lua_State *L);
 int rq_lua_hud_clip_pop(struct lua_State *L);
+int rq_lua_hud_top(struct lua_State *L);
 int rq_lua_hud_hit(struct lua_State *L);
 int rq_lua_hud_clicked(struct lua_State *L);
 int rq_lua_hud_block(struct lua_State *L);
@@ -469,7 +471,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.10.0"
+#define RQ_VERSION "2.11.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -604,6 +606,7 @@ static inline void rq_hud_draw(void) {}
 static inline int rq_hud_block_mouse(void) { return 0; }
 static inline int rq_hud_block_keys(void) { return 0; }
 static inline int rq_hud_capture_mouse(void) { return 0; }
+static inline int rq_hud_captured(void) { return 0; }
 static inline int rq_hud_choosing(void) { return 0; }
 static inline void rq_saves_wait_parent(void) {}
 static inline void rq_saves_init(char **save_dir) { (void)save_dir; }

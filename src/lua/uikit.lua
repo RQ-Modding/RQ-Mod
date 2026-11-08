@@ -242,6 +242,12 @@ local function interact(id, x, y, w, h, disabled)
   return over, clicked, active == id and mouse.down
 end
 
+---Runs fn now and draws what it draws on the top layer, over every widget (rq.hud.top, 2.11.0).
+function ui.top(fn)
+  if type(fn) ~= "function" then error("uikit.top: expected a function", 2) end
+  return hud.top(fn)
+end
+
 ---True when the mouse was over any kit widget on this update so far.
 function ui.hovered()
   return frame.over
