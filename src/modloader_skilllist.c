@@ -36,13 +36,16 @@
 #define CG_SKILL_BTN 11153
 /*
  * Skill rows are y = 127 + 26*row and 24px tall, so row 17 ends at 593.
- * The yellow help text and stored-points band on CG 11551 starts on the
- * next line and runs to about y = 634. The town system bar starts at 736.
- * 601 (one row under the grid) sits on that band. 652 is the gap under it.
+ * The yellow help band on CG 11551 starts on the next line; its light frame
+ * is at y 654-655 and its grey border at 656-658 (measured on a shot, 2.17.0).
+ * 660 leaves one black row between the band and the buttons. The town system
+ * bar starts at 736. rq.gamebutton's "skill-window" cells use the same rows.
  */
-#define BTN_Y 652
+#define BTN_Y 660
 
 static int g_on;
+static int g_buttons; /* C's Previous / Next are wrapped in */
+static int g_f_mgr = -1, g_f_exec = -1;
 static int g_page = 1;
 static int g_pages = 1;
 static int g_chara;
@@ -964,15 +967,29 @@ static int need_fn(struct ain *a, const char *name, int *out)
 	return *out >= 0;
 }
 
-int rq_skilllist_install(struct ain *ain)
+/* C's Previous / Next: made after each build of the grid, clicked through exec. */
+static void install_buttons(struct ain *ain)
+{
+	if (g_buttons || g_f_mgr < 0 || g_f_exec < 0)
+		return;
+	wrap_method(ain, g_f_mgr, VM_XSYS_SKILLLIST_BUTTONS, 0);
+	wrap_method(ain, g_f_exec, VM_XSYS_SKILLLIST_CLICK, 0);
+	g_buttons = 1;
+	rq_log("skilllist: C's Previous / Next on");
+}
+
+int rq_skilllist_install(struct ain *ain, int buttons)
 {
 	int f_pon, f_list, f_reg, f_open, f_mgr, f_exec;
 	int f_num, f_at, f_pt, f_desc, f_find;
 
 	if (!ain)
 		return 0;
-	if (g_on)
+	if (g_on) {
+		if (buttons)
+			install_buttons(ain);
 		return 1;
+	}
 
 	g_gi_n = find_global(ain, "◆取得可能スキル番号");
 	g_gi_id = find_global(ain, "取得可能スキル");
@@ -1043,14 +1060,16 @@ int rq_skilllist_install(struct ain *ain)
 	replace_body(ain, f_find, VM_XSYS_SKILLLIST_FIND);
 	wrap_func_prefix(ain, f_reg, VM_XSYS_SKILLLIST_CLEAR);
 	wrap_method(ain, f_open, VM_XSYS_SKILLLIST_OPEN, 1);
-	wrap_method(ain, f_mgr, VM_XSYS_SKILLLIST_BUTTONS, 0);
-	wrap_method(ain, f_exec, VM_XSYS_SKILLLIST_CLICK, 0);
+	g_f_mgr = f_mgr;
+	g_f_exec = f_exec;
+	if (buttons)
+		install_buttons(ain);
 
 	g_on = 1;
 	g_page = 1;
 	g_pages = 1;
-	rq_log("skilllist: install ok (slots %d, %d per page, cap index 0-%d)",
-	       SLOTS, PAGE, SLOTS - 1);
+	rq_log("skilllist: install ok (slots %d, %d per page, cap index 0-%d, buttons %s)",
+	       SLOTS, PAGE, SLOTS - 1, buttons ? "C" : "none");
 	return 1;
 }
 
@@ -1088,6 +1107,14 @@ int rq_lua_skilllist_set_page(lua_State *L)
 		p = 1;
 	g_page = p;
 	return 0;
+}
+
+int rq_lua_skilllist_page(lua_State *L)
+{
+	if (!g_on)
+		return luaL_error(L, "skilllist.page: call rq.skilllist.install first");
+	lua_pushinteger(L, g_page);
+	return 1;
 }
 
 int rq_lua_skilllist_page_count(lua_State *L)

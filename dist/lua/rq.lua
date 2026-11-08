@@ -1380,36 +1380,41 @@ function skill.sort_as(id, as_id) end
 
 ---Pages the Potential Skills grid, 36 skills a page.
 ---
----The engine keeps up to 144 buy-list rows (index 0 to 143) and draws Previous Page and Next Page on
----that window, with the castle's skill screen buttons. Lua decides the page. Opening the menu goes back
----to page 1. Known Skills is not paged. A page is 36 rows of the filtered buy list in the order they
----were added, then sorted with `compSkill`.
+---The engine keeps up to 144 buy-list rows (index 0 to 143) and cuts each page's 36. Lua decides the
+---page. Opening the menu goes back to page 1. Known Skills is not paged. A page is 36 rows of the
+---filtered buy list in the order they were added, then sorted with `compSkill`.
+---
+---The page buttons are a mod's own: `install{ buttons = false }`, then `rq.gamebutton` entries in the
+---`"skill-window"` group that set the page and call `rq.skilllist.refresh`. `install()` with no
+---options also draws the engine's old Previous Page and Next Page, for mods made before 2.17.0;
+---`on_buttons` belongs to those.
 ---
 ---Since: 0.2.0
 ---
 ---```lua
----rq.skilllist.install()
----rq.skilllist.on_page(function(ctx)
----  if ctx.dir == 0 then return ctx.page end
----  local p = ctx.page + ctx.dir
----  if p < 1 or p > ctx.pages then return false end
----  return p
----end)
----rq.skilllist.on_buttons(function(prev, next)
----  if prev > 0 then rq.agent.control("skill-page-prev", { label = "Previous Page", button = prev }) end
----  if next > 0 then rq.agent.control("skill-page-next", { label = "Next Page", button = next }) end
----end)
+---rq.skilllist.install({ buttons = false })
+---local function step(dir)
+---  local p = rq.skilllist.page() + dir
+---  if p >= 1 and p <= rq.skilllist.page_count() then return p end
+---end
+---rq.gamebutton.add({ group = "skill-window", id = "next", label = "Next Page",
+---  enabled = function() return step(1) ~= nil end,
+---  on_click = function() rq.skilllist.set_page(step(1)); rq.skilllist.refresh() end })
 ---```
 ---@class rq.skilllist
 local skilllist = {}
 
----Patches the buy list, the cut at 36 and the two buttons.
+---Patches the buy list and the cut at 36, and with `buttons` the engine's two page buttons.
 ---
----Calling it again does nothing more.
+---Calling it again does nothing more, except that a call with `buttons` adds the engine's buttons
+---when an earlier call left them out.
 ---
 ---Since: 0.2.0
+---Changed: 2.17.0 `opts.buttons`; the engine's buttons are at y 660 (were 652), under the list's
+---picture.
+---@param opts? {buttons?: boolean} `buttons = false` leaves out the engine's Previous Page and Next Page, for a mod that makes its own with `rq.gamebutton`. Default true.
 ---@return boolean ok true when the patch is in place.
-function skilllist.install() end
+function skilllist.install(opts) end
 
 ---Calls `fn` when the Potential Skills menu opens, after the page is set to 1 and before the grid is
 ---built.
@@ -1442,9 +1447,11 @@ function skilllist.on_open(fn) end
 ---@return fun() remove Removes this callback.
 function skilllist.on_page(fn) end
 
----Calls `fn` after Previous and Next were made, and again whenever the window makes them again.
+---Calls `fn` after the engine's Previous and Next were made, and again whenever the window makes them again.
 ---
----Pass the ids to `rq.agent.control` so tests can press them. Up to 16 callbacks.
+---Pass the ids to `rq.agent.control` so tests can press them. Only with the engine's buttons
+---(`install()` without `buttons = false`); a mod's own buttons are named by `rq.gamebutton`. Up to 16
+---callbacks.
 ---
 ---Since: 0.2.0
 ---Changed: 0.14.0 Every mod's callback runs.
@@ -1460,6 +1467,24 @@ function skilllist.on_buttons(fn) end
 ---Since: 0.2.0
 ---@param page integer The page; below 1 becomes 1.
 function skilllist.set_page(page) end
+
+---Returns the page the grid shows, or will show when it is next cut.
+---
+---Raises an error before `rq.skilllist.install`.
+---
+---Since: 2.17.0
+---@return integer page The page, from 1.
+function skilllist.page() end
+
+---Builds the Potential Skills list again for the character shown, as the game does after a buy.
+---
+---Use it after `set_page` to show the new page at once, for example from a button's `on_click`. The
+---page's buttons, the window's and every mod's, are made again with it. Does nothing while the window
+---is closed.
+---
+---Since: 2.17.0
+---@return boolean ok true when the list was built; false while the window is closed.
+function skilllist.refresh() end
 
 ---Returns how many pages the current filtered buy list has.
 ---
@@ -4613,46 +4638,64 @@ function castle.rooms() end
 ---@class rq.GameButtonSpec
 ---@field id string The mod's own name for the entry; one per mod.
 ---@field label string The text of its row in the list.
----@field on_click fun(entry: rq.GameButtonHandle) Runs when the player picks it, after the menus close.
----@field group? "system-menu" The game's group. Default "system-menu", the only one for now.
----@field enabled? boolean|fun(): boolean false leaves it out of the list; a function is asked each time. Default true.
----@field tip? string The game's comment beside the list while the row is under the mouse.
+---@field on_click fun(entry: rq.GameButtonHandle) Runs when the player picks it: in "system-menu" after the menus close; in "skill-window" with the window still open, after the game's click sound.
+---@field group? "system-menu"|"skill-window" The game's group. Default "system-menu".
+---@field enabled? boolean|fun(): boolean "system-menu": false leaves it out of the list. "skill-window": false greys the button (a click plays the deny sound and runs nothing). A function is asked each time the list or the window's skill list is built. Default true.
+---@field tip? string The game's comment while the entry is under the mouse or the keys: beside the list ("system-menu"), or under the button with the label as its title ("skill-window").
 
 ---An entry, from `rq.gamebutton.add`.
 ---@class rq.GameButtonHandle
 ---@field id fun(): string `<mod id>.<id>`.
----@field set fun(opts: {label?: string, enabled?: boolean|fun(): boolean, tip?: string}) Changes it; `tip = ""` removes the tip.
----@field remove fun() Takes it out. With no entry left, the MODS row goes as well.
+---@field set fun(opts: {label?: string, enabled?: boolean|fun(): boolean, tip?: string}) Changes it; `tip = ""` removes the tip. In "skill-window" a new label or `enabled` shows from the next build of the skill list (`rq.skilllist.refresh` builds it at once).
+---@field remove fun() Takes it out. "system-menu": with no entry left, the MODS row goes as well. "skill-window": the button goes at once; the others move up on the next build.
 
 ---An entry, as `rq.gamebutton.groups` lists it.
 ---@class rq.GameButtonInfo
 ---@field id string `<mod id>.<id>`.
 ---@field mod string The mod that added it.
 ---@field label string Its text.
----@field enabled boolean It is in the list now.
+---@field enabled boolean "system-menu": it is in the list now. "skill-window": it is not greyed now.
+---@field placed? boolean "skill-window": it has a cell on the last build. Since 2.17.0.
+---@field button? integer "skill-window": its `T_Button` id on the window now, 200101 to 200104. Since 2.17.0.
+---@field x? integer "skill-window": its cell's left edge, in game pixels. Since 2.17.0.
+---@field y? integer "skill-window": its cell's top edge, in game pixels. Since 2.17.0.
 
 ---A group, from `rq.gamebutton.groups`.
 ---@class rq.GameButtonGroup
----@field name string "system-menu".
+---@field name string "system-menu" or "skill-window".
 ---@field open boolean The group is on the screen now.
----@field row boolean The loader's row is in it (some entry exists).
+---@field row? boolean "system-menu": the loader's row is in it (some entry exists).
 ---@field entries rq.GameButtonInfo[] The entries, in the order they were added.
 
 ---Buttons of mods in the game's own menus, made by the game itself.
 ---
----One group so far, `"system-menu"`: the SYSTEM menu, from the town, a quest's map or anywhere the
----game shows it. Mods add entries, not rows. While any entry exists the menu has one more row,
----**MODS**, under Save (or Suspend Save), in the menu's own painted look; the keys reach it as any
----row, and it is greyed while no entry is enabled. Picking it closes the menu as any row does and
----lists every enabled entry in the game's choice menu (`rq.ui.choose`, 20 rows at most), in the
----order they were added. Agents see the row as the control `mods` of the `system-menu` screen, and
----the entries as that choice menu's rows.
+---`"system-menu"`: the SYSTEM menu, from the town, a quest's map or anywhere the game shows it. Mods
+---add entries, not rows. While any entry exists the menu has one more row, **MODS**, under Save (or
+---Suspend Save), in the menu's own painted look; the keys reach it as any row, and it is greyed while
+---no entry is enabled. Picking it closes the menu as any row does and lists every enabled entry in the
+---game's choice menu (`rq.ui.choose`, 20 rows at most), in the order they were added. Agents see the
+---row as the control `mods` of the `system-menu` screen, and the entries as that choice menu's rows.
+---
+---`"skill-window"` (2.17.0): buttons under the Potential Skills list (status, then Skills), in the
+---look of the castle's buttons (CG 11153, 206 × 30, the label in the game's font, shrunk to fit).
+---They sit two to a row under the list's picture: x 531 and 745, y 660 and 692, in the order they
+---were added; a fifth is not placed (`placed` false, and the log says so). With the engine's own page
+---buttons (`rq.skilllist.install()` without `buttons = false`) they take the first row, and entries
+---start on the second. The window makes them again on each build of its list (open, a buy, a
+---character change, `rq.skilllist.refresh`), asking `enabled` each time. A greyed button is the
+---game's inactive look and plays the deny sound. The arrow keys reach them: Down from a column's last
+---skill goes to the button under it (a greyed one is skipped); from a button Up goes to that column's
+---last skill, Down to its first, Left and Right to the other button of the row. Agents see each one
+---as the control `<mod id>.<id>` of the `skill-shop` screen.
 ---
 ---Since: 2.16.0
+---Changed: 2.17.0 The group `"skill-window"`.
 ---
 ---```lua
 ---rq.gamebutton.add({ id = "settings", label = "My Mod settings", tip = "Opens My Mod's page",
 ---  on_click = function() rq.log("open my page here") end })
+---rq.gamebutton.add({ group = "skill-window", id = "plan", label = "Plan Skills",
+---  on_click = function() rq.log("the skill window is still open") end })
 ---```
 ---@class rq.gamebutton
 local gamebutton = {}
@@ -4868,7 +4911,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.16.0"
+rq.version = "2.17.0"
 
 rq.units = units
 rq.items = items

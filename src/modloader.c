@@ -888,10 +888,17 @@ static int l_skill_install(lua_State *L)
 
 static int l_skilllist_install(lua_State *L)
 {
-	int ok;
+	int ok, buttons = 1;
+	if (!lua_isnoneornil(L, 1)) {
+		luaL_checktype(L, 1, LUA_TTABLE);
+		lua_getfield(L, 1, "buttons");
+		if (!lua_isnil(L, -1))
+			buttons = lua_toboolean(L, -1);
+		lua_pop(L, 1);
+	}
 	if (!g_ain)
 		return luaL_error(L, "AIN not loaded");
-	ok = rq_skilllist_install(g_ain);
+	ok = rq_skilllist_install(g_ain, buttons);
 	if (!ok)
 		return luaL_error(L, "skilllist.install failed (see logs/rqmod.log)");
 	lua_pushboolean(L, 1);
@@ -1263,6 +1270,7 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "on_buttons", rq_lua_skilllist_on_buttons);
 	set_cfn(L, "set_page", rq_lua_skilllist_set_page);
 	set_cfn(L, "page_count", rq_lua_skilllist_page_count);
+	set_cfn(L, "page", rq_lua_skilllist_page);
 	lua_setfield(L, -2, "skilllist");
 
 	lua_newtable(L);
