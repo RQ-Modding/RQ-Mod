@@ -2120,6 +2120,8 @@ extern const char rq_gamebutton_lua[];
 extern const unsigned rq_gamebutton_lua_len;
 extern const char rq_skilllist_lua[];
 extern const unsigned rq_skilllist_lua_len;
+extern const char rq_gamedata_lua[];
+extern const unsigned rq_gamedata_lua_len;
 
 static void run_embedded(lua_State *L, int rq_index, const char *code, unsigned len, const char *name)
 {
@@ -2150,6 +2152,9 @@ void rq_battle_lua_open(lua_State *L, int rq_index)
 	/* rq.skilllist (lua/skilllist.lua, loader 2.18.0): the paged buy list, over the game's own
 	 * arrays made longer; its old page buttons are "skill-window" entries. */
 	run_embedded(L, rq_index, rq_skilllist_lua, rq_skilllist_lua_len, "=skilllist");
+	/* rq.world, rq.shop.donations, rq.quests.on_take and the rest, rq.chara.absorbed
+	 * (lua/gamedata.lua, loader 2.23.0): game data three shipped mods read through rq.ain. */
+	run_embedded(L, rq_index, rq_gamedata_lua, rq_gamedata_lua_len, "=gamedata");
 }
 
 #endif /* RQ_MODLOADER */

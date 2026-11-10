@@ -202,6 +202,8 @@ int rq_lua_item_edit(struct lua_State *L);
 int rq_lua_item_number(struct lua_State *L);
 int rq_lua_item_id_of(struct lua_State *L);
 int rq_lua_item_get(struct lua_State *L);
+int rq_lua_item_find(struct lua_State *L);
+int rq_lua_item_count(struct lua_State *L);
 int rq_lua_item_set(struct lua_State *L);
 int rq_lua_item_give(struct lua_State *L);
 int rq_lua_item_transform(struct lua_State *L);
@@ -461,7 +463,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.22.1"
+#define RQ_VERSION "2.23.0"
 
 struct rq_qbattle_skill {
 	int id;

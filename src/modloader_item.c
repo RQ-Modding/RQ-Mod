@@ -1427,6 +1427,116 @@ int rq_lua_item_on_create(lua_State *L)
 	return 0;
 }
 
+/* rq.item.find and rq.item.count (2.23.0): an item number's instances by place, in one pass per
+ * place over the game's 3000 slots. A place is 7 the vault, 11 the storage, 8 quest storage, or
+ * "worn" (存在 20 and up, the owner's slot); the default is the game's own count rule
+ * (Ｉ総数取得／固有番号(no, 0)): worn, the vault and the storage. */
+#define PLACE_WORN (-1)
+#define FIND_MAX_PLACES 8
+
+static int place_of_name(lua_State *L, int idx)
+{
+	if (lua_type(L, idx) == LUA_TNUMBER) {
+		int v;
+		if (!lua_isinteger(L, idx) || (v = (int)lua_tointeger(L, idx)) <= 0)
+			return luaL_error(L, "rq.item.find: a place number must be a whole number above 0");
+		return v;
+	}
+	if (lua_type(L, idx) == LUA_TSTRING) {
+		const char *s = lua_tostring(L, idx);
+		if (!strcmp(s, "vault")) return 7;
+		if (!strcmp(s, "storage")) return 11;
+		if (!strcmp(s, "quest")) return 8;
+		if (!strcmp(s, "worn")) return PLACE_WORN;
+		return luaL_error(L, "rq.item.find: unknown place '%s' (vault, storage, quest, worn or a number)", s);
+	}
+	return luaL_error(L, "rq.item.find: a place is a name or a number");
+}
+
+/* Reads opts at idx: fills places (returns how many) and lock (-1 any, 0 unlocked, 1 locked). */
+static int find_opts(lua_State *L, int idx, int *places, int *lock)
+{
+	int n = 0;
+	*lock = -1;
+	if (lua_isnoneornil(L, idx)) {
+		places[n++] = PLACE_WORN;
+		places[n++] = 7;
+		places[n++] = 11;
+		return n;
+	}
+	luaL_checktype(L, idx, LUA_TTABLE);
+	lua_getfield(L, idx, "lock");
+	if (!lua_isnil(L, -1))
+		*lock = lua_toboolean(L, -1) ? 1 : 0;
+	lua_pop(L, 1);
+	lua_getfield(L, idx, "place");
+	if (lua_isnil(L, -1)) {
+		places[n++] = PLACE_WORN;
+		places[n++] = 7;
+		places[n++] = 11;
+	} else if (lua_istable(L, -1)) {
+		int i, len = (int)luaL_len(L, -1);
+		if (len < 1 || len > FIND_MAX_PLACES)
+			return luaL_error(L, "rq.item.find: place lists 1 to %d places", FIND_MAX_PLACES);
+		for (i = 1; i <= len; i++) {
+			lua_rawgeti(L, -1, i);
+			places[n++] = place_of_name(L, lua_gettop(L));
+			lua_pop(L, 1);
+		}
+	} else {
+		places[n++] = place_of_name(L, lua_gettop(L));
+	}
+	lua_pop(L, 1);
+	return n;
+}
+
+static int place_match(int want, int place)
+{
+	return want == PLACE_WORN ? place >= 20 : place == want;
+}
+
+/* Pushes the list (find) or returns the count; push 0 for count only. */
+static int find_run(lua_State *L, int push)
+{
+	int no = (int)luaL_checkinteger(L, 1);
+	int places[FIND_MAX_PLACES], lock, np, i, ii, n = 0;
+
+	np = find_opts(L, 2, places, &lock);
+	if (push)
+		lua_newtable(L);
+	for (i = 0; i < np; i++) {
+		for (ii = 1; ii <= 3000; ii++) {
+			struct page *p = ipage(ii);
+			int v, place, unid = 0;
+			if (!p || !mread(p, "固有番号", &v) || v != no || !mread(p, "存在", &place))
+				continue;
+			if (!place_match(places[i], place))
+				continue;
+			mread(p, "未確定", &unid);
+			if (lock >= 0 && (unid == 2) != lock)
+				continue;
+			n++;
+			if (push) {
+				lua_pushinteger(L, ii);
+				lua_rawseti(L, -2, n);
+			}
+		}
+	}
+	return n;
+}
+
+int rq_lua_item_find(lua_State *L)
+{
+	find_run(L, 1);
+	return 1;
+}
+
+int rq_lua_item_count(lua_State *L)
+{
+	lua_pushinteger(L, find_run(L, 0));
+	return 1;
+}
+
 /* rq.item.lock, sell, donate and store: Lua over the game's own calls (lua/item.lua, loader 2.9.0);
  * rq.item.info (2.20.0). */
 extern const char rq_item_lua[];

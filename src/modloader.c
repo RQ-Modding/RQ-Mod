@@ -1461,6 +1461,8 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "number", rq_lua_item_number);
 	set_cfn(L, "id_of", rq_lua_item_id_of);
 	set_cfn(L, "get", rq_lua_item_get);
+	set_cfn(L, "find", rq_lua_item_find);
+	set_cfn(L, "count", rq_lua_item_count);
 	set_cfn(L, "set", rq_lua_item_set);
 	set_cfn(L, "give", rq_lua_item_give);
 	set_cfn(L, "transform", rq_lua_item_transform);

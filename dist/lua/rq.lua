@@ -2330,6 +2330,48 @@ function chara.is_recruited(who) end
 ---@param heal? boolean true also refills HP and uses (`Ｃ補給`). Default false.
 function chara.recalc(iic, heal) end
 
+---Returns the five items a Morurun absorbed: item numbers, 0 for an empty slot.
+---
+---The game fills these slots when a Morurun takes in a special item (`Ｃ体内特殊アイテムの取得処理`):
+---kind 21 only, never 304 to 307, 309 or 310; the first empty slot; with all five full, a higher rank
+---replaces the first slot that holds a rank-1 item, and a rank-1 item is not taken. Every character
+---has the slots; in play only Morurun fill them.
+---
+---Raises an error for a slot with no character.
+---
+---Since: 2.23.0
+---
+---```lua
+---for slot, no in ipairs(rq.chara.absorbed(iic)) do
+---  if no ~= 0 then rq.log(slot, rq.ids.name("item", no)) end
+---end
+---```
+---@param iic integer The character's roster slot.
+---@return integer[] items Five item numbers, in slot order; 0 is empty.
+---@see rq.chara.set_absorbed
+function chara.absorbed(iic) end
+
+---Changes one of the five absorbed items, then recalculates the character.
+---
+---Only the slot changes: taking an instance from the vault, giving the old item back, drawing the
+---status page again (`rq.statuspage.refresh`) and a sound are the mod's. The recalculation also
+---refills HP and uses outside a quest. It does not check that the character is a Morurun.
+---
+---Raises an error for a slot with no character, a slot outside 1 to 5, an item that is not a special
+---item (kind 21) or one the game never absorbs (304 to 307, 309, 310).
+---
+---Since: 2.23.0
+---
+---```lua
+---rq.chara.set_absorbed(iic, 1, 0)   -- empty slot 1
+---rq.chara.set_absorbed(iic, 2, 274) -- put item 274 in slot 2
+---```
+---@param iic integer The character's roster slot.
+---@param slot integer 1 to 5.
+---@param no integer The item number, or 0 to empty the slot.
+---@see rq.chara.absorbed
+function chara.set_absorbed(iic, slot, no) end
+
 ---Removes a character from the roster (`Ｃ削除`).
 ---
 ---The character leaves the party first. The Party tab's list is refreshed.
@@ -2754,7 +2796,7 @@ function image.gif_info(key) end
 ---@field price integer The price.
 ---@field level integer The level needed to equip it.
 ---@field rarity integer The rarity.
----@field place integer 6 shop stock, 7 vault, 8 quest storage, or the owner's roster slot while equipped.
+---@field place integer 6 shop stock, 7 vault, 8 quest storage, 11 storage, or the owner's roster slot (20 and up) while equipped.
 ---@field locked integer Non-zero when it cannot be taken off.
 ---@field vanishes integer Non-zero when it vanishes.
 ---@field effects rq.ItemEffect[] The effects.
@@ -3038,6 +3080,55 @@ function item.on_create(fn) end
 ---@param no integer The item number.
 ---@return rq.ItemInfo? info The data, or nil for 0 or a number the game does not have.
 function item.info(no) end
+
+---What `rq.item.find` and `rq.item.count` take.
+---
+---A place is `"vault"` (7), `"storage"` (11), `"quest"` (8, quest storage), `"worn"` (on a
+---character: the game's place 20 and up), or the game's place number.
+---@class rq.ItemFindOpts
+---@field place? string|integer|(string|integer)[] One place or a list of up to 8. Default `{ "worn", "vault", "storage" }`, the places the game counts.
+---@field lock? boolean false leaves out items locked in the vault, true keeps only those. Default: both.
+
+---Lists the instances of an item number, by place.
+---
+---The list comes in the order of `opts.place`, then by instance, so `{ "vault", "storage" }` gives
+---the vault's first. One pass over the game's item slots per place; it builds no rows, so it is
+---quicker than going through `rq.items()`. Shop stock (6) and instances being made (9) are only
+---found when asked for by number.
+---
+---Raises an error for an unknown place name, a place that is not a whole number above 0, or more
+---than 8 places.
+---
+---Since: 2.23.0
+---
+---```lua
+---local JEWEL = 258
+---local ii = rq.item.find(JEWEL, { place = { "vault", "storage" }, lock = false })[1]
+---if ii then rq.item.remove(ii) end
+---```
+---@param no integer The item number.
+---@param opts? rq.ItemFindOpts Which places, and the vault lock.
+---@return integer[] instances The instances (ii); empty when there are none.
+---@see rq.item.count
+function item.find(no, opts) end
+
+---Counts the instances of an item number, by place.
+---
+---It counts what `rq.item.find` would list. With no `opts` it gives the game's own count
+---(`Ｉ総数取得／固有番号(no, 0)`): worn, in the vault and in the storage.
+---
+---Raises an error as `rq.item.find` does.
+---
+---Since: 2.23.0
+---
+---```lua
+---if rq.item.count(rq.ids.item.SKILL_AGAIN) >= 3 then rq.log("a set of three") end
+---```
+---@param no integer The item number.
+---@param opts? rq.ItemFindOpts Which places, and the vault lock.
+---@return integer n How many.
+---@see rq.item.find
+function item.count(no, opts) end
 
 ---Small key and value storage for each mod and each save.
 ---
@@ -3366,6 +3457,44 @@ function shop.in_stock(no) end
 ---@param no integer|string An item number or text id.
 ---@return integer ii The new instance, or 0 when the shop already had the item or the game refused it.
 function shop.stock(no) end
+
+---Returns the donations count and Frostbuy's reward goal (`◆寄付`, `◆寄付ボーナス`).
+---
+---DONATE in the vault adds to the count. On a visit, when Frostbuy's talk about donations has been
+---seen and the count is at the goal or above, she gives one reward and the goal goes up by 25. A world
+---transfer sets the count to 0 and the goal to 25.
+---
+---Since: 2.23.0
+---
+---```lua
+---local count, goal = rq.shop.donations()
+---rq.log(("donated %d, next reward at %d"):format(count, goal))
+---```
+---@return integer count The donations count.
+---@return integer goal The count at which Frostbuy gives her next reward.
+---@see rq.shop.set_donations
+function shop.donations() end
+
+---Writes the donations count, and the reward goal when given.
+---
+---Frostbuy reads both on a visit (see `rq.shop.donations`). Two things to know:
+---- A count at the goal or above gives a reward on the next visit. To set a count without one, set
+---  the goal above it, as `(count // 25 + 1) * 25` does.
+---- While her talk about donations has not been seen, a count other than 0 plays the talk on a visit
+---  and sets the goal to 25. Mark it seen with `rq.scene.seen` to skip it.
+---
+---Raises an error for a count or goal that is not a whole number, 0 or more.
+---
+---Since: 2.23.0
+---
+---```lua
+---local count = 60
+---rq.shop.set_donations(count, (count // 25 + 1) * 25) -- 60, next reward at 75
+---```
+---@param count integer The donations count.
+---@param goal? integer The reward goal. Default: kept as it is.
+---@see rq.shop.donations
+function shop.set_donations(count, goal) end
 
 ---Hooks into fights: events, ally skill select, marks and buffs on the cards, faces, states, drops,
 ---and scripted fights.
@@ -4101,6 +4230,9 @@ function battle.snapshot() end
 ---@field classId integer That class's number, 0 when none is set.
 ---@field level integer The level needed to equip it.
 ---@field description string The item's text.
+---@field no integer The item number (`固有番号`), as `rq.ids.item` names it. Since 2.23.0.
+---@field place integer Where it is (`存在`): 7 the vault, 11 the storage, 8 quest storage, or the owner's roster slot (20 and up) while worn. Since 2.23.0.
+---@field lock boolean Locked in the vault (`アイテム_ＬＯＣＫ中`): the vault's LOCK, which keeps it from SELL and DONATE. Not `rq.item.get`'s `locked` (cannot be taken off). Since 2.23.0.
 
 ---A quest, from `rq.quests()`.
 ---@class rq.Quest
@@ -4197,9 +4329,13 @@ function quests.state(no) end
 
 ---Sets a quest's state, through the game's `Ｑ状態`.
 ---
----State 2 also records a first clear. Raises an error for a state other than 0, 1 or 2.
+---State 2 also records a first clear. State 1 on a locked quest adds it to the "new quests" list of
+---the victory screen; on a quest already available or cleared, the game's `Ｑ状態` changes nothing, so
+---the call writes the state itself (a cleared quest can be taken again). Raises an error for a state
+---other than 0, 1 or 2.
 ---
 ---Since: 0.7.0
+---Changed: 2.23.0 State 1 on a cleared quest is written; before, the call did nothing there.
 ---@param no integer The quest number.
 ---@param state integer 0 locked, 1 available, 2 cleared.
 ---@see rq.quests.unlock
@@ -4322,6 +4458,121 @@ function quests.on_event_after(fn) end
 ---Since: 0.7.0
 ---@return rq.NewThisRun new The new characters and quests.
 function quests.new_this_run() end
+
+---Returns whether a quest can be taken now: the game's `クエスト_有効`, which lights the quest list's
+---Take button.
+---
+---It is true when the party has at least one member, the quest exists and its conditions to take
+---part are met (an item it needs, a character, and the like).
+---
+---Raises an error when `no` is not a quest number.
+---
+---Since: 2.23.0
+---
+---```lua
+---if not rq.quests.can_take(80) then rq.log("Gem Lady needs a Jewel") end
+---```
+---@param no integer The quest number.
+---@return boolean ok true when Take would be lit for it.
+function quests.can_take(no) end
+
+---Draws the quest list again, with the chosen quest's buttons as the game draws them.
+---
+---After a change that the list shows (an item a quest needs, a state), the rows are made again and
+---the chosen quest's Take is lit or greyed by `rq.quests.can_take`, as the game does after the
+---favorite button (`T_Quest::remakeList`, then `T_Quest::lock`). With no quest chosen, only the rows.
+---
+---Since: 2.23.0
+---
+---```lua
+---rq.item.remove(jewel)
+---rq.quests.refresh() -- Take greys if that was the last one
+---```
+---@return boolean done false when the quest list is not open.
+function quests.refresh() end
+
+---What an `rq.quests.on_take` callback gets.
+---@class rq.TakeContext
+---@field quest integer The quest the player is taking.
+---@field text string The game's question, `Take Quest@` and the quest's name and `?` (`@` is its line break).
+
+---Registers a function that runs when the player presses Take on the quest list.
+---
+---It runs before the game's "Take Quest?" question and before the autosave that comes with a Yes.
+---The callback may wait, for example on `rq.ui.ask` or `rq.ui.confirm`. What it returns decides:
+---- nil: the game goes on as usual, with its question unless the player turned it off.
+---- true: the quest is taken, with no question.
+---- false: the quest is not taken, and the list stays.
+---
+---Callbacks run in the order they were added (mods in load order); the first one that returns
+---something other than nil decides, and the rest do not run. An error is logged and counts as nil.
+---Only the quest list's Take: not `rq.quests.start`, nor a quest the game starts by itself.
+---
+---Since: 2.23.0
+---
+---```lua
+---rq.quests.on_take(function(ctx)
+---  if ctx.quest ~= 80 then return nil end
+---  return rq.ui.confirm("Pay 100 gold to take it?") == true
+---end)
+---```
+---@param fn fun(ctx: rq.TakeContext): boolean|nil nil for the game's way, true to take the quest, false not to.
+---@return fun() remove Removes this callback.
+function quests.on_take(fn) end
+
+---The world and the game's world transfer.
+---
+---The game has three worlds. At the end of a world it sets the new world, then resets much of the run
+---(`ワールド切り替え処理`): every quest and its map flags, the shop's stock and the quest list made
+---again, the quest storage emptied, every event, three skills of three characters, ten key items
+---(255 to 263 and 267), in world 3 the "cannot be taken off" mark on every item, the fame rank divided
+---by 3 and the fame points, the donations count (0) and Frostbuy's goal (25), the count of cleared
+---quests, Rance Castle closed, and about 40 of the game's flags. Characters, their levels and skills,
+---gold and the items in the vault and the storage stay.
+---@class rq.world
+local world = {}
+
+---Returns the world being played.
+---
+---Since: 2.23.0
+---
+---```lua
+---if rq.world.current() == 3 then rq.log("last world") end
+---```
+---@return integer|nil world 1 to 3, or nil before a save is loaded.
+function world.current() end
+
+---What `rq.world.on_transfer` and `on_transfer_after` callbacks get.
+---@class rq.TransferContext
+---@field world integer The world as the game holds it: the new one, in play.
+---@field from integer The world before: `world` - 1 (the game goes from 1 to 2 and from 2 to 3).
+
+---Registers a function that runs at a world transfer, before the game's reset.
+---
+---The old values are still there: read here what a mod wants to keep, and write it back in
+---`rq.world.on_transfer_after`. A write made here is reset with the rest. An error is logged.
+---
+---Since: 2.23.0
+---
+---```lua
+---local kept
+---rq.world.on_transfer(function(ctx) kept = rq.shop.donations() end)
+---rq.world.on_transfer_after(function(ctx) rq.shop.set_donations(kept, (kept // 25 + 1) * 25) end)
+---```
+---@param fn fun(ctx: rq.TransferContext) Runs before the reset.
+---@return fun() remove Removes this callback.
+---@see rq.world.on_transfer_after
+function world.on_transfer(fn) end
+
+---Registers a function that runs at a world transfer, after the game's reset.
+---
+---Values written here last into the new world. An error is logged.
+---
+---Since: 2.23.0
+---@param fn fun(ctx: rq.TransferContext) Runs after the reset.
+---@return fun() remove Removes this callback.
+---@see rq.world.on_transfer
+function world.on_transfer_after(fn) end
 
 ---Plays scenes with the game's own commands, so a mod can do anything a game scene does.
 ---
@@ -4769,9 +5020,12 @@ function units.list() end
 ---Lists the item instances the player owns.
 ---
 ---`rq.items()` and `rq.items.list()` are the same call. Instances whose existence value is 0, 6 or 9
----are left out. The list is a copy.
+---are left out. The list is a copy. To find the instances of one item number, `rq.item.find` is
+---quicker: it builds no rows.
 ---
 ---Since: 0.2.0
+---Changed: 2.23.0 Rows have `no`, `place` and `lock`, and the list runs to the game's last used slot;
+---it stopped at 1024 rows.
 ---@class rq.items
 ---@overload fun(): rq.Item[]
 local items = {}
@@ -5255,7 +5509,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.22.1"
+rq.version = "2.23.0"
 
 rq.units = units
 rq.items = items
@@ -7730,6 +7984,7 @@ rq.config = config
 rq.sprite = sprite
 rq.store = store
 rq.quests = quests
+rq.world = world
 rq.scene = scene
 rq.image = image
 rq.item = item

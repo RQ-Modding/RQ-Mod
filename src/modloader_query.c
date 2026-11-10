@@ -23,7 +23,6 @@
 #include "vm/page.h"
 
 #define Q_UNITS 128
-#define Q_ITEMS 1024
 #define Q_QUESTS 512
 #define Q_SKILL 40
 #define Q_ACTIVE 8
@@ -475,7 +474,8 @@ static int l_items(lua_State *L)
 	limit = global_int(&gi_item_max, "◆Ｉ構造体最大使用位置");
 	if (limit <= 0 || limit >= arr->nr_vars)
 		limit = arr->nr_vars - 1;
-	for (i = 1; i <= limit && n < Q_ITEMS; i++) {
+	/* No cap on the rows (2.23.0): the loop stops at the game's last used slot. */
+	for (i = 1; i <= limit; i++) {
 		struct page *it = arr_at(arr, i);
 		char name[80], desc[Q_TEXT];
 		int kind, class_id;
@@ -504,6 +504,13 @@ static int l_items(lua_State *L)
 		lua_setfield(L, -2, "level");
 		lua_pushstring(L, desc);
 		lua_setfield(L, -2, "description");
+		/* 2.23.0: the item number, its place and the vault lock (未確定 2, アイテム_ＬＯＣＫ中). */
+		lua_pushinteger(L, fint_utf(it, "固有番号"));
+		lua_setfield(L, -2, "no");
+		lua_pushinteger(L, fint_utf(it, "存在"));
+		lua_setfield(L, -2, "place");
+		lua_pushboolean(L, fint_utf(it, "未確定") == 2);
+		lua_setfield(L, -2, "lock");
 		lua_rawseti(L, -2, ++n);
 	}
 	return 1;
