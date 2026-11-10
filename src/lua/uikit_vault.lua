@@ -53,7 +53,8 @@ hub.vault = {
   name_fit = { 24, 12, 1.0, 0.5 },
   info = game { face = 258, size = 20, r = 255, g = 245, b = 100, space = -10,
     shadow = { x = 1, y = 1, r = 96, g = 64, b = 48 } },
-  number = game { face = 258, size = 20, r = 255, g = 255, b = 255, space = -10,
+  -- The numbers are drawn at the game's weight 70 (T_StoreComment's tmNumber), heavier than its bold.
+  number = game { face = 258, size = 20, r = 255, g = 255, b = 255, space = -10, weight = 70,
     shadow = { x = 1, y = 1, r = 0, g = 0, b = 0 } },
   info_fit = { 0.95, 0.6, 0.4 },
   level = { cg = 11407 },
@@ -62,6 +63,13 @@ hub.vault = {
   level_fit = { 16, 12, 1.0, 0.5 },
   locked = { cg = 11419 },
   rank = 11420,
+  -- The item card (T_ItemComment, 2.21.0): CG 10402 (393 by 139) with the row's parts at +6,+5;
+  -- not judged, CG 10403 over it and the tile alone. The status page's slot: the frame (216, 255, 0)
+  -- at 102 and REMOVE (11506, two cells of 100 by 80) at +100,+10.
+  card = { cg = 10402, w = 393, h = 139 },
+  card_unjudged = { cg = 10403 },
+  slot_frame = { r = 216, g = 255, b = 0, a = 102 },
+  remove = button(11506, 100, 80, 100, 10),
   kinds = { [21] = 10407, [1] = 10408, [11] = 10409, [17] = 10410 },
   current = { r = 0, g = 255, b = 255, a = 128 },
   -- The row's buttons (T_StoreItem::setPos): LOCK / UNDO LOCK at +204,+1, SELL at +285,+7,
@@ -394,8 +402,10 @@ local KEY_OF = { lock = 76, unlock = 76, sell = 83, donate = 68 } -- L, S, D
 -- that in two lines of 12 px (wrapped as WordWrapText does), and cut at 202.
 local function draw_name(x, y, name, v)
   local ns = fitted(name, v.name, v.name_fit, 202)
-  if text_w(name, ns) <= 202 then
-    hud.text(x, y, name, with(ns, { w = 202, h = 22, align = "center", valign = "center" }))
+  local nw = text_w(name, ns)
+  if nw <= 202 then
+    -- Centered as T_DrawText's draw mode 1: (202 - w) / 2, rounded down (2.21.0).
+    hud.text(x + (202 - nw) // 2, y, name, with(ns, { h = 22, valign = "center" }))
     return
   end
   local small = with(v.name, { size = v.name_fit[2] })
@@ -406,6 +416,57 @@ local function draw_name(x, y, name, v)
       align = "center", valign = "center" }))
   end
   hud.clip_pop()
+end
+
+-- The tile (T_ItemIcon): the icon, 100 by 100 (or size), and the rank badge (11420 + rank) at its
+-- bottom left, shrunk with it.
+local function icon_parts(x, y, r, v, size, alpha, tint)
+  size = size or 100
+  if r.icon and r.icon > 0 then
+    hud.cg(x, y, r.icon, { w = size, h = size, alpha = alpha, tint = tint })
+  end
+  if r.rank and r.rank > 0 then
+    local cg = v.rank + r.rank
+    local rw, rh = hud.cg_size(cg)
+    rw, rh = rw or 30, rh or 30
+    if size == 100 then
+      hud.cg(x, y + 100 - rh, cg, { tint = tint })
+    else
+      local s = size / 100
+      local sw, sh = math.max(1, floor(rw * s + 0.5)), math.max(1, floor(rh * s + 0.5))
+      hud.cg(x, y + size - sh, cg, { w = sw, h = sh, tint = tint })
+    end
+  end
+end
+
+-- A row's parts (T_StoreList::setPos) from its top left: the name, the tile, the level bar, the
+-- stats, the classes (at + 98 in a row, + 99 on the item card), LOCKED, and the kind or the price.
+local function row_parts(x, y, r, v, style, buttons, disabled, class_y)
+  if r.name and r.name ~= "" then draw_name(x + 2, y + 1, r.name, v) end
+  icon_parts(x + 2, y + 25, r, v, 100, disabled and 128 or nil)
+  local has_level = r.level ~= nil and r.level ~= ""
+  if has_level then
+    ui.draw(v.level, x + 105, y + 80)
+    local lw = 274
+    -- At the bar's top, as textDrawWidthCenter2(1, 0, ...): centered across, not down (2.21.0).
+    hud.text(x + 105, y + 80, r.level, with(fitted(r.level, v.level_text, v.level_fit, lw), { w = lw, h = 17,
+      align = "center", valign = "top" }))
+  end
+  if r.info and r.info ~= "" then draw_info(x + 107, y + 27, r.info, has_level and 3 or 4) end
+  for i, c in ipairs(r.classes or {}) do
+    local cg = class_icon(c)
+    if cg and cg > 0 then hud.cg(x + 107 + 34 * (c - 1), y + class_y, cg) end
+    if i > 8 then break end
+  end
+  if r.locked and style ~= "shop" then ui.draw(v.locked, x + 297, y + 4) end
+  if style == "shop" then
+    -- The shop shows the price in its GOLD box instead of the kind.
+    local p = v.price
+    ui.number(max(0, math.tointeger(r.price) or 0), { x = x + p.x, y = y + p.y, font = "gold",
+      w = p.cells * (v.gold.w + p.gap) - p.gap, align = "right", gap = p.gap })
+  elseif not buttons and r.kind and v.kinds[r.kind] then
+    hud.cg(x + 206, y + 4, v.kinds[r.kind])
+  end
 end
 
 ---A vault item row (381 by 128): the name, the icon with its rank, the level bar, the stats in
@@ -446,37 +507,7 @@ function ui.item_row(row, o)
   local over, clicked = interact(rid, x, y, w, h, o.disabled or on_button,
     { group = o.group, nav = o.nav, tip = o.tip, tip_wait = o.tip_wait })
   ui.draw(bg, x, y, w, h, o.disabled and GREY or nil)
-  if r.name and r.name ~= "" then draw_name(x + 2, y + 1, r.name, v) end
-  if r.icon and r.icon > 0 then
-    hud.cg(x + 2, y + 25, r.icon, { w = 100, h = 100, alpha = o.disabled and 128 or nil })
-  end
-  if r.rank and r.rank > 0 then
-    local cg = v.rank + r.rank
-    local _, rh = hud.cg_size(cg)
-    hud.cg(x + 2, y + 25 + 100 - (rh or 30), cg)
-  end
-  local has_level = r.level ~= nil and r.level ~= ""
-  if has_level then
-    ui.draw(v.level, x + 105, y + 80)
-    local lw = 274
-    hud.text(x + 105, y + 80, r.level, with(fitted(r.level, v.level_text, v.level_fit, lw), { w = lw, h = 17,
-      align = "center", valign = "center" }))
-  end
-  if r.info and r.info ~= "" then draw_info(x + 107, y + 27, r.info, has_level and 3 or 4) end
-  for i, c in ipairs(r.classes or {}) do
-    local cg = class_icon(c)
-    if cg and cg > 0 then hud.cg(x + 107 + 34 * (c - 1), y + 98, cg) end
-    if i > 8 then break end
-  end
-  if r.locked and style ~= "shop" then ui.draw(v.locked, x + 297, y + 4) end
-  if style == "shop" then
-    -- The shop shows the price in its GOLD box instead of the kind.
-    local p = v.price
-    ui.number(max(0, math.tointeger(r.price) or 0), { x = x + p.x, y = y + p.y, font = "gold",
-      w = p.cells * (v.gold.w + p.gap) - p.gap, align = "right", gap = p.gap })
-  elseif not o.buttons and r.kind and v.kinds[r.kind] then
-    hud.cg(x + 206, y + 4, v.kinds[r.kind])
-  end
+  row_parts(x, y, r, v, style, o.buttons, o.disabled, 98)
   for _, b in ipairs(btns) do
     ui.draw(b.over and b.b.hover or b.b.normal, x + b.b.x, y + b.b.y, b.b.w, b.b.h)
     show("button", key .. "-" .. b.name, b.name, x + b.b.x, y + b.b.y, b.b.w, b.b.h)
@@ -498,6 +529,140 @@ function ui.item_row(row, o)
   show("row", key, r.name, x, y, w, h, { selected = o.current and true or false, disabled = o.disabled,
     value = r.ii and tostring(r.ii) or nil })
   return clicked, pressed
+end
+
+-- ---- The item tile and the item card (2.21.0): T_ItemIcon, T_ItemComment ----
+
+local function item_of(item, what)
+  if type(item) == "table" then return item end
+  if math.type(item) ~= "integer" then
+    error("uikit." .. what .. ": expected an item instance (ii) or a row table", 3)
+  end
+  local r = data_of(item)
+  if not r then error("uikit." .. what .. ": no item instance " .. item, 3) end
+  return r
+end
+
+-- Where the card goes, as T_ItemComment::setPos: at the mouse + 11, + 20 by default; past x 1024
+-- to the left of the mouse (of x 1024 for a given place); past y 736 up to end at 736.
+local function card_place(x, y)
+  local c = T("vault").card
+  local mx
+  if x == nil or y == nil then
+    mx = kit.mouse.x
+    x, y = kit.mouse.x + 11, kit.mouse.y + 20
+  else
+    mx = 1024
+  end
+  if x + c.w > 1024 then x = mx - c.w end
+  if y + c.h > 736 then y = 736 - c.h end
+  return floor(x), floor(y)
+end
+
+local function card_draw(r, x, y, judged)
+  local v = T("vault")
+  hud.top(function()
+    hud.cg(x, y, v.card.cg)
+    if judged then
+      row_parts(x + 6, y + 5, r, v, "vault", nil, false, 99)
+    else
+      hud.cg(x, y, v.card_unjudged.cg)
+      icon_parts(x + 8, y + 30, r, v)
+    end
+  end)
+end
+
+---The game's item card (T_ItemComment), drawn now on the top layer: CG 10402 with the item's row
+---on it, or, with judged = false, CG 10403 (UNIDENTIFIED) and the icon alone. item is an ii or a
+---row table. opts: x, y (default at the mouse, kept on the screen as the game keeps it), judged,
+---id. Returns x, y, w, h.
+function ui.item_card(item, o)
+  o = o or {}
+  if type(o) ~= "table" then error("uikit.item_card: opts is a table", 2) end
+  local r = item_of(item, "item_card")
+  local x, y = card_place(o.x, o.y)
+  local judged = o.judged ~= false
+  card_draw(r, x, y, judged)
+  local c = T("vault").card
+  show("card", o.id or r.ii or "item", judged and r.name or "Unidentified", x, y, c.w, c.h,
+    { value = r.ii and tostring(r.ii) or nil })
+  return x, y, c.w, c.h
+end
+
+---The item card's size: 393, 139.
+function ui.item_card_size()
+  local c = T("vault").card
+  return c.w, c.h
+end
+
+---An item's tile, as the status page's equip slots: the icon (100 by 100, or size) with its rank
+---badge, the game's yellow frame under the mouse or the keys' cursor (and while current), and the
+---item card as its tip, left of the tile. item: an ii, a row table, or nil for an empty slot (nothing
+---drawn). opts: x, y, id, size, current, disabled, remove (REMOVE on the hovered or current tile),
+---judged (for the card), tip (false: none; a text or table: the comment window), tip_wait, nav.
+---Returns clicked, and "remove" when REMOVE was pressed (or D on the tile from the keys).
+function ui.item_icon(item, o)
+  o = o or {}
+  if type(o) ~= "table" then error("uikit.item_icon: opts is a table", 2) end
+  if o.size ~= nil and (math.type(o.size) ~= "integer" or o.size < 1) then
+    error("uikit.item_icon: size is a whole number of pixels", 2)
+  end
+  local r = item ~= nil and item_of(item, "item_icon") or nil
+  local v = T("vault")
+  local S = o.size or 100
+  local x, y = place(o, S, S)
+  local key = o.id ~= nil and tostring(o.id) or (r and r.ii and tostring(r.ii)) or (r and r.name) or "slot"
+  local id = id_of({ id = key }, "itemicon")
+  local judged = o.judged ~= false
+  -- REMOVE first: a click on it is not a click on the tile.
+  local rb = v.remove
+  local st = ui.state("itemicon:" .. key)
+  local show_remove = o.remove and r and not o.disabled and (st.hot or o.current)
+  local pressed, on_remove, rover
+  if show_remove then
+    local rid = id_of({ id = key .. ".remove" }, "itemicon")
+    local _, rclicked, _, mon = interact(rid, x + rb.x, y + rb.y, rb.w, rb.h, false, { nav = false })
+    rover, on_remove = mon, mon
+    if rclicked then pressed = "remove" end
+  end
+  local tip = o.tip
+  if tip == nil and r then
+    tip = { _keys_wait = 0, _draw = function(tx, ty, tw)
+      local cx = tx - v.card.w
+      if cx < 0 then cx = tx + tw end
+      cx, ty = card_place(cx, ty)
+      card_draw(r, cx, ty, judged)
+      show("card", key, judged and r.name or "Unidentified", cx, ty, v.card.w, v.card.h,
+        { value = r.ii and tostring(r.ii) or nil })
+    end }
+  elseif tip == false then
+    tip = nil
+  end
+  local over, clicked = interact(id, x, y, S, S, o.disabled or on_remove,
+    { nav = o.nav, tip = not on_remove and tip or nil, tip_wait = o.tip_wait })
+  -- REMOVE stays while the mouse moves from the tile onto it.
+  st.hot = (over and not o.disabled) or (on_remove and st.hot) or false
+  if r then
+    icon_parts(x, y, r, v, S, nil, o.disabled and { 127, 127, 127 } or nil)
+  end
+  if (over and not o.disabled) or o.current then
+    local f = v.slot_frame
+    hud.rect(x, y, S, S, f.r, f.g, f.b, f.a)
+  end
+  if show_remove then
+    ui.draw(rover and rb.hover or rb.normal, x + rb.x, y + rb.y, rb.w, rb.h)
+    show("button", key .. "-remove", "remove", x + rb.x, y + rb.y, rb.w, rb.h)
+  end
+  -- D on the tile under the keys' cursor, as the status page (once per press).
+  local d = rq.input.key(68)
+  if o.remove and r and over and not o.disabled and kit.focus.src == "keys" and d and not st.d then
+    pressed = "remove"
+  end
+  st.d = d
+  if clicked or pressed then play("click") end
+  show("item", key, r and r.name or "empty", x, y, S, S,
+    { disabled = o.disabled, selected = o.current and true or false, value = r and r.ii and tostring(r.ii) or nil })
+  return clicked and not pressed, pressed
 end
 
 ---The vault's item list: rows 128 apart (6 by default) and the game's scroll bar beside them,

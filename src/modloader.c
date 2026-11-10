@@ -456,12 +456,65 @@ static int patch_ints(struct ain *ain, int fno, int32_t from, int32_t to, int nt
 	return hit;
 }
 
+/* Places patch_int_after wrote, for rq.ain.set_code_int (2.22.0). */
+#define MAX_CODE_PLACES 256
+#define PLACE_BEFORE 4
+#define PLACE_AFTER 2
+/* fno: the function asked for; off: the PUSH's offset in its body when found; value: what the PUSH
+ * holds now; sig: the opcodes of the instructions around it, to find it again in a body the loader
+ * moved and grew (an install that adds code to the function). */
+struct code_place {
+	int fno;
+	int body;
+	uint32_t ip;
+	uint32_t off;
+	int32_t value;
+	uint16_t sig[PLACE_BEFORE + PLACE_AFTER];
+};
+static struct code_place g_code_places[MAX_CODE_PLACES];
+static int g_nr_code_places;
+
+/* The opcodes of the PLACE_BEFORE instructions before ip and the PLACE_AFTER after it, in body fno;
+ * 0xffff where the body ends. Returns 0 when ip is not an instruction of the body. */
+static int place_sig(struct ain *ain, int fno, uint32_t at, uint16_t *sig)
+{
+	uint32_t ip, end = func_end_addr(ain, fno);
+	uint16_t prev[PLACE_BEFORE];
+	int i, n = 0;
+	for (i = 0; i < PLACE_BEFORE + PLACE_AFTER; i++)
+		sig[i] = 0xffff;
+	for (i = 0; i < PLACE_BEFORE; i++)
+		prev[i] = 0xffff;
+	for (ip = ain->functions[fno].address; ip + 2 <= end; ) {
+		uint16_t op = rd16(ain->code + ip);
+		int len = instr_len(op);
+		if (len < 2)
+			len = 2;
+		if (ip == at) {
+			uint32_t nx = ip + (uint32_t)len;
+			for (i = 0; i < PLACE_BEFORE; i++)
+				sig[i] = prev[(n + i) % PLACE_BEFORE];
+			for (i = 0; i < PLACE_AFTER && nx + 2 <= end; i++) {
+				uint16_t o = rd16(ain->code + nx);
+				int l = instr_len(o);
+				sig[PLACE_BEFORE + i] = o;
+				nx += (uint32_t)(l < 2 ? 2 : l);
+			}
+			return 1;
+		}
+		prev[n % PLACE_BEFORE] = op;
+		n++;
+		ip += (uint32_t)len;
+	}
+	return 0;
+}
+
 /* Patches the first PUSH from that comes within `window` instructions after a read of
  * global gi (SH_GLOBALREF gi, or PUSHGLOBALPAGE then PUSH gi). nth_ref picks one read
  * (0-based), or every read when negative. A PUSH right after a page push is a
  * variable's index, not a value, so it is skipped. */
 static int patch_ints_after(struct ain *ain, int fno, int gi, int32_t from, int32_t to,
-			    int nth_ref, int window)
+			    int nth_ref, int window, uint32_t *out, int out_max)
 {
 	uint32_t ip, end = func_end_addr(ain, fno);
 	uint16_t prev = 0xffff;
@@ -480,6 +533,8 @@ static int patch_ints_after(struct ain *ain, int fno, int gi, int32_t from, int3
 		} else if (armed > 0) {
 			if (op == 0x00 && !is_index && v == from) {
 				memcpy(ain->code + ip + 2, &to, 4);
+				if (out && hit < out_max)
+					out[hit] = ip;
 				hit++;
 				armed = 0;
 			} else {
@@ -992,7 +1047,121 @@ static int l_patch_int_after(lua_State *L)
 		return luaL_error(L, "global not found: %s", global);
 	if (window < 1)
 		return luaL_error(L, "window must be 1 or more");
-	lua_pushinteger(L, patch_ints_after(g_ain, body_fno(g_ain, fno), gi, from, to, nth, window));
+	{
+		uint32_t ips[64];
+		int body = body_fno(g_ain, fno);
+		int hit = patch_ints_after(g_ain, body, gi, from, to, nth, window, ips, 64);
+		int i, n = hit < 64 ? hit : 64;
+		lua_pushinteger(L, hit);
+		/* The places (2.22.0): handles for rq.ain.set_code_int, kept as the function and
+		 * the offset in its body, so a body the loader moves later is still found. */
+		lua_createtable(L, n, 0);
+		for (i = 0; i < n; i++) {
+			if (g_nr_code_places >= MAX_CODE_PLACES)
+				return luaL_error(L, "patch_int_after: more than %d places", MAX_CODE_PLACES);
+			g_code_places[g_nr_code_places].fno = fno;
+			g_code_places[g_nr_code_places].body = body;
+			g_code_places[g_nr_code_places].ip = ips[i];
+			g_code_places[g_nr_code_places].off = ips[i] - g_ain->functions[body].address;
+			g_code_places[g_nr_code_places].value = to;
+			place_sig(g_ain, body, ips[i], g_code_places[g_nr_code_places].sig);
+			g_nr_code_places++;
+			lua_pushinteger(L, g_nr_code_places);
+			lua_rawseti(L, -2, i + 1);
+		}
+	}
+	return 2;
+}
+
+/* The slot of a place, or 0 when it cannot be found. At its offset in the function's body; else,
+ * when the loader moved the body and added code to it, the one PUSH of its value with the same
+ * opcodes around it. */
+static uint32_t place_in(struct code_place *p, int body, int *matches)
+{
+	uint32_t start = g_ain->functions[body].address, end = func_end_addr(g_ain, body);
+	uint32_t ip = start + p->off, found = 0;
+	uint16_t sig[PLACE_BEFORE + PLACE_AFTER];
+	*matches = 0;
+	if (ip + 6 <= end && rd16(g_ain->code + ip) == 0x00 && rd32(g_ain->code + ip + 2) == p->value
+	    && place_sig(g_ain, body, ip, sig) && !memcmp(sig, p->sig, sizeof sig)) {
+		*matches = 1;
+		return ip;
+	}
+	for (ip = start; ip + 2 <= end; ) {
+		uint16_t op = rd16(g_ain->code + ip);
+		int len = instr_len(op);
+		if (op == 0x00 && ip + 6 <= end && rd32(g_ain->code + ip + 2) == p->value
+		    && place_sig(g_ain, body, ip, sig) && !memcmp(sig, p->sig, sizeof sig)) {
+			found = ip;
+			(*matches)++;
+		}
+		ip += (uint32_t)(len < 2 ? 2 : len);
+	}
+	return *matches == 1 ? found : 0;
+}
+
+/* The slot of a place, or 0 when it cannot be found. In the body it was found in (a hook added later
+ * wraps the function's name, not that body), at its offset; else, when the loader moved the body and
+ * added code to it, the one PUSH of its value with the same opcodes around it. Then the same in the
+ * body the name leads to now. */
+static uint32_t code_place_ip(struct code_place *p)
+{
+	int bodies[2] = { p->body, body_fno(g_ain, p->fno) };
+	int i, matches = 0;
+	/* A wrap gives the old code a new function number and leaves it where it is, so the PUSH is
+	 * first looked for at its address. */
+	if (p->ip + 6 <= g_ain->code_size && rd16(g_ain->code + p->ip) == 0x00 && rd32(g_ain->code + p->ip + 2) == p->value)
+		return p->ip;
+	for (i = 0; i < 2; i++) {
+		uint32_t ip;
+		if (i == 1 && bodies[1] == bodies[0])
+			break;
+		ip = place_in(p, bodies[i], &matches);
+		if (ip) {
+			p->ip = ip;
+			p->body = bodies[i];
+			p->off = ip - g_ain->functions[bodies[i]].address;
+			return ip;
+		}
+	}
+	rq_log("ain: a place in function %d is not found again (%d matches)", p->body, matches);
+	return 0;
+}
+static struct code_place *check_place(lua_State *L, int arg)
+{
+	lua_Integer h = luaL_checkinteger(L, arg);
+	if (!g_ain)
+		luaL_error(L, "AIN not loaded");
+	if (h < 1 || h > g_nr_code_places)
+		luaL_error(L, "no place %d: places come from rq.ain.patch_int_after", (int)h);
+	return &g_code_places[h - 1];
+}
+
+/* rq.ain.set_code_int(place, value) (2.22.0) */
+static int l_set_code_int(lua_State *L)
+{
+	struct code_place *p = check_place(L, 1);
+	int32_t v = (int32_t)luaL_checkinteger(L, 2);
+	uint32_t ip = code_place_ip(p);
+	if (!ip) {
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+	memcpy(g_ain->code + ip + 2, &v, 4);
+	p->value = v;
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
+/* rq.ain.code_int(place) (2.22.0) */
+static int l_code_int(lua_State *L)
+{
+	struct code_place *p = check_place(L, 1);
+	if (!code_place_ip(p)) {
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_pushinteger(L, p->value);
 	return 1;
 }
 
@@ -1133,6 +1302,8 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "patch_float", l_patch_float);
 	set_cfn(L, "patch_int", l_patch_int);
 	set_cfn(L, "patch_int_after", l_patch_int_after);
+	set_cfn(L, "set_code_int", l_set_code_int);
+	set_cfn(L, "code_int", l_code_int);
 	set_cfn(L, "skip_msgbox", l_skip_msgbox);
 	set_cfn(L, "skip_sdl_msgbox", l_skip_sdl_msgbox);
 	set_cfn(L, "find", l_find_funcs);

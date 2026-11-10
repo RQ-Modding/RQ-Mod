@@ -1120,7 +1120,20 @@ tip_show = function(id, tip, wait, x, y, w, h, src)
   if tipst.id ~= id then
     tipst.id, tipst.t0, tipst.shown, tipst.src = id, now, false, src
   end
-  if now - tipst.t0 < (wait or TIP_WAIT) then return end
+  -- A tip of the kit's own (the item card, 2.21.0): _draw(x, y, w, h, src) draws it; from the keys
+  -- it may wait less (_keys_wait), as the status page shows its item card at once.
+  local drawn = type(tip) == "table" and tip._draw
+  local wt = wait or TIP_WAIT
+  if drawn and wait == nil and tipst.src == "keys" and tip._keys_wait then wt = tip._keys_wait end
+  if now - tipst.t0 < wt then return end
+  if drawn then
+    if not tipst.shown then
+      tipst.shown = true
+      pcall(rq.sound.play, 5001)
+    end
+    drawn(x, y, w, h, tipst.src)
+    return
+  end
   local o = type(tip) == "table" and tip or { text = tip }
   local L = comment_layout(o.text, o)
   if not L then return end
@@ -1246,8 +1259,208 @@ function ui.bar(value, max, o)
   return v
 end
 
+-- ---- A number field (2.22.0) ----
+
+-- The digits are read from the keys (0 to 9 and the keypad), not from the system's text input, so
+-- rqmod-ctl type and the Lab's keys can type them. While a field types, these keys are hidden from
+-- the game; Enter, Esc and Backspace stay hidden until let go, so the key that ended the typing
+-- does not reach the game (Esc would close Config) or a page.
+local DIGIT_KEYS = {}
+for d = 0, 9 do
+  DIGIT_KEYS[0x30 + d] = d -- the row above the letters
+  DIGIT_KEYS[0x60 + d] = d -- the keypad
+end
+-- Minus: the engine's key table (VK_NR_KEYCODES, up to 0x91) has the keypad's (VK_SUBTRACT), which
+-- is also what rqmod-ctl's "minus" presses.
+local MINUS_KEYS = { 0x6D }
+local K_ENTER, K_ESC, K_BACK = input.code("enter"), input.code("esc"), input.code("backspace")
+local K_SHIFT = input.code("shift")
+local TYPE_KEYS = { K_ENTER, K_ESC, K_BACK, MINUS_KEYS[1] }
+for c in pairs(DIGIT_KEYS) do TYPE_KEYS[#TYPE_KEYS + 1] = c end
+local HOLD_FIRST, HOLD_NEXT = 400, 80 -- held - and +, as the scroll bar's arrows
+local typing, typing_alive = nil, false -- the field typed into, and whether it was drawn this update
+local held_after = {} -- keys still down from the typing
+
+rq.on_frame(function()
+  -- A field no longer drawn stops typing, so its keys go back to the game.
+  if typing and not typing_alive then typing = nil end
+  typing_alive = false
+  local keep = {}
+  for c in pairs(held_after) do
+    if input.key(c) then keep[#keep + 1] = c else held_after[c] = nil end
+  end
+  if #keep > 0 then hud.block_keys(keep) end
+end)
+
+-- Whether a key belongs to a field's typing: one is typing, or the key ended it and is still down.
+-- ui.page reads Esc through it, so Esc while typing puts the number back and does not close the page.
+local function typed(code)
+  return typing ~= nil or held_after[code] == true
+end
+
+local function whole(v, what)
+  if math.type(v) ~= "integer" then error("uikit.stepper: " .. what .. " is a whole number", 3) end
+  return v
+end
+
+local function clamp(v, mn, mx)
+  if v < mn then return mn elseif v > mx then return mx end
+  return v
+end
+
+---A number field: the number in a framed box between - and + (2.22.0). opts: x, y, id, min (0),
+---max (999999), step (1), big (step x 10, with Shift held), w (the box), label (text left of it),
+---disabled, tip, tip_wait, nav. A click on the number, or Enter under the keys' cursor, types into
+---it. Returns the value and whether it changed on this update.
+function ui.stepper(value, o)
+  o = o or {}
+  if type(o) ~= "table" then error("uikit.stepper: opts is a table", 2) end
+  whole(value, "value")
+  local mn, mx = whole(o.min or 0, "min"), whole(o.max or 999999, "max")
+  local step = whole(o.step or 1, "step")
+  local big = whole(o.big or step * 10, "big")
+  if mx < mn then error("uikit.stepper: max is below min", 2) end
+  if step < 1 or big < 1 then error("uikit.stepper: step and big are 1 or more", 2) end
+  if o.w ~= nil and math.type(o.w) ~= "integer" then error("uikit.stepper: w is a whole number of pixels", 2) end
+  local th = ui.theme
+  local id = id_of(o, "stepper")
+  local st = ui.state(id)
+  local key = o.id ~= nil and tostring(o.id) or o.label or "stepper"
+  local style = th.label
+  local dim = with(style, { r = th.dim.r, g = th.dim.g, b = th.dim.b })
+  local disabled = o.disabled and true or false
+  local B = 30
+  local lw = o.label and (text_w(o.label, style) + 12) or 0
+  local maxlen = math.max(#tostring(mx), #tostring(mn))
+  local bw = o.w or math.max(64, text_w(string.rep("8", maxlen), style) + 24)
+  local x, y, w, h = place({ x = o.x, y = o.y }, lw + B + 4 + bw + 4 + B, B)
+  local dx, bx, ix = x + lw, x + lw + B + 4, x + lw + B + 4 + bw + 4
+  local old = value
+  value = clamp(value, mn, mx)
+  local tint = disabled and { tint = { 128, 128, 128 } } or nil
+  if o.label then hud.text(x, y, o.label, with(disabled and dim or style, { h = h, valign = "center" })) end
+  if typing == id then typing_alive = true end
+  local amount = input.key(K_SHIFT) and big or step
+
+  -- - and +: a press changes the number, held it repeats; Enter under the keys' cursor once.
+  local function arrow(sub, ax, sign, text)
+    local bid = id .. "." .. sub
+    local off = disabled or typing == id
+    local over, clicked, held = interact(bid, ax, y, B, B, off, { nav = o.nav })
+    ui.draw("button", ax, y, B, B, off and { tint = { 128, 128, 128 } } or nil)
+    hud.text(ax, y, text, with(th.button_text, { w = B, h = B, align = "center", valign = "center" }))
+    if over and not off then
+      local c = th.button_cover
+      hud.rect(ax, y, B, B, c.r, c.g, c.b, math.floor(c.a * (128 + 128 * pulse()) / 255))
+    end
+    local go, now = false, rq.time_ms()
+    if held then
+      local at = st[sub]
+      if not at then
+        go, st[sub] = true, now + HOLD_FIRST
+      elseif now >= at then
+        go, st[sub] = true, now + HOLD_NEXT
+      end
+    else
+      st[sub] = nil
+      if clicked and not mouse.released then go = true end
+    end
+    if go and not off then
+      local nv = clamp(value + sign * amount, mn, mx)
+      if nv ~= value then
+        value = nv
+        play("click")
+      end
+    end
+    show("button", key .. "-" .. sub, text, ax, y, B, B, { disabled = off })
+  end
+  arrow("dec", dx, -1, "-")
+
+  -- The box: a click or Enter types into it.
+  local over, clicked = interact(id, bx, y, bw, B, disabled, { nav = o.nav, tip = o.tip, tip_wait = o.tip_wait })
+  if clicked and not disabled and typing ~= id then
+    if typing then rq.log("uikit.stepper: another field was typing; it keeps its number") end
+    typing, typing_alive = id, true
+    st.text, st.kd = "", {}
+    for _, c in ipairs(TYPE_KEYS) do st.kd[c] = input.key(c) end -- the Enter that started it
+    play("click")
+  end
+  if typing == id then
+    hud.block_keys(TYPE_KEYS)
+    local function hit(c)
+      local down = input.key(c)
+      local was = st.kd[c]
+      st.kd[c] = down
+      return down and not was
+    end
+    for c, d in pairs(DIGIT_KEYS) do
+      if hit(c) and #st.text < maxlen then st.text = st.text .. d end
+    end
+    for _, c in ipairs(MINUS_KEYS) do
+      if hit(c) and mn < 0 and st.text == "" then st.text = "-" end
+    end
+    if hit(K_BACK) then st.text = st.text:sub(1, -2) end
+    local done, keep = false, false
+    if hit(K_ENTER) then done, keep = true, true end
+    if hit(K_ESC) then done, keep = true, false end
+    -- A click elsewhere, or the keys' cursor gone to another widget, keeps it.
+    if mouse.pressed and not inside(bx, y, bw, B) then done, keep = true, true end
+    if focus.src == "keys" and focus.id ~= nil and focus.id ~= id then done, keep = true, true end
+    if disabled then done, keep = true, false end
+    if done then
+      typing = nil
+      for _, c in ipairs({ K_ENTER, K_ESC, K_BACK }) do
+        if input.key(c) then held_after[c] = true end
+      end
+      local n = math.tointeger(tonumber(st.text))
+      if keep and n then
+        value = clamp(n, mn, mx)
+        play("click")
+      end
+      st.text = nil
+    end
+  elseif not disabled then
+    -- The wheel over the field, and Page Up and Page Down on the keys' cursor (Page Up raises it).
+    local delta = 0
+    if inside(dx, y, ix + B - dx, B) and mouse.scroll ~= 0 then
+      delta = mouse.scroll
+      input.scroll(true)
+    elseif focus.page ~= 0 and (focus.id == id or focus.id == id .. ".dec" or focus.id == id .. ".inc") then
+      delta = -focus.page
+    end
+    if delta ~= 0 then value = clamp(value + delta * amount, mn, mx) end
+  end
+
+  ui.draw("block", bx, y, bw, B, tint)
+  local ns = with(disabled and dim or style, {})
+  if typing == id then
+    local c = th.button_cover
+    hud.rect(bx + 3, y + 3, bw - 6, B - 6, c.r, c.g, c.b, 50)
+    local t = st.text
+    local tw = t ~= "" and text_w(t, ns) or 0
+    if t ~= "" then hud.text(bx + bw - 12 - tw, y, t, with(ns, { h = B, valign = "center" })) end
+    if (rq.time_ms() // 500) % 2 == 0 then hud.rect(bx + bw - 10, y + 6, 2, B - 12, 255, 255, 255, 220) end
+  else
+    local t = tostring(value)
+    hud.text(bx + bw - 10 - text_w(t, ns), y, t, with(ns, { h = B, valign = "center" }))
+    if over and not disabled then ui.draw("hover_bar", bx, y, bw, B, { alpha = 128 }) end
+  end
+  -- For agents: the number, and selected while it types.
+  show("stepper", key, o.label, bx, y, bw, B, { value = tostring(value), disabled = disabled,
+    selected = typing == id })
+  arrow("inc", ix, 1, "+")
+  return value, value ~= old
+end
+
+---The field typing on this update, by its opts.id (or the kit's id), or nil (2.22.0).
+function ui.typing()
+  if not typing then return nil end
+  return short_id(typing) or typing
+end
+
 -- What the hub's widgets (uikit_hub.lua) build on.
 local kit = {
+  typed = typed,
   copy = copy, piece = piece, interact = interact, show = show, place = place, play = play,
   with = with, id_of = id_of, inside = inside, pulse = pulse, text_w = text_w, run_box = run_box,
   comment_size = ui.comment_size,

@@ -52,9 +52,19 @@ function ain.patch_int(name, from, to, n) end
 ---It looks at the `window` instructions after the read, as for the 2 in
 ---`if (◆２倍モード == 1) { x = x * 2; }`. A variable's index is never taken for the constant.
 ---
+---It also returns the places it changed, for `rq.ain.set_code_int`: a mod finds a constant once, by
+---what it follows, and writes it again later without searching. Searching again would be wrong once
+---the constant holds a value that also comes before it, as the `1` of `== 1` above.
+---
 ---Raises an error for an unknown function or global.
 ---
 ---Since: 1.3.0
+---Changed: 2.22.0 Returns the places too.
+---
+---```lua
+---local _, at = rq.ain.patch_int_after("Ｔ戦闘前初期化", "◆２倍モード", 2, 3, 0)
+---rq.ain.set_code_int(at[1], 5) -- later, with no search
+---```
 ---@param name string The function's name.
 ---@param global string The global's name.
 ---@param from integer The value to find.
@@ -62,7 +72,35 @@ function ain.patch_int(name, from, to, n) end
 ---@param nth_ref? integer Which read of the global in the function, from 0. Default: after every read.
 ---@param window? integer How many instructions to look at after the read. Default 8.
 ---@return integer count How many constants were replaced.
+---@return integer[] places One place for each constant replaced, in code order, for `rq.ain.set_code_int` and `rq.ain.code_int`.
+---@see rq.ain.set_code_int
 function ain.patch_int_after(name, global, from, to, nth_ref, window) end
+
+---Writes a new value into a constant of the game's code that `rq.ain.patch_int_after` changed.
+---
+---The place is the constant `patch_int_after` found, written now as it wrote it. The game reads it
+---the next time it runs that code, so a value changed between fights counts from the next fight. When
+---another install wraps the function later, the place is still found: the wrapped code stays where
+---it was, and a body moved and grown is searched for the same constant with the same instructions
+---around it.
+---
+---Raises an error for a place that `patch_int_after` did not give.
+---
+---Since: 2.22.0
+---@param place integer A place from `rq.ain.patch_int_after`.
+---@param value integer The new value.
+---@return boolean ok false when the place is no longer in the game's code as it was written (it is logged); nothing is written then.
+---@see rq.ain.patch_int_after
+function ain.set_code_int(place, value) end
+
+---Reads the value a place of `rq.ain.patch_int_after` holds in the game's code now.
+---
+---Raises an error for a place that `patch_int_after` did not give.
+---
+---Since: 2.22.0
+---@param place integer A place from `rq.ain.patch_int_after`.
+---@return integer|nil value The value, or nil when the place is no longer found.
+function ain.code_int(place) end
 
 ---Calls any AIN function by its name.
 ---
@@ -782,6 +820,7 @@ function hud.rect(x, y, w, h, r, g, b, a) end
 ---@field valign? "top"|"center"|"bottom" Where the text sits in the box `h` high. Default "top". Since 1.6.0.
 ---@field edge? boolean false leaves out the dark edge, as on Config's tabs. Default true. Since 1.7.0.
 ---@field bold? boolean The heavier weight the game's own Config labels look like. Default false. Since 1.8.0. With `font = "game"`: the game's bold.
+---@field weight? integer With `font = "game"`: the weight number the game's own texts give its font, 0 to 1000 (its bold is 40; the vault's stats numbers are 70). It wins over `bold`. Since 2.21.0.
 ---@field font? "hud"|"game" "game" draws in the game's own font, as its buttons and lists do: no dark edge, and `edge` does not count. Default "hud". Since 2.5.0.
 ---@field face? 256|257|258 With `font = "game"`: the game's font number. 258 is on most buttons, lists and the castle; 256 on item names; 257 on big marks. Default 258. Since 2.5.0.
 ---@field outline? integer[]|{r: integer, g: integer, b: integer, w?: integer} With `font = "game"`: an outline in this color, `w` pixels wide (1 to 4, default 1), as the castle's room names. Since 2.5.0.
@@ -5203,7 +5242,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.20.1"
+rq.version = "2.22.0"
 
 rq.units = units
 rq.items = items
@@ -6064,6 +6103,68 @@ function uikit.choice(list, index, opts) end
 ---@return boolean changed true on the update it changed.
 function uikit.slider(value, opts) end
 
+---What `rq.uikit.stepper` takes.
+---
+---Since: 2.22.0
+---@class rq.UiStepperOpts: rq.UiPlace
+---@field min? integer The lowest number. Default 0.
+---@field max? integer The highest number. Default 999999.
+---@field step? integer What - and + add or take, the wheel and Page Up / Page Down too. Default 1.
+---@field big? integer The same with Shift held. Default `step` x 10.
+---@field label? string Text left of the field, in the theme's label font. Also its label in `rqmod-ctl ui`.
+---@field disabled? boolean Greyed: no buttons, no typing, no wheel. Its tip still shows.
+
+---Draws a number field: the number in a framed box between - and +, and returns the new number.
+---
+---- **- and +** change it by `step`, by `big` with Shift held. Held, they repeat: 400 ms after the
+---  press, then every 80 ms.
+---- **The wheel** over the field changes it by `step`, and the game does not get that wheel step.
+---- **Under the keys' cursor**, Page Up raises it and Page Down lowers it by `step`.
+---- **Typing.** A click on the number, or Enter under the keys' cursor, types into it. The digits are
+---  read from the keys, 0 to 9 and the keypad's (with the keypad's minus while `min` is below 0), not
+---  from the system's text input, so `rqmod-ctl type` and `key` can type it. Backspace takes the last
+---  digit. Enter keeps the number, put inside `min` and `max`; so does a click elsewhere or the keys'
+---  cursor moving on. Esc puts the old number back. While it types, these keys are hidden from the
+---  game, and Enter, Esc and Backspace stay hidden until let go: Esc there does not close Config or
+---  `rq.uikit.page`.
+---
+---A typed number counts as one change, when it is kept. The field is listed for `rqmod-ctl ui` as
+---`stepper-<id>` with the number as `value` and `selected` true while it types; its buttons are
+---`button-<id>-dec` and `button-<id>-inc`.
+---
+---Raises an error for a `value`, `min`, `max`, `step` or `big` that is not a whole number, a `max` below
+---`min`, a `step` or `big` below 1, or a `w` that is not a whole number.
+---
+---Since: 2.22.0
+---
+---```lua
+---rq.config.page{
+---  id = "my-mod",
+---  title = "My Mod",
+---  draw = function(ui)
+---    local n, changed = ui.stepper(count, { id = "count", label = "Count", min = 1, max = 99 })
+---    if changed then
+---      count = n
+---      rq.store.global.set("count", n)
+---    end
+---  end,
+---}
+---```
+---@param value integer The number shown; it is put inside `min` and `max`.
+---@param opts? rq.UiStepperOpts `min`, `max`, `step`, `big`, `label`, `disabled`; place (`w`: the box's width, default to fit `max`), `id`, `tip`, `nav`.
+---@return integer value The new number.
+---@return boolean changed true on the update it changed.
+function uikit.stepper(value, opts) end
+
+---Returns the number field typing on this update, by its `opts.id`, or nil.
+---
+---While one types, the keys it reads are its own; a page of a mod's own that reads Esc or digits
+---itself can leave them alone while this is not nil.
+---
+---Since: 2.22.0
+---@return string|nil id The field's `opts.id` (else the kit's id), or nil.
+function uikit.typing() end
+
 ---Draws Config's tabs side by side: normal, hovered and current.
 ---
 ---With `opts.style = "town"` (or a theme's `tabs_style`) they are the hub's town tabs instead, 248
@@ -6557,10 +6658,13 @@ function uikit.sort(list, index, opts) end
 ---the keys to the menu, and the right click, Space or Esc that ends the menu does not close the page.
 ---
 ---The arrow keys and Enter move the keys' cursor between the page's widgets (`rq.uikit.keys`).
+---Esc while a number field types (`rq.uikit.stepper`) puts the field's number back and does not
+---close the page.
 ---
 ---Since: 2.6.0
 ---Changed: 2.7.0 Stays open, under it, while the game's choice menu shows over it.
 ---Changed: 2.12.0 The arrow keys and Enter move between its widgets.
+---Changed: 2.22.0 Esc that ends a number field's typing does not close it.
 ---
 ---```lua
 ---local open = false
@@ -6708,6 +6812,99 @@ function uikit.item_refresh(ii) end
 ---@return boolean clicked true on the update the row is clicked.
 ---@return "lock"|"unlock"|"sell"|"donate"|nil button The button clicked on this update.
 function uikit.item_row(row, opts) end
+
+---What `rq.uikit.item_icon` takes.
+---
+---Since: 2.21.0
+---@class rq.UiItemIconOpts: rq.UiPlace
+---@field size? integer The tile's side in pixels. Default 100, the game's; the rank badge shrinks with it.
+---@field current? boolean The game's yellow frame stays on, as on the status page's chosen slot.
+---@field disabled? boolean Darkened at half, as the kit greys a skill tile. It cannot be clicked, and its tip still shows.
+---@field remove? boolean The status page's REMOVE button at the tile's x + 100, y + 10, on the tile under the mouse or the keys' cursor, or on a `current` one. Not on an empty slot.
+---@field judged? boolean false: the tip is the game's UNIDENTIFIED card, with the icon alone. Default true.
+
+---Draws an item's tile, as the status page's equip slots draw it, and returns whether it was clicked.
+---
+---The tile is the item's icon, 100 by 100, with its rank badge (CG 11420 + rank) at its bottom left
+---(`T_ItemIcon`). Under the mouse or the keys' cursor, and while `current`, it gets the game's frame
+---(216, 255, 0) at 102. With `item` nil it draws nothing, as the game leaves an empty slot to its
+---page's picture, but it still takes the frame, the click and a tip.
+---
+---Its `tip` is the game's item card (`rq.uikit.item_card`), left of the tile at its y (right of it
+---when there is no room), after 500 ms from the mouse and at once from the keys, as the status page
+---shows it. Give a `tip` of your own (the comment window), or false for none.
+---
+---With `remove`, REMOVE shows beside the tile; a click on it, or D on the tile from the keys, returns
+---`"remove"`. The tile only says so: take the item off yourself.
+---
+---For an item the player must not see yet, pass a row table with the icon you want shown (as
+---`rq.loot.list`'s `cg`, the game's "?") and `judged = false`: the tile and the card draw the row's
+---`icon`, never the instance's.
+---
+---It is listed for `rqmod-ctl ui` with the type "item", the name as label and the ii as `value`
+---(`item-<id>`), REMOVE as `button-<id>-remove`, and its card as the type "card", which takes no
+---click.
+---
+---Raises an error for an `ii` with no instance, an item that is not an ii, a table or nil, or a `size`
+---that is not a whole number above 0.
+---
+---Since: 2.21.0
+---
+---```lua
+---local SLOTS = { 1, 11, 17 } -- weapon, armor, held item
+---rq.on_frame(function()
+---  if not open then return end
+---  open = rq.uikit.page({ id = "gear", title = "Gear" }, function(x, y)
+---    for i, kind in ipairs(SLOTS) do
+---      local ii = rq.ain.call("キャラ_装備取得", chara, kind)
+---      local _, act = rq.uikit.item_icon(ii > 0 and ii or nil, { x = x + 20, y = y + (i - 1) * 116, id = "slot" .. i, remove = true })
+---      if act == "remove" then take_off(chara, kind) end
+---    end
+---  end)
+---end)
+---```
+---@param item integer|rq.UiItemRow|nil An instance, row data, or nil for an empty slot.
+---@param opts? rq.UiItemIconOpts `size`, `current`, `disabled`, `remove`, `judged`; place, `id`, `tip`, `nav`.
+---@return boolean clicked true on the update the tile is clicked.
+---@return "remove"|nil action `"remove"` on the update REMOVE is pressed.
+function uikit.item_icon(item, opts) end
+
+---Draws the game's item card now, on the top layer, and returns its box.
+---
+---The card is the game's `T_ItemComment`: CG 10402, 393 by 139, with the item's row on it (the name,
+---the icon with its rank, the kind, the stats line, the level bar, LOCKED, the classes), as the
+---status page shows it beside an equip slot. With `judged = false` it is the game's card for an
+---item not identified: CG 10403 (UNIDENTIFIED) over it and the icon alone.
+---
+---It goes at the mouse + 11, + 20 unless `x` and `y` are given. Past the screen's right edge it goes
+---to the left of the mouse, and past y 736 it goes up to end at 736, as the game keeps its card on
+---the screen. Call it on every update it should show; `rq.uikit.item_icon` shows it as its tip.
+---
+---It is listed for `rqmod-ctl ui` with the type "card", which takes no click.
+---
+---Raises an error for an `ii` with no instance, or an item that is not an ii or a table.
+---
+---Since: 2.21.0
+---
+---```lua
+---rq.on_frame(function()
+---  if hovered_ii then rq.uikit.item_card(hovered_ii) end
+---end)
+---```
+---@param item integer|rq.UiItemRow An instance, or row data.
+---@param opts? {x?: integer, y?: integer, judged?: boolean, id?: string|integer} `x` and `y` (default at the mouse); `judged` (default true); `id` for `rqmod-ctl ui`.
+---@return integer x
+---@return integer y
+---@return integer w 393.
+---@return integer h 139.
+function uikit.item_card(item, opts) end
+
+---Returns the item card's size, to place it beside a widget as the game's screens do.
+---
+---Since: 2.21.0
+---@return integer w 393.
+---@return integer h 139.
+function uikit.item_card_size() end
 
 ---Draws the vault's item list: rows 128 apart and the game's scroll bar beside them.
 ---

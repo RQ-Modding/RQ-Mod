@@ -645,7 +645,8 @@ function ui.page(o, fn)
   local closed = ui.close({ x = x + w - 24 - pad, y = y + pad - 4, id = o.id ~= nil and o.id or "page" })
   -- A right click or Esc closes when let go, so the game does not get the rest of it. Only a
   -- press the page saw counts: not the one that closed a choice menu over it.
-  local esc = input.key(ESC)
+  -- Esc that belongs to a number field's typing (2.22.0) puts its number back; it does not close.
+  local esc = input.key(ESC) and not kit.typed(ESC)
   if frame.blind then
     st.esc = nil
   elseif esc and not st.esc_was then

@@ -1188,6 +1188,15 @@ static int game_style(lua_State *L, int idx, struct rq_gametext *gt, int *has_sh
 	lua_getfield(L, t, "bold");
 	gt->weight = lua_toboolean(L, -1) ? 40 : 0;
 	lua_pop(L, 1);
+	/* 2.21.0: the game's own weight number, as its text metrics take it (the stats line's numbers
+	 * are 70); it wins over bold. */
+	lua_getfield(L, t, "weight");
+	if (!lua_isnil(L, -1)) {
+		gt->weight = (int)luaL_checkinteger(L, -1);
+		if (gt->weight < 0 || gt->weight > 1000)
+			return luaL_error(L, "weight must be 0 to 1000, not %d", gt->weight);
+	}
+	lua_pop(L, 1);
 	lua_getfield(L, t, "space");
 	if (!lua_isnil(L, -1))
 		gt->space = (int)luaL_checkinteger(L, -1);

@@ -4645,11 +4645,12 @@ int rq_lua_agent_widgets(lua_State *L)
 	return 1;
 }
 
-/* A kit entry that takes no click: a comment window (2.13.0), a bar (2.14.0) or an empty skill slot
- * (2.15.0). It is neither the hover nor over a game control. */
+/* A kit entry that takes no click: a comment window (2.13.0), a bar (2.14.0), an empty skill slot
+ * (2.15.0) or an item card (2.21.0). It is neither the hover nor over a game control. */
 static int kit_passive(const struct ui_ctrl *c)
 {
-	return !strcmp(c->type, "comment") || !strcmp(c->type, "bar") || !strcmp(c->type, "slot");
+	return !strcmp(c->type, "comment") || !strcmp(c->type, "bar") || !strcmp(c->type, "slot") ||
+	       !strcmp(c->type, "card");
 }
 
 static void hover_agent(void)
