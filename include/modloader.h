@@ -463,7 +463,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.24.0"
+#define RQ_VERSION "2.24.1"
 
 struct rq_qbattle_skill {
 	int id;
@@ -519,6 +519,9 @@ void rq_sandbox_watch(struct lua_State *L, int mod);
 void rq_sandbox_open(struct lua_State *L, int rq_idx);
 /* Gives the function at fidx mod's global table as its _ENV. */
 void rq_sandbox_set_env(struct lua_State *L, int fidx, int mod);
+/* The id of the mod whose code is nearest on the call stack, as rq.mod.id gives it; NULL
+ * outside a mod. */
+const char *rq_sandbox_caller_id(struct lua_State *L);
 
 /* hll/MsgSkip.c: a read flag of its own for one line of mod text. */
 int rq_msgskip_number(const char *mod, const char *text);

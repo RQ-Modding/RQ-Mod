@@ -1698,6 +1698,17 @@ void luaV_execute (lua_State *L, CallInfo *ci) {
           L->top.p = ra + b;
         else  /* previous instruction set top */
           b = cast_int(L->top.p - ra);
+        if (ttisLclosure(s2v(ra)) && clLvalue(s2v(ra))->p->source != cl->p->source) {
+          /* RQ MOD (third_party/lua/RQ-PATCHES.md): into another chunk's Lua
+           * function, a plain call. The caller's frame stays, so the loader finds
+           * the mod on the stack (rq.mod.id, the sandbox), and the OP_RETURN the
+           * compiler puts after every OP_TAILCALL returns what the call returns,
+           * closing upvalues and fixing varargs as it does for 'return x, f()'.
+           * A tail call within one chunk stays a tail call. */
+          savepc(L);
+          ci = luaD_precall(L, ra, LUA_MULTRET);
+          goto startfunc;
+        }
         savepc(ci);  /* several calls here can raise errors */
         if (TESTARG_k(i)) {
           luaF_closeupval(L, base);  /* close upvalues from current call */

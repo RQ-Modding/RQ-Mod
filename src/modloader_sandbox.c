@@ -38,6 +38,16 @@ static int g_mod_export[RQ_SANDBOX_MODS];   /* what init.lua returned, or LUA_NO
 static int g_mod_state[RQ_SANDBOX_MODS];
 static int g_nmod_dirs;
 
+/* Which mod a chunk's source belongs to, by the source's text: rq.log, sprites and lines of mod
+ * text ask often, and full_path is a system call. Cleared when a mod is added. */
+#define SOURCE_CACHE 32
+static struct {
+	unsigned hash;
+	int mod;
+	char src[RQ_PATH_MAX];
+} g_src_cache[SOURCE_CACHE];
+static int g_src_cached, g_src_next;
+
 static int g_io_open = LUA_NOREF;
 static int g_io_lines = LUA_NOREF;
 static int g_io_input = LUA_NOREF;
@@ -169,6 +179,7 @@ int rq_sandbox_add_mod(lua_State *L, const char *dir, const struct rq_mod_node *
 	g_mod_state[i] = MOD_LOADING;
 	g_mod_env[i] = new_mod_env(L);
 	g_nmod_dirs = i + 1;
+	g_src_cached = g_src_next = 0;   /* a file may now be inside this mod's folder */
 	return i;
 }
 
@@ -204,34 +215,72 @@ static int is_dep(int mod, const char *id)
 	return 0;
 }
 
+/* The mod whose folder holds the file a chunk was loaded from (its source "@path"), or -1. */
+static int mod_of_source(const char *src)
+{
+	char full[RQ_PATH_MAX];
+	int i, best = -1, bestn = -1;
+	if (!full_path(src + 1, full, (int)sizeof full))
+		return -1;
+	for (i = 0; i < g_nmod_dirs; i++) {
+		int len = (int)strlen(g_mod_dirs[i]);
+		if (under_dir(g_mod_dirs[i], full) && len > bestn) {
+			best = i;
+			bestn = len;
+		}
+	}
+	return best;
+}
+
+/* The answers of mod_of_source, by the source's text (g_src_cache). */
+static int cached_mod_of_source(const char *src)
+{
+	unsigned h = 2166136261u;
+	const char *c;
+	int i, m;
+	for (c = src; *c; c++)
+		h = (h ^ (unsigned char)*c) * 16777619u;
+	for (i = 0; i < g_src_cached; i++)
+		if (g_src_cache[i].hash == h && strcmp(g_src_cache[i].src, src) == 0)
+			return g_src_cache[i].mod;
+	m = mod_of_source(src);
+	if (strlen(src) < sizeof g_src_cache[0].src) {
+		i = g_src_next;
+		g_src_next = (g_src_next + 1) % SOURCE_CACHE;
+		if (g_src_cached < SOURCE_CACHE)
+			g_src_cached++;
+		g_src_cache[i].hash = h;
+		g_src_cache[i].mod = m;
+		snprintf(g_src_cache[i].src, sizeof g_src_cache[i].src, "%s", src);
+	}
+	return m;
+}
+
 /* The mod of the nearest stack level that runs a file in a mod folder.
- * Nearest, so a library mod's code called by another mod counts as the library. */
+ * Nearest, so a library mod's code called by another mod counts as the library.
+ * A tail call from a mod's file into another chunk keeps the mod's frame (the VM change in
+ * third_party/lua/RQ-PATCHES.md), so `return rq.ui.confirm(...)` still finds the mod. */
 static int caller_mod(lua_State *L)
 {
 	lua_Debug ar;
-	int level, i;
+	int level, m;
 	for (level = 1; lua_getstack(L, level, &ar); level++) {
-		char full[RQ_PATH_MAX];
-		const char *src;
-		int best = -1, bestn = -1;
 		if (!lua_getinfo(L, "S", &ar))
 			break;
-		src = ar.source;
-		if (!src || src[0] != '@')
+		if (!ar.source || ar.source[0] != '@')
 			continue;
-		if (!full_path(src + 1, full, (int)sizeof full))
-			continue;
-		for (i = 0; i < g_nmod_dirs; i++) {
-			int len = (int)strlen(g_mod_dirs[i]);
-			if (under_dir(g_mod_dirs[i], full) && len > bestn) {
-				best = i;
-				bestn = len;
-			}
-		}
-		if (best >= 0)
-			return best;
+		m = cached_mod_of_source(ar.source);
+		if (m >= 0)
+			return m;
 	}
 	return -1;
+}
+
+/* The calling mod's id, as rq.mod.id gives it, or NULL outside a mod. */
+const char *rq_sandbox_caller_id(lua_State *L)
+{
+	int m = caller_mod(L);
+	return m < 0 ? NULL : g_mod_id[m];
 }
 
 static int caller_dir(lua_State *L, char *out, int n)
@@ -903,5 +952,6 @@ void rq_sandbox_mod_done(struct lua_State *L, int mod, int ok) { (void)L; (void)
 void rq_sandbox_open(struct lua_State *L, int rq_idx) { (void)L; (void)rq_idx; }
 void rq_sandbox_watch(struct lua_State *L, int mod) { (void)L; (void)mod; }
 void rq_sandbox_set_env(struct lua_State *L, int fidx, int mod) { (void)L; (void)fidx; (void)mod; }
+const char *rq_sandbox_caller_id(struct lua_State *L) { (void)L; return NULL; }
 
 #endif

@@ -778,7 +778,7 @@ function ui.choosing() end
 ---the player turns it off, the call returns true without asking, in every save. The loader then
 ---lists it on a Confirmations page in Config's Mods tab, where the player can turn it back on, and
 ---Resetting in Config's Confirmations tab turns it back on too. The key is the mod's own, found as
----`rq.mod.id` finds it: after `return rq.ui.confirm(...)` it is filed under `_` instead.
+---`rq.mod.id` finds it (through `return rq.ui.confirm(...)` too, since 2.24.1).
 ---
 ---The game has one list of dialog rows, so the call shows nothing and returns nil while another
 ---dialog is being built or shows (`rq.ui.choosing`, or one of these calls), and logs it once.
@@ -5617,7 +5617,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.24.0"
+rq.version = "2.24.1"
 
 rq.units = units
 rq.items = items
@@ -5626,12 +5626,15 @@ rq.castle = castle
 ---Writes a line to the console and to the log.
 ---
 ---The line goes to `logs\rqmod.log` (the `logs` folder beside `mods`) and, when `config.json` has
----`"terminal": true`, to the console window. It starts with the name of the mod and file that
----called it, such as `[loot-preview] Detected 2 items`. Arguments are turned into text as `tostring`
----does and joined with tabs, as `print` does.
+---`"terminal": true`, to the console window. It starts with the id of the mod that called it (the
+---`id` in its `mod.json`, as `rq.mod.id` gives it), such as `[loot-preview] Detected 2 items`, or
+---`[lua]` outside a mod. Arguments are turned into text as `tostring` does and joined with tabs, as
+---`print` does.
 ---
 ---Since: 0.2.0
 ---Changed: 1.1.0 The log moved from `mods` to the `logs` folder.
+---Changed: 2.24.1 The tag is the mod's id; it was the name of the mod's folder, which differs only
+---when a player renames the folder.
 ---@param ... any The values to write.
 function rq.log(...) end
 
@@ -5872,11 +5875,13 @@ function mod.get(id) end
 ---It is the `id` in that mod's `mod.json`. When a mod calls a function of another mod, the code
 ---running is the other mod's, so that mod's id is returned.
 ---
----The mod is found on the call stack. A tail call (`return f()`) takes the caller's place on it, so
----a call reached only that way, as `return rq.ui.confirm(...)` in a callback or at the top of a
----coroutine, counts as outside any mod. Keep the result in a local and return that.
+---The mod is found on the call stack: the nearest code that runs from a file in a mod's folder. A
+---tail call into another file's function, such as `return rq.ui.confirm(...)` in a callback, is a
+---plain call in RQ MOD, so your mod stays on the stack. A tail call within one file stays a tail call.
 ---
 ---Since: 2.0.0
+---Changed: 2.24.1 Found through a tail call. Before, `return rq.ui.confirm(...)` in a callback or at
+---the top of a coroutine counted as outside any mod.
 ---@return string|nil id The calling mod's id; `nil` outside any mod's code.
 function mod.id() end
 

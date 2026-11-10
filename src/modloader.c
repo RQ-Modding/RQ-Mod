@@ -184,46 +184,13 @@ static void rq_open_terminal(void)
 static void rq_open_terminal(void) {}
 #endif
 
+/* The calling mod's id from its mod.json, as rq.mod.id gives it (the nearest mod frame: the
+ * loader's own Lua layer can sit in between), or "lua" outside a mod. The id, not the folder's
+ * name, since 2.24.1: a renamed folder keeps its rq.log tag, debug keys and sprites. */
 static const char *lua_mod_tag(lua_State *L)
 {
-	lua_Debug ar;
-	const char *src, *mods, *slash, *dot;
-	size_t n;
-	int level;
-	static char tag[64];
-
-	/* The nearest level in a mod file: the loader's own Lua layer can sit in between. */
-	for (level = 1, mods = NULL; !mods; level++) {
-		if (!lua_getstack(L, level, &ar) || !lua_getinfo(L, "S", &ar))
-			return "lua";
-		src = ar.source ? ar.source : "";
-		if (src[0] == '@')
-			src++;
-		mods = strstr(src, "\\mods\\");
-		if (!mods)
-			mods = strstr(src, "/mods/");
-	}
-	mods += 6;
-	slash = strpbrk(mods, "\\/");
-	if (slash) {
-		n = (size_t)(slash - mods);
-		if (n == 0)
-			return "lua";
-		if (n >= sizeof tag)
-			n = sizeof tag - 1;
-		memcpy(tag, mods, n);
-		tag[n] = 0;
-		return tag;
-	}
-	dot = strrchr(mods, '.');
-	n = dot ? (size_t)(dot - mods) : strlen(mods);
-	if (n == 0)
-		return "lua";
-	if (n >= sizeof tag)
-		n = sizeof tag - 1;
-	memcpy(tag, mods, n);
-	tag[n] = 0;
-	return tag;
+	const char *id = rq_sandbox_caller_id(L);
+	return id && id[0] ? id : "lua";
 }
 
 const char *rq_lua_caller_mod(lua_State *L)
