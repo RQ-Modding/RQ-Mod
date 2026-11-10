@@ -685,7 +685,7 @@ struct channel *channel_open_music_file(const char *path, int metadata_no, int l
 		ch->loop_end = clamp(1, ch->info.frames, loop_end);
 	if (loop_start > 0 && (uint_least32_t)loop_start < ch->loop_end)
 		ch->loop_start = loop_start;
-	ch->scale = clamp(0.0f, 1.0f, (float)volume / 100.0f);
+	ch->scale = clamp(0.0f, 2.0f, (float)volume / 100.0f);
 	ch->no = metadata_no;
 	return ch;
 }

@@ -17,4 +17,8 @@ extern int g_rq_skip_sdl;
 void rq_log(const char *fmt, ...);
 void rq_log_tag(const char *tag, const char *fmt, ...);
 
+/* rq.ain.stack (2.27.0), in modloader_crash.c beside the crash report's AIN stack. */
+struct lua_State;
+int rq_lua_ain_stack(struct lua_State *L);
+
 #endif

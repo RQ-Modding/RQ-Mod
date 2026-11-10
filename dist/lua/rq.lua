@@ -102,6 +102,24 @@ function ain.set_code_int(place, value) end
 ---@return integer|nil value The value, or nil when the place is no longer found.
 function ain.code_int(place) end
 
+---Returns the names of the game's functions on its call stack now, innermost first.
+---
+---A method is named `Class@method`, as `rq.ain.hook` takes it. Inside a hook, the stack says who
+---called the hooked function: `rq.music` reads it to tell a scene, the castle or the town apart.
+---From `rq.on_frame` it shows the game's frame update (`UpdateView`, `UPDATE`) and the screen's loop
+---under it.
+---
+---Since: 2.27.0
+---
+---```lua
+---rq.ain.hook("音楽", { before = function()
+---  rq.log("music asked by " .. tostring(rq.ain.stack(3)[2]))
+---end })
+---```
+---@param max? integer At most this many names. Default 32.
+---@return string[] names The function names, innermost first; empty outside the game's code.
+function ain.stack(max) end
+
 ---Calls any AIN function by its name.
 ---
 ---The arguments must be int, bool, float or string, and all of them are needed. A scene command
@@ -5756,7 +5774,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.26.0"
+rq.version = "2.27.0"
 
 rq.units = units
 rq.items = items
@@ -8139,12 +8157,24 @@ rq.sound = sound
 ---samples, as many music packs carry them), else the whole file.
 ---
 ---**Two mods** that replace the same track: the later one in load order wins, and the log names
----both. Each mod restores only its own.
+---both. Each mod restores only its own; the one below it in load order then plays again.
 ---
----The game's looped ambient sounds (rain, wind) are music tracks too: `replace` changes them, and
----`on_play` does not see them.
+---**Moments.** `on_play`'s `ctx.kind` tells which moment asks for the track: an everyday fight, a
+---boss fight, a dungeon, the town, Rance Castle, the opening, the results screen, the jingle, a scene
+---(with the game's scene function in `ctx.scene`), or the rest. The rain, wind and other sounds of
+---the scenes are music tracks too (201 to 213), played from scenes: `replace` and `on_play` take
+---them. The game has a channel for looped ambient sounds (`ループ効果音`) but never starts one.
+---
+---**The player's switches.** `rq.music.page` gives a pack a page in Config's Mods tab: a switch for
+---each track it replaced and each moment it names, a play button, all on and all off. A track switched
+---off plays the game's file (or the next mod's below in load order). `rq.music.enabled` reads a
+---moment's switch in `on_play`. A mod with its own page puts the same rows on it with
+---`rq.uikit.music_list`.
 ---
 ---Since: 2.4.0
+---Changed: 2.27.0 More moments in `on_play` (`"boss"` in place of `"fight"` in a boss fight), the
+---ctx's `scene`, `boss`, `enemies`, `area`, `map_kind` and `world`, volume up to 200, the player's
+---switches (`page`, `enabled`, `rq.uikit.music_list`), and `restore` bringing back the mod below.
 ---
 ---```lua
 ----- A soundtrack pack: the everyday fight track and the indoor dungeon track.
@@ -8160,7 +8190,7 @@ local music = {}
 ---@class rq.MusicOpts
 ---@field loop_start? number Where the loop goes back to after the end, in seconds. Default the file's `LOOPSTART` tag, else 0.
 ---@field loop_end? number Where the loop ends, in seconds. Default the file's `LOOPLENGTH` or `LOOPEND` tag, else the file's end.
----@field volume? integer The file's own volume, 0 to 100, on top of the game's music volume and fades. Default 100, as loud as the file is.
+---@field volume? integer The file's own volume, 0 to 200, on top of the game's music volume and fades. Default 100, as loud as the file is; above 100 raises a quiet file, and a loud one clips (0 to 100 before 2.27.0).
 ---@field name? string `replace` only: the track's name in the extras' music room and in `rq.music.info`.
 
 ---What `rq.music.info` tells about a track.
@@ -8172,7 +8202,8 @@ local music = {}
 ---@field exists boolean Whether the game has this track.
 ---@field file? string The mod's file, as the mod gave it; nil when the game's plays.
 ---@field mod? string The id of the mod whose file it is.
----@field volume? integer The file's volume, 0 to 100.
+---@field volume? integer The file's volume, 0 to 200.
+---@field off? boolean `replace` only: true when the player switched this track off on the mod's page, so the file is kept but does not play. Since 2.27.0.
 ---@field loop_start? number The file's loop start, in seconds.
 ---@field loop_end? number The file's loop end, in seconds.
 ---@field seconds? number The length, in seconds: the file's, else the game track's.
@@ -8190,11 +8221,37 @@ local music = {}
 
 ---What `rq.music.on_play` gets: a track the game is about to play.
 ---
+---The moment (`kind`) is read from who called the game's music: its doors for fights, dungeons, the
+---town and the opening, and the function that asked for the track otherwise. The game's tracks for
+---each moment:
+---
+---| `kind` | When | The game's tracks |
+---| --- | --- | --- |
+---| `"fight"` | An everyday fight starts | 51, 52, 55, 60 by the save's progress; 57 against Hannies |
+---| `"boss"` | A boss fight starts (`ボス戦闘処理`) | 53; 54, 58, 59 or 99 for some bosses |
+---| `"dungeon"` | A quest's map plays its track (`迷宮音楽_再生`) | 1 to 14 by the quest; 57 in quest 135 |
+---| `"town"` | The town, the shop, the Party and Quests screens (`システム曲_再生`) | 105 before Rance Castle opens, then 101, or 106 with the Magnum set |
+---| `"castle"` | Rance Castle | 89 |
+---| `"opening"` | The opening (`ＯＰ曲_再生`) | 103, or 107 with the Magnum set |
+---| `"result"` | The results screen after a quest | 102 |
+---| `"jingle"` | A girl monster joins | 108 |
+---| `"scene"` | A scene asks for it: the game's (`scene` names it) or a mod's (`rq.scene.play`) | Mostly 71 to 99; 201 to 213 for sounds |
+---| `"other"` | The extras, the system bar, a save's load, the title, a mod's `rq.music.play` | Any |
+---
+---`boss`, `enemies`, `area`, `map_kind` and `world` are read when a callback reads them.
+---
 ---Since: 2.4.0
+---Changed: 2.27.0 The kinds `"boss"` (a boss fight was `"fight"`), `"town"`, `"castle"`, `"opening"`, `"result"`, `"jingle"` and `"scene"` (these were `"other"`); the fields `scene`, `boss`, `enemies`, `area`, `map_kind`, `world`.
 ---@class rq.MusicPlayCtx
 ---@field no integer The track the game asks for; `ctx:track` changes it for the callbacks after.
 ---@field playing integer The track that plays now; 0 for none.
----@field kind "fight"|"dungeon"|"other" "fight": a fight's track (`音楽_戦闘`). "dungeon": a dungeon map's (`迷宮音楽_再生`). "other": the town, scenes, events, the rest.
+---@field kind "fight"|"boss"|"dungeon"|"town"|"castle"|"opening"|"result"|"jingle"|"scene"|"other" The moment, as in the table above.
+---@field scene? string In a game scene, the game function of the scene that asks for the track, such as `"ランス／城汎用"`; nil in a mod's scene and at any other moment. Since 2.27.0.
+---@field boss? integer In a boss fight, the boss's monster number (`rq.ids.monster`): the enemy in slot 2, else the first. Since 2.27.0.
+---@field enemies? integer[] In a fight or a boss fight, the enemies' monster numbers, slot by slot. Since 2.27.0.
+---@field area? integer On a quest's map, the area (1 to 16, as `rq.dungeon.info().area`). Since 2.27.0.
+---@field map_kind? integer On a quest's map, the area's kind (`rq.ids.map_kind`). Since 2.27.0.
+---@field world? integer The world, 1 to 3 (`rq.world.current()`). Since 2.27.0.
 ---@field quest integer The quest in progress (`rq.quests.current()`); 0 for none.
 ---@field loops integer 0 when it loops until changed, 1 when it plays once.
 local MusicPlayCtx = {}
@@ -8232,7 +8289,9 @@ function MusicPlayCtx:track(no) end
 ---Plays a file wherever the game plays one of its tracks.
 ---
 ---It starts the next time the game starts the track, or when a mod plays it (`rq.music.play`). A
----replacement made while the track plays starts the next time the game asks for that track.
+---replacement made while the track plays starts the next time the game asks for that track. When
+---the player switched the track off on the mod's page (`rq.music.page`), the file is checked and
+---kept, `info.off` is true, and the game's plays until it is switched on.
 ---
 ---Raises an error for a number the game has not, a path out of the mod folder, a missing file, a
 ---file that is not a sound with 1 or 2 channels, or an option of the wrong type or range. In
@@ -8249,13 +8308,16 @@ function MusicPlayCtx:track(no) end
 ---@param opts? rq.MusicOpts Loop points, volume, name.
 ---@return rq.MusicInfo info What was set, with the loop points the file gave.
 ---@see rq.music.restore
+---@see rq.music.page
 function music.replace(no, path, opts) end
 
 ---Undoes the calling mod's `rq.music.replace` on a track.
 ---
----It ends the next time the game starts the track. Another mod's replacement stays.
+---It ends the next time the game starts the track. Another mod's replacement stays, and one made
+---earlier in load order plays again.
 ---
 ---Since: 2.4.0
+---Changed: 2.27.0 The replacement of the mod below in load order comes back (it was the game's).
 ---@param no integer The track number.
 ---@return boolean restored false when the mod had not replaced it.
 function music.restore(no) end
@@ -8303,7 +8365,7 @@ function music.stop() end
 ---```lua
 ----- Every boss fight of one quest gets the mod's theme.
 ---rq.music.on_play(function(ctx)
----  if ctx.kind == "fight" and ctx.no == rq.ids.music.BOSS_BATTLE_R8 and ctx.quest == 42 then
+---  if ctx.kind == "boss" and ctx.quest == 42 then
 ---    ctx:file("music/boss42.ogg")
 ---  end
 ---end)
@@ -8311,6 +8373,93 @@ function music.stop() end
 ---@param fn fun(ctx: rq.MusicPlayCtx) Gets the track.
 ---@return fun() remove Removes this callback.
 function music.on_play(fn) end
+
+---A moment a pack names on its Config page, with a switch the player turns on and off.
+---
+---Since: 2.27.0
+---@class rq.MusicMoment
+---@field key string The moment's key, as `rq.music.enabled` takes it.
+---@field name? string Its text on the page. Default the key.
+---@field tip? string A tip on its row.
+
+---What `rq.music.page` takes.
+---
+---Since: 2.27.0
+---@class rq.MusicPageOpts
+---@field title? string The page's row in the Mods tab and its heading. Default `"<mod id>: music"`.
+---@field id? string The page's id (`rq.config.page`). Default `"<mod id>:music"`.
+---@field moments? rq.MusicMoment[] Moments of the mod's own `on_play`, each with a switch, after the tracks.
+
+---Gives the calling mod a page in Config's Mods tab to turn its music on and off.
+---
+---The page lists each track the mod replaced (`rq.music.replace`), by number with the mod's name
+---for it and the game's, then each moment in `opts.moments`. Each row has a switch; a track's row
+---has a play button that plays the mod's file while the page shows (the music that played before
+---comes back when the page goes away). "All on" and "All off" turn every switch. The page shows 8
+---rows at a time, with arrows for more.
+---
+---A track switched off plays the game's file (or the replacement of the mod below in load order),
+---at once when it plays now. A moment switched off changes nothing by itself: the mod's `on_play`
+---asks `rq.music.enabled(key)`. The switches are kept for every save profile.
+---
+---Agents see the rows as `check-music-t<no>` and `check-music-m-<key>`, the buttons as
+---`button-music-play-<no>`, `button-music-all-on` and `button-music-all-off`.
+---
+---Raises an error for an option of the wrong type, or a moment with no `key`.
+---
+---Since: 2.27.0
+---
+---```lua
+---rq.music.replace(rq.ids.music.BATTLE_2_R8, "music/battle.ogg", { name = "Battle (Remix)" })
+---rq.music.page({ moments = { { key = "boss", name = "Boss fights" } } })
+---rq.music.on_play(function(ctx)
+---  if ctx.kind == "boss" and rq.music.enabled("boss") then ctx:file("music/boss.ogg") end
+---end)
+---```
+---@param opts? rq.MusicPageOpts The title, the id and the moments.
+---@return string id The page's id.
+---@see rq.uikit.music_list
+function music.page(opts) end
+
+---Returns whether the player left one of the calling mod's switches on.
+---
+---Every switch is on until the player turns it off on the mod's page (`rq.music.page` or
+---`rq.uikit.music_list`).
+---
+---Raises an error for a key that is not a string or a whole number.
+---
+---Since: 2.27.0
+---@param key string|integer A moment's key, or a track number.
+---@return boolean on true when on.
+function music.enabled(key) end
+
+---What `rq.uikit.music_list` takes.
+---
+---Since: 2.27.0
+---@class rq.MusicListOpts
+---@field x? integer Left edge; default the layout's.
+---@field y? integer Top edge; default the layout's.
+---@field w? integer The rows' width. Default 700.
+---@field id? string The widgets' id prefix. Default `"music"`.
+---@field moments? rq.MusicMoment[] Moments with a switch, after the tracks.
+
+---Draws the switches of the calling mod's music, as `rq.music.page` does, on a page of its own.
+---
+---Call it on every update the page shows, from the page's `draw`. It takes about 470 high: a row of
+---all on and off, 8 rows, and the arrows when there are more.
+---
+---Raises an error for options that are not a table, or a moment with no `key`.
+---
+---Since: 2.27.0
+---
+---```lua
+---rq.config.page({ id = "my-pack", title = "My Pack", draw = function(ui, box)
+---  rq.uikit.music_list({ w = box.w, moments = { { key = "boss", name = "Boss fights" } } })
+---end })
+---```
+---@param opts rq.MusicListOpts Place and moments.
+---@see rq.music.page
+function uikit.music_list(opts) end
 
 rq.music = music
 rq.uikit = uikit

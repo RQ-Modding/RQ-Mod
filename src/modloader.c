@@ -1271,6 +1271,7 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "patch_int_after", l_patch_int_after);
 	set_cfn(L, "set_code_int", l_set_code_int);
 	set_cfn(L, "code_int", l_code_int);
+	set_cfn(L, "stack", rq_lua_ain_stack);
 	set_cfn(L, "skip_msgbox", l_skip_msgbox);
 	set_cfn(L, "skip_sdl_msgbox", l_skip_sdl_msgbox);
 	set_cfn(L, "find", l_find_funcs);
@@ -1537,11 +1538,11 @@ static void open_rq(lua_State *L)
 	rq_query_bind(L);
 	rq_scene_open(L, lua_gettop(L));
 	rq_battle_lua_open(L, lua_gettop(L));
-	rq_music_open_lua(L, lua_gettop(L));
 	rq_item_open_lua(L, lua_gettop(L));
 	rq_sprite_hooks(L, lua_gettop(L));
 	rq_uikit_open(L, lua_gettop(L));
 	rq_config_open(L, lua_gettop(L));
+	rq_music_open_lua(L, lua_gettop(L)); /* after rq.uikit and rq.config (2.27.0: the page) */
 	rq_sandbox_open(L, lua_gettop(L));
 	rq_ids_open(L, lua_gettop(L));
 	guard_game_calls(L);

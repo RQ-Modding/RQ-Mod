@@ -48,7 +48,7 @@ struct music_file {
 	char rel[256];
 	char mod[64];
 	int loop_start, loop_end;   /* frames; 0 = the file's start / end */
-	int volume;                 /* 0..100 */
+	int volume;                 /* 0..200 (2.27.0: above 100 raises the gain) */
 	int rate;
 	long frames;
 };
@@ -150,7 +150,18 @@ static void push_file(lua_State *L, struct music_file *m)
 	lua_setfield(L, -2, "volume");
 }
 
-/* c.set(no, path, loop_start_s|nil, loop_end_s|nil, volume, mod, once): checks the file
+/* c.resolve(path) → the full path inside the calling mod's folder (2.27.0). */
+static int c_resolve(lua_State *L)
+{
+	const char *rel = luaL_checkstring(L, 1);
+	char full[RQ_PATH_MAX];
+	if (!rq_sandbox_resolve(L, rel, full, (int)sizeof full))
+		return luaL_error(L, "music path '%s' is not inside the mod folder", rel);
+	lua_pushstring(L, full);
+	return 1;
+}
+
+/* c.set(no, path, loop_start_s|nil, loop_end_s|nil, volume, mod, once[, rel]): checks the file
  * (inside the calling mod's folder, a sound libsndfile reads, at most 2 channels) and stores
  * it as the track's replacement, or as the next prepare's file when once. Returns the file's
  * info, as c.get. */
@@ -162,8 +173,14 @@ static int c_set(lua_State *L)
 	SF_INFO info;
 
 	memset(&m, 0, sizeof m);
-	if (!rq_sandbox_resolve(L, rel, m.full, (int)sizeof m.full))
+	if (lua_type(L, 8) == LUA_TSTRING) {
+		/* 2.27.0: a path c.resolve gave earlier, with the mod's own path as arg 8 (the
+		 * Config page puts a track back on with no mod code on the stack). */
+		snprintf(m.full, sizeof m.full, "%s", rel);
+		rel = lua_tostring(L, 8);
+	} else if (!rq_sandbox_resolve(L, rel, m.full, (int)sizeof m.full)) {
 		return luaL_error(L, "music path '%s' is not inside the mod folder", rel);
+	}
 	SNDFILE *sf = open_sf(m.full, &info);
 	if (!sf)
 		return luaL_error(L, "music '%s': %s", rel, sf_strerror(NULL));
@@ -175,7 +192,7 @@ static int c_set(lua_State *L)
 	m.rate = info.samplerate;
 	m.frames = (long)info.frames;
 	m.volume = (int)luaL_optinteger(L, 5, 100);
-	m.volume = m.volume < 0 ? 0 : m.volume > 100 ? 100 : m.volume;
+	m.volume = m.volume < 0 ? 0 : m.volume > 200 ? 200 : m.volume;
 
 	long start = 0, end = 0;
 	read_loop_tags(m.full, &start, &end);
@@ -334,6 +351,7 @@ void rq_music_open_lua(lua_State *L, int rq_index)
 {
 	static const luaL_Reg c[] = {
 		{ "set", c_set },
+		{ "resolve", c_resolve },
 		{ "clear", c_clear },
 		{ "clear_once", c_clear_once },
 		{ "get", c_get },

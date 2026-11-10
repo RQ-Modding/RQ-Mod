@@ -28,6 +28,8 @@
 #endif
 
 #define VM_PRIVATE
+#include "lua.h"
+#include "lauxlib.h"
 #include "system4.h"
 #include "system4/ain.h"
 #include "system4/utfsjis.h"
@@ -124,6 +126,31 @@ static void write_ain_stack(FILE *f)
 		fflush(f);
 		fprintf(f, "%s\n", fn_name(call_stack[i].fno, nm, sizeof nm));
 	}
+}
+
+/* rq.ain.stack(max) (2.27.0): the AIN functions on the game's call stack, innermost first, as
+ * names ("T_Result@success" for a method). The game thread only: hooks, rq.on_frame, mod code. */
+int rq_lua_ain_stack(lua_State *L)
+{
+	int max = (int)luaL_optinteger(L, 1, 32);
+	int n = 0;
+	if (max < 1)
+		max = 1;
+	lua_newtable(L);
+	if (!ain || call_stack_ptr <= 0 || call_stack_ptr > 4096)
+		return 1;
+	for (int i = call_stack_ptr - 1; i >= 0 && n < max; i--) {
+		int fno = call_stack[i].fno;
+		if (fno < 0 || fno >= ain->nr_functions || !ain->functions[fno].name)
+			continue;
+		char *utf = sjis2utf(ain->functions[fno].name, 0);
+		if (!utf)
+			continue;
+		lua_pushstring(L, utf);
+		free(utf);
+		lua_rawseti(L, -2, ++n);
+	}
+	return 1;
 }
 
 static void write_rings(FILE *f)
