@@ -493,6 +493,12 @@ local ui = {}
 ---screen with no name, such as a black one during a change of scene, says `other`; `boot` is used
 ---only before the first named screen, and `title` only for the real title screen.
 ---
+---The footer's controls (`system`, `vault`, `trivia` in section `system-bar`; the party cards in
+---section `party`; the money line) are listed on every screen whose own loop takes them: the town,
+---its tabs, Rance Castle (`castle`), the status page, the vault, a quest's map and a fight, and an
+---unnamed screen (`other`) that shows them. On `castle` each room is `room-<area>`, with the room's
+---name as the label and its floor (`B2F`, with ` new` for the NEW mark) as the value.
+---
 ---A game control a player cannot click has `covered = true`: every point of it is under a kit widget
 ---of the last update (section `kit`), or a mod's page captures the mouse (`rq.hud.capture_mouse`).
 ---`rqmod-ctl press` refuses it. A page closed on this update still covers until the next one.
@@ -510,6 +516,10 @@ local ui = {}
 ---Changed: 2.12.0 `focused` on kit controls.
 ---Changed: 2.19.0 `select.message`.
 ---Changed: 2.20.0 `status.chara` is the character shown (it was always 0).
+---Changed: 2.20.1 The footer (`system`, `vault`, `trivia`, the party cards and the money line) on
+---every screen that shows it; Rance Castle is the screen `castle`, with its rooms as `room-<area>`
+---and the town tabs; the town tabs on `quests`; the SYSTEM menu over Quests or the status page is
+---`system-menu` (it was the screen under it).
 ---
 ---```lua
 ---local s = rq.ui.get()
@@ -5193,7 +5203,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.20.0"
+rq.version = "2.20.1"
 
 rq.units = units
 rq.items = items

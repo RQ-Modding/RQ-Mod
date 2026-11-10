@@ -1357,6 +1357,7 @@ static int sn_party, sn_status, sn_storeitem, sn_select, sn_storestock;
 static int sn_shop, sn_equipdrag, sn_skillpoint;
 static int sn_quest, sn_storequest, sn_mapparts, sn_player;
 static int sn_battlesel, sn_bchara, sn_bmon;
+static int sn_castle;
 static int snos_ready;
 
 static void snos_init(void)
@@ -1408,6 +1409,7 @@ static void snos_init(void)
 	sn_battlesel = sn_get("T_BattleSelect");
 	sn_bchara = sn_get("T_BattleCharaManager");
 	sn_bmon = sn_get("T_BattleMonsterManager");
+	sn_castle = sn_get("T_Castle");
 	snos_ready = 1;
 }
 
@@ -1764,6 +1766,7 @@ static int gi_quest = -2, gi_storequest = -2, gi_mapparts = -2, gi_player = -2;
 static int gi_msgno = -2;
 static int gi_battlesel = -2, gi_battlearea = -2, gi_bchara = -2, gi_bmon = -2;
 static int gi_pta = -2, gi_ptb = -2;
+static int gi_castle = -2, gi_area_name = -2, gi_area_new = -2;
 
 #define AGENT_MAX 32
 
@@ -2243,6 +2246,73 @@ static int fill_hub(struct page *town)
 	snprintf(g_screen, sizeof g_screen, "hub");
 	hover_from_rects();
 	return 1;
+}
+
+static int has_ctrl(const char *id, const char *section)
+{
+	int i;
+	for (i = 0; i < g_nctrls; i++) {
+		if (!strcmp(g_ctrls[i].id, id) && (!section || !strcmp(g_ctrls[i].section, section)))
+			return 1;
+	}
+	return 0;
+}
+
+/* Screens whose own loop takes the footer's input (システムバー_入力確認 in the decompile),
+ * plus `other` for unnamed ones that show it (Trivia, CG mode, Music mode). Loader 2.20.1. */
+static int screen_takes_footer(const char *s)
+{
+	static const char *const names[] = {
+		"hub", "frostbuy", "party-edit", "quests", "castle", "status", "vault",
+		"vault-storage", "shop-buy", "dungeon", "battle", "other", NULL
+	};
+	int i;
+	for (i = 0; names[i]; i++) {
+		if (!strcmp(s, names[i]))
+			return 1;
+	}
+	return 0;
+}
+
+/* The footer (g_sSystemBar, its party cards and money line) on every screen that shows it:
+ * the hub, Frostbuy and the Party screen list it themselves; the rest get it here. */
+static int emit_footer(void)
+{
+	struct page *bar = global_struct(&gi_bar, "g_sSystemBar", sn_sysbar);
+	struct page *mini = global_struct(&gi_mini, "g_sMiniStatus", sn_mini);
+	struct page *info = global_struct(&gi_info, "g_sSystemInfo", sn_sysinfo);
+	struct page *arr;
+	struct tbtn b;
+	int n0 = g_nctrls, shown = 0, i;
+	if (!bar || fint(bar, "m_nMode") < 0 || !sprite_live(fpage(bar, "m_spBase")))
+		return 0;
+	if (!screen_takes_footer(g_screen))
+		return 0;
+	arr = fpage(fpage(bar, "m_sButton"), "m_asButton");
+	if (arr && arr->type == ARRAY_PAGE) {
+		for (i = 0; i < arr->nr_vars; i++) {
+			if (tbtn_read(arr_at(arr, i), &b) && b.visible)
+				shown = 1;
+		}
+	}
+	if (!shown)
+		return 0;
+	/* The cards' buttons are hidden in some modes (19, the status page). */
+	shown = 0;
+	arr = mini ? fpage(fpage(mini, "m_sButton"), "m_asButton") : NULL;
+	if (arr && arr->type == ARRAY_PAGE && sprite_live(fpage(mini, "m_spBase"))) {
+		for (i = 0; i < arr->nr_vars; i++) {
+			if (tbtn_read(arr_at(arr, i), &b) && b.visible)
+				shown = 1;
+		}
+	}
+	if (shown && !has_ctrl("member-1", "party") && !has_ctrl("party-summary", "party"))
+		emit_party(mini);
+	if (!has_ctrl("system", "system-bar"))
+		emit_group(fpage(bar, "m_sButton"), "system-bar", bar_name);
+	if (!g_info.ok && info && fint(fpage(fpage(info, "m_sGold"), "m_sText"), "m_bShow"))
+		emit_info(info, bar);
+	return g_nctrls > n0;
 }
 
 static int fill_system_menu(struct page *menu)
@@ -3800,6 +3870,68 @@ static int fill_shop(struct page *shop)
 	return 1;
 }
 
+/* Rance Castle (g_sCastle, T_Castle): rooms 110000 + area in 27 cells, three a floor, and the
+ * town tabs. Loader 2.20.1. */
+#define U8_AREA_NAME "\xE3\x83\xA9\xE3\x83\xB3\xE3\x82\xB9\xE5\x9F\x8E\xE3\x82\xA8\xE3\x83\xAA\xE3\x82\xA2\xE5\x90\x8D"
+#define U8_AREA_NEW "\xE3\x83\xA9\xE3\x83\xB3\xE3\x82\xB9\xE5\x9F\x8E\xE3\x82\xA8\xE3\x83\xAA\xE3\x82\xA2" "new"
+
+static int save_arr_int(int *gi, const char *name, int index);
+
+static const char *const castle_floors[9] = { "Roof", "6F", "5F", "4F", "3F", "2F", "1F", "B1F", "B2F" };
+
+static int fill_castle(struct page *castle)
+{
+	struct page *arr, *cells, *names;
+	int i, n0 = g_nctrls;
+	if (!castle || !sprite_live(fpage(castle, "m_spBase")) || !stack_has("T_Castle@"))
+		return 0;
+	cells = fpage(fpage(castle, "m_sList"), "m_anAreaNo");
+	names = global_index(&gi_area_name, U8_AREA_NAME) >= 0
+		? slot_page(global_get(gi_area_name).i) : NULL;
+	arr = fpage(fpage(castle, "m_sButton"), "m_asButton");
+	if (arr && arr->type == ARRAY_PAGE) {
+		for (i = 0; i < arr->nr_vars; i++) {
+			struct page *btn = arr_at(arr, i);
+			struct ui_ctrl *c;
+			const char *label = NULL, *tab;
+			char id[40], name[LABEL_LEN];
+			int bid, area, cell, k;
+			if (!btn || btn->type != STRUCT_PAGE || btn->index != sn_button)
+				continue;
+			bid = fint(btn, "m_nID");
+			tab = town_name(bid, &label);
+			if (tab) {
+				emit_tbtn(btn, i, tab, label, "castle");
+				continue;
+			}
+			area = bid - 110000;
+			if (area <= 0 || area > 99)
+				continue;
+			array_str(names, area, name, (int)sizeof name);
+			snprintf(id, sizeof id, "room-%d", area);
+			c = emit_tbtn(btn, i, id, name[0] ? name : "room", "castle");
+			if (!c)
+				continue;
+			cell = -1;
+			if (cells && cells->type == ARRAY_PAGE) {
+				for (k = 0; k < cells->nr_vars && k < 27; k++) {
+					if (cells->values[k].i == area) {
+						cell = k;
+						break;
+					}
+				}
+			}
+			snprintf(c->value, sizeof c->value, "%s%s",
+				 cell >= 0 ? castle_floors[cell / 3] : "",
+				 save_arr_int(&gi_area_new, U8_AREA_NEW, area) ? " new" : "");
+		}
+	}
+	if (g_nctrls == n0)
+		return 0;
+	snprintf(g_screen, sizeof g_screen, "castle");
+	hover_from_rects();
+	return 1;
+}
 
 static int fill_party_edit(struct page *party)
 {
@@ -4973,6 +5105,11 @@ static int fill_quests(struct page *quest)
 			const char *label;
 			if (!tbtn_read(btn, &b) || !b.show)
 				continue;
+			/* The town tabs share this group (街マップ_タブ作成, loader 2.20.1). */
+			if (town_name(b.id, &label)) {
+				emit_named_btn(btn, i, town_name(b.id, &label), label, "quests", "", 0);
+				continue;
+			}
 			if (b.id < 160001 || b.id > 160013)
 				continue;
 			vis = b.id - 160001;
@@ -5433,7 +5570,18 @@ static int fill_dungeon(struct page *map)
 	return 1;
 }
 
+static int vm_fill_screen(void);
+
 static int vm_fill(void)
+{
+	if (!vm_fill_screen())
+		return 0;
+	if (emit_footer())
+		hover_from_rects();
+	return 1;
+}
+
+static int vm_fill_screen(void)
 {
 	struct page *view = NULL, *title = NULL, *cfg = NULL, *pstatus = NULL, *menu, *town;
 	struct page *party, *status;
@@ -5470,6 +5618,12 @@ static int vm_fill(void)
 		if (sel && sprite_live(fpage(sel, "m_spBase")) && fill_select(sel))
 			return 1;
 	}
+	/* Before the screens under it: since 2.20.1 the footer's SYSTEM opens it from Quests, the
+	 * status page and the vault too. */
+	menu = global_struct(&gi_menu, "g_sSystemMenu", sn_sysmenu);
+	if (menu && fint(menu, "m_nMode") > 0 && sprite_shown(fpage(menu, "m_spBase"))
+			&& fill_system_menu(menu))
+		return 1;
 	{
 		struct page *stq = global_struct(&gi_storequest, "g_sStoreQuest", sn_storequest);
 		if (stq && fill_storequest(stq))
@@ -5500,10 +5654,6 @@ static int vm_fill(void)
 	}
 	if (pstatus && fill_party_summary(pstatus))
 		return 1;
-	menu = global_struct(&gi_menu, "g_sSystemMenu", sn_sysmenu);
-	if (menu && fint(menu, "m_nMode") > 0 && sprite_shown(fpage(menu, "m_spBase"))
-			&& fill_system_menu(menu))
-		return 1;
 	{
 		struct page *shop = global_struct(&gi_shop, "g_sShop", sn_shop);
 		if (shop && fill_shop(shop))
@@ -5517,6 +5667,11 @@ static int vm_fill(void)
 	{
 		struct page *map = global_struct(&gi_mapparts, "g_sMapParts", sn_mapparts);
 		if (map && fill_dungeon(map))
+			return 1;
+	}
+	{
+		struct page *castle = global_struct(&gi_castle, "g_sCastle", sn_castle);
+		if (castle && fill_castle(castle))
 			return 1;
 	}
 	if (title && !stack_has(U8_WARN))
@@ -5744,6 +5899,11 @@ void rq_ui_layers(char *screen, int screen_n, char overlays[][24], int max_ov, i
 		snprintf(screen, screen_n, "select");
 		return;
 	}
+	p = global_struct(&gi_menu, "g_sSystemMenu", sn_sysmenu);
+	if (p && fint(p, "m_nMode") > 0 && sprite_shown(fpage(p, "m_spBase"))) {
+		snprintf(screen, screen_n, "system-menu");
+		return;
+	}
 	p = global_struct(&gi_storequest, "g_sStoreQuest", sn_storequest);
 	if (p && sprite_shown(fpage(p, "m_spBase"))) {
 		snprintf(screen, screen_n, "quest-storage");
@@ -5768,11 +5928,6 @@ void rq_ui_layers(char *screen, int screen_n, char overlays[][24], int max_ov, i
 		snprintf(screen, screen_n, "quests");
 		return;
 	}
-	p = global_struct(&gi_menu, "g_sSystemMenu", sn_sysmenu);
-	if (p && fint(p, "m_nMode") > 0 && sprite_shown(fpage(p, "m_spBase"))) {
-		snprintf(screen, screen_n, "system-menu");
-		return;
-	}
 	p = global_struct(&gi_shop, "g_sShop", sn_shop);
 	if (p && sprite_live(fpage(p, "m_spBase"))) {
 		snprintf(screen, screen_n, "frostbuy");
@@ -5781,6 +5936,11 @@ void rq_ui_layers(char *screen, int screen_n, char overlays[][24], int max_ov, i
 	p = global_struct(&gi_mapparts, "g_sMapParts", sn_mapparts);
 	if (p && sprite_shown(fpage(p, "m_spBase"))) {
 		snprintf(screen, screen_n, "dungeon");
+		return;
+	}
+	p = global_struct(&gi_castle, "g_sCastle", sn_castle);
+	if (p && sprite_live(fpage(p, "m_spBase")) && stack_has("T_Castle@")) {
+		snprintf(screen, screen_n, "castle");
 		return;
 	}
 	p = global_struct(&gi_town, "g_sTown", sn_town);
@@ -5889,6 +6049,9 @@ static void publish(void)
 	if (g_hover_no < 0 && g_sprite_hover != -1)
 		g_hover_no = g_sprite_hover;
 	classify();
+	/* An unnamed screen that shows the footer (Trivia, CG mode, Music mode) lists it by name. */
+	if (!strcmp(g_screen, "other"))
+		emit_footer();
 	}
 	emit_agent_controls();
 	emit_kit_controls();
