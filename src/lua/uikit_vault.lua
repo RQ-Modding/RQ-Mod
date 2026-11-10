@@ -598,8 +598,9 @@ end
 ---An item's tile, as the status page's equip slots: the icon (100 by 100, or size) with its rank
 ---badge, the game's yellow frame under the mouse or the keys' cursor (and while current), and the
 ---item card as its tip, left of the tile. item: an ii, a row table, or nil for an empty slot (nothing
----drawn). opts: x, y, id, size, current, disabled, remove (REMOVE on the hovered or current tile),
----judged (for the card), tip (false: none; a text or table: the comment window), tip_wait, nav.
+---drawn). opts: x, y, id, size, current, disabled, remove (REMOVE on the hovered or current tile,
+---not on an item that cannot be taken off), judged (for the card), tip (false: none; a text or
+---table: the comment window), tip_wait, nav.
 ---Returns clicked, and "remove" when REMOVE was pressed (or D on the tile from the keys).
 function ui.item_icon(item, o)
   o = o or {}
@@ -617,7 +618,10 @@ function ui.item_icon(item, o)
   -- REMOVE first: a click on it is not a click on the tile.
   local rb = v.remove
   local st = ui.state("itemicon:" .. key)
-  local show_remove = o.remove and r and not o.disabled and (st.hot or o.current)
+  -- As the status page: no REMOVE on an item that cannot be taken off (2.22.1).
+  local removable = o.remove and r and not o.disabled
+    and not (r.ii and call("アイテム_外せません", r.ii) > 0)
+  local show_remove = removable and (st.hot or o.current)
   local pressed, on_remove, rover
   if show_remove then
     local rid = id_of({ id = key .. ".remove" }, "itemicon")
@@ -655,7 +659,7 @@ function ui.item_icon(item, o)
   end
   -- D on the tile under the keys' cursor, as the status page (once per press).
   local d = rq.input.key(68)
-  if o.remove and r and over and not o.disabled and kit.focus.src == "keys" and d and not st.d then
+  if removable and over and kit.focus.src == "keys" and d and not st.d then
     pressed = "remove"
   end
   st.d = d

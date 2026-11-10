@@ -58,7 +58,11 @@ local function face_cg(room)
   if type(f) == "function" then f = run(room, "face", f) end
   if math.type(f) ~= "integer" or f <= 0 then return 0 end
   if room.face_is_chara then
-    local ok, cg = pcall(call, "Ｃ顔ＣＧ", f, -1)
+    -- A character number (rq.ids.chara); Ｃ顔ＣＧ takes the roster slot (2.22.1: it was given the
+    -- number, so another character's face showed).
+    local slot = rq.chara.find(f)
+    if not slot then return 0 end
+    local ok, cg = pcall(call, "Ｃ顔ＣＧ", slot, -1)
     return ok and math.type(cg) == "integer" and cg > 0 and cg or 0
   end
   return f

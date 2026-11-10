@@ -800,6 +800,15 @@ static int stack_has(const char *s)
 	return s && g_stackblob[0] && strstr(g_stackblob, s) != NULL;
 }
 
+/* Trivia, CG mode, Music mode and the castle's Gal monsters' and Poster rooms run inside the
+ * town's or the castle's loop, over its screen. They are `other`, with the footer, not the
+ * screen under them (2.22.1). */
+static int inner_screen(void)
+{
+	return stack_has("T_Knowledge@") || stack_has("T_CgMode@") || stack_has("T_MusicMode@")
+		|| stack_has("T_GirlsRoom@") || stack_has("T_PosterRoom@");
+}
+
 static void set_id(struct ui_ctrl *c, const char *id)
 {
 	snprintf(c->id, sizeof c->id, "%s", id);
@@ -1907,6 +1916,14 @@ static int sprite_live(struct page *sp)
 static int sprite_shown(struct page *sp)
 {
 	return sprite_live(sp) && fint(sp, "m_bShow");
+}
+
+/* The Party screen's base sprite's z: 1 in town, 201 on a quest's map, 301 for a fight's Switch. */
+static int party_base_z(struct page *party)
+{
+	struct page *base = fpage(party, "m_spBase");
+	struct sact_sprite *sp = sprite_live(base) ? sact_get_sprite(fint(base, "m_nSpNo")) : NULL;
+	return sp ? sprite_get_z(sp) : 0;
 }
 
 struct tbtn {
@@ -5632,6 +5649,12 @@ static int vm_fill_screen(void)
 	}
 	if (global_int(&gi_msgno, "g_nMessageNo") > 0 && fill_message())
 		return 1;
+	/* Over the town, the castle or a quest's map: listed as `other`, with only the footer
+	 * (vm_fill adds it). */
+	if (inner_screen()) {
+		snprintf(g_screen, sizeof g_screen, "other");
+		return 1;
+	}
 	{
 		struct page *vault = global_struct(&gi_storeitem, "g_sStoreItem", sn_storeitem);
 		if (vault && fill_vault(vault))
@@ -5645,8 +5668,21 @@ static int vm_fill_screen(void)
 	status = global_struct(&gi_status, "g_sStatus", sn_status);
 	if (status && sprite_live(fpage(status, "m_spBase")) && fill_status(status))
 		return 1;
+	/* Before the town's screens: a fight a mod starts there (rq.battle.start) runs over them,
+	 * and their sprites stay live under it (2.22.1). The fight's own Party screen (Switch) is
+	 * over the fight: its base is at z 301, the town's at 1 and the map's at 201
+	 * (T_Party::createBase). */
 	party = global_struct(&gi_party, "g_sParty", sn_party);
-	if (party && sprite_live(fpage(party, "m_spBase")) && fill_party_edit(party))
+	if (party && !sprite_live(fpage(party, "m_spBase")))
+		party = NULL;
+	if (party && party_base_z(party) >= 301 && fill_party_edit(party))
+		return 1;
+	{
+		struct page *bsel = global_struct(&gi_battlesel, "g_sBattleSelect", sn_battlesel);
+		if (bsel && fill_battle(bsel))
+			return 1;
+	}
+	if (party && fill_party_edit(party))
 		return 1;
 	{
 		struct page *quest = global_struct(&gi_quest, "g_sQuest", sn_quest);
@@ -5658,11 +5694,6 @@ static int vm_fill_screen(void)
 	{
 		struct page *shop = global_struct(&gi_shop, "g_sShop", sn_shop);
 		if (shop && fill_shop(shop))
-			return 1;
-	}
-	{
-		struct page *bsel = global_struct(&gi_battlesel, "g_sBattleSelect", sn_battlesel);
-		if (bsel && fill_battle(bsel))
 			return 1;
 	}
 	{
@@ -5912,6 +5943,10 @@ void rq_ui_layers(char *screen, int screen_n, char overlays[][24], int max_ov, i
 	}
 	if (global_int(&gi_msgno, "g_nMessageNo") > 0) {
 		snprintf(screen, screen_n, "message");
+		return;
+	}
+	if (inner_screen()) {
+		snprintf(screen, screen_n, "other");
 		return;
 	}
 	p = global_struct(&gi_skillpoint, "g_sSkillPoint", sn_skillpoint);

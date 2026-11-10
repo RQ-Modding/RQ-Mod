@@ -533,8 +533,9 @@ local ui = {}
 ---
 ---The footer's controls (`system`, `vault`, `trivia` in section `system-bar`; the party cards in
 ---section `party`; the money line) are listed on every screen whose own loop takes them: the town,
----its tabs, Rance Castle (`castle`), the status page, the vault, a quest's map and a fight, and an
----unnamed screen (`other`) that shows them. On `castle` each room is `room-<area>`, with the room's
+---its tabs, Rance Castle (`castle`), the status page, the vault and a quest's map; in a fight only
+---`system`. Trivia, CG mode, Music mode and the castle's Gal monsters' and Poster rooms are `other`,
+---with the footer only: the screen under them is not listed. On `castle` each room is `room-<area>`, with the room's
 ---name as the label and its floor (`B2F`, with ` new` for the NEW mark) as the value.
 ---
 ---A game control a player cannot click has `covered = true`: every point of it is under a kit widget
@@ -558,6 +559,8 @@ local ui = {}
 ---every screen that shows it; Rance Castle is the screen `castle`, with its rooms as `room-<area>`
 ---and the town tabs; the town tabs on `quests`; the SYSTEM menu over Quests or the status page is
 ---`system-menu` (it was the screen under it).
+---Changed: 2.22.1 Trivia, CG mode, Music mode and the castle's Gal monsters' and Poster rooms are
+---`other` with the footer only (they were the town or the castle under them, with its tabs).
 ---
 ---```lua
 ---local s = rq.ui.get()
@@ -682,7 +685,8 @@ function ui.choosing() end
 ---Config's Confirmations tab), so the player's setting counts. A text is the mod's own question: once
 ---the player turns it off, the call returns true without asking, in every save. The loader then
 ---lists it on a Confirmations page in Config's Mods tab, where the player can turn it back on, and
----Resetting in Config's Confirmations tab turns it back on too.
+---Resetting in Config's Confirmations tab turns it back on too. The key is the mod's own, found as
+---`rq.mod.id` finds it: after `return rq.ui.confirm(...)` it is filed under `_` instead.
 ---
 ---The game has one list of dialog rows, so the call shows nothing and returns nil while another
 ---dialog is being built or shows (`rq.ui.choosing`, or one of these calls), and logs it once.
@@ -1556,8 +1560,8 @@ function skill.sort_as(id, as_id) end
 ---`取得可能スキルポイント`, `取得不可能スキル説明`) and shows the first 36. With `install`, the arrays
 ---hold rows 1 to 144 and the list shows them 36 at a time. A page is 36 rows of the game's own
 ---filtered list (no panel color 104, none the character holds) in the order they were added, then
----sorted with `compSkill` as the game sorts. Opening the window goes back to page 1. Known Skills is
----not paged.
+---sorted with `compSkill` as the game sorts. Opening the window goes back to page 1, and so does
+---another character in it (the window's scroll bar or the wheel over it). Known Skills is not paged.
 ---
 ---It is Lua over the game's own code (`src/lua/skilllist.lua`): the arrays are made longer with
 ---`rq.ain.set_global_len` whenever the game fills them, `スキルポン` stops at row 145 instead of 54,
@@ -1572,6 +1576,7 @@ function skill.sort_as(id, as_id) end
 ---
 ---Since: 0.2.0
 ---Changed: 2.18.0 Lua over the game's own arrays, made longer; 144 rows (were 143).
+---Changed: 2.22.1 Another character in the open window starts on page 1; it kept the page shown.
 ---
 ---```lua
 ---rq.skilllist.install({ buttons = false })
@@ -4012,9 +4017,15 @@ function battle.skill_usable(actor, skill_no) end
 ---`rq.on_frame` keeps running; call it from a coroutine if the same mod plays the fight. It counts as
 ---a fight of the current quest.
 ---
+---It may start from any screen with a footer: a quest's map, the town, Rance Castle, the Party
+---screen, Quests. While it runs, `rq.ui.get` says `battle`; after it, the screen it started from is
+---drawn again with its footer.
+---
 ---Raises an error for no enemies, an unknown monster, an empty party, or during a fight.
 ---
 ---Since: 0.22.0
+---Changed: 2.22.1 Away from a quest's map, the screen under the fight came back black and without
+---its footer, and `rq.ui.get` named that screen during the fight, not `battle`.
 ---
 ---```lua
 ---coroutine.wrap(function()
@@ -4795,7 +4806,7 @@ function castle.get() end
 ---@field shown? fun(): boolean Asked each time the castle opens; false leaves the room out this time. Default: always shown.
 ---@field new? boolean|fun(): boolean The game's NEW mark on the room. Default false.
 ---@field face? integer|fun(): integer A CG shown beside the name, as a character's face in the game's rooms. Default none.
----@field chara? integer A character id: their face beside the name, as the game shows it (`Ｃ顔ＣＧ`). Use this or `face`.
+---@field chara? integer A character number (`rq.ids.chara`): their face beside the name, as the game shows it (`Ｃ顔ＣＧ` of their roster slot); no face while they are not in the roster. Use this or `face`. Since 2.22.1 a character number; before, the number was read as a roster slot.
 
 ---Where a mod's room is this time, from a room's `where()`.
 ---@class rq.CastleRoomPlace
@@ -4842,6 +4853,8 @@ function castle.get() end
 ---that is not a function, a `new` or `face` of the wrong type, or no area left.
 ---
 ---Since: 2.16.0
+---Changed: 2.22.1 `chara` is a character number, as the reference said: it was read as a roster
+---slot, so another character's face showed.
 ---
 ---```lua
 ---rq.castle.room({ id = "workshop", name = "Workshop", floor = "B2F", new = true,
@@ -5242,7 +5255,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.22.0"
+rq.version = "2.22.1"
 
 rq.units = units
 rq.items = items
@@ -5496,6 +5509,10 @@ function mod.get(id) end
 ---
 ---It is the `id` in that mod's `mod.json`. When a mod calls a function of another mod, the code
 ---running is the other mod's, so that mod's id is returned.
+---
+---The mod is found on the call stack. A tail call (`return f()`) takes the caller's place on it, so
+---a call reached only that way, as `return rq.ui.confirm(...)` in a callback or at the top of a
+---coroutine, counts as outside any mod. Keep the result in a local and return that.
 ---
 ---Since: 2.0.0
 ---@return string|nil id The calling mod's id; `nil` outside any mod's code.
@@ -6820,7 +6837,7 @@ function uikit.item_row(row, opts) end
 ---@field size? integer The tile's side in pixels. Default 100, the game's; the rank badge shrinks with it.
 ---@field current? boolean The game's yellow frame stays on, as on the status page's chosen slot.
 ---@field disabled? boolean Darkened at half, as the kit greys a skill tile. It cannot be clicked, and its tip still shows.
----@field remove? boolean The status page's REMOVE button at the tile's x + 100, y + 10, on the tile under the mouse or the keys' cursor, or on a `current` one. Not on an empty slot.
+---@field remove? boolean The status page's REMOVE button at the tile's x + 100, y + 10, on the tile under the mouse or the keys' cursor, or on a `current` one. Not on an empty slot, nor on an item that cannot be taken off (`rq.item.get(ii).locked`), as the status page leaves it out (since 2.22.1).
 ---@field judged? boolean false: the tip is the game's UNIDENTIFIED card, with the icon alone. Default true.
 
 ---Draws an item's tile, as the status page's equip slots draw it, and returns whether it was clicked.
@@ -6835,7 +6852,8 @@ function uikit.item_row(row, opts) end
 ---shows it. Give a `tip` of your own (the comment window), or false for none.
 ---
 ---With `remove`, REMOVE shows beside the tile; a click on it, or D on the tile from the keys, returns
----`"remove"`. The tile only says so: take the item off yourself.
+---`"remove"`. The tile only says so: take the item off yourself. An item that cannot be taken off
+---(`rq.item.get(ii).locked`, the game's `外せません`) gets no REMOVE and no D, as on the status page.
 ---
 ---For an item the player must not see yet, pass a row table with the icon you want shown (as
 ---`rq.loot.list`'s `cg`, the game's "?") and `judged = false`: the tile and the card draw the row's
@@ -6849,6 +6867,7 @@ function uikit.item_row(row, opts) end
 ---that is not a whole number above 0.
 ---
 ---Since: 2.21.0
+---Changed: 2.22.1 No REMOVE on an item that cannot be taken off.
 ---
 ---```lua
 ---local SLOTS = { 1, 11, 17 } -- weapon, armor, held item

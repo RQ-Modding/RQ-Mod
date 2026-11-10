@@ -2,6 +2,7 @@
 
 #ifdef RQ_MODLOADER
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -145,7 +146,7 @@ int rq_lua_battle_start(lua_State *L)
 {
 	struct page *pta;
 	int args[RANKS + 1];
-	int i, has_enemy = 0, has_ally = 0, re;
+	int i, has_enemy = 0, has_ally = 0, re, bar0, map0;
 
 	luaL_checktype(L, 1, LUA_TTABLE);
 	lua_getfield(L, 1, "enemies");
@@ -174,9 +175,20 @@ int rq_lua_battle_start(lua_State *L)
 	/* An empty party never gets a turn and the fight never ends. */
 	if (!has_ally)
 		return luaL_error(L, "rq.battle.start: the party is empty");
+	bar0 = call_ints("システムバー_モード", NULL, 0);
+	map0 = call_ints("システムバー_マップ番号", NULL, 0);
 	g_in_start = 1;
 	re = call_ints("特定戦闘処理", args, RANKS + 1);
 	g_in_start = 0;
+	/* On a quest's map the game puts its screen back after a fight. Anywhere else (the town,
+	 * the Party screen, Quests, the castle) the fight's black layer stayed over the screen and
+	 * its footer was gone: both are put back here (2.22.1). */
+	if (bar0 >= 0 && call_ints("システムバー_モード", NULL, 0) != bar0) {
+		int none[3] = { INT_MIN, INT_MIN, INT_MIN };
+		int bar[3] = { bar0, map0, 1 };
+		call_ints("全画面色", none, 3);
+		call_ints("システムバー_作成", bar, 3);
+	}
 	lua_pushstring(L, re == 1 ? "won" : re == 2 ? "lost" : "other");
 	return 1;
 }

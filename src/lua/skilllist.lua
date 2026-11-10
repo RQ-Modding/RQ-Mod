@@ -29,6 +29,7 @@ local ARRAYS = { "取得可能スキル", "取得可能スキルポイント", "
 
 local installed, buttons = false, false
 local page, pages = 1, 1
+local built_for = nil -- the character the page belongs to
 local slicing, slice = false, nil
 local cbs = { open = {}, page = {}, buttons = {} }
 
@@ -97,6 +98,9 @@ end
 
 -- The game's own filter in キャラスキル_追加一覧: a row with a skill, not panel color 104, not held.
 local function build(chara)
+  -- Another character in the open window (its scroll bar): that list from page 1 (2.22.1).
+  if chara ~= built_for then page = 1 end
+  built_for = chara
   local rows = {}
   local n = ain.global_len("取得可能スキル") - 1
   for i = 1, n do
@@ -204,6 +208,7 @@ function skilllist.install(opts)
   end })
   hook("T_SkillPoint@create", { before = function()
     page = 1
+    built_for = nil
     run(cbs.open, "on_open")
   end })
   hook("キャラスキル_追加一覧", {
