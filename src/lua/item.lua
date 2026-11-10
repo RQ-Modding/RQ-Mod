@@ -12,6 +12,12 @@ local SHOP, VAULT, STORAGE = 6, 7, 11
 local KINDS = { special = 21, weapon = 1, armor = 11, item = 17 }
 local asking = false
 
+-- A question of rq.item, or any of the game's dialogs (rq.ui.confirm and the rest, 2.19.0), shows:
+-- the game has one list of dialog rows, so a second question would mix into it.
+local function busy()
+  return asking or (rq.ui.choosing ~= nil and rq.ui.choosing())
+end
+
 -- Who wears ii and the slot's kind (21, 1, 11, 17), by the characters' slots: a worn item's place
 -- is its wearer (アイテム存在_装備中).
 local function wearer(ii)
@@ -119,7 +125,7 @@ end
 function item.sell(ii, opts)
   local ask = ask_of(opts, "sell")
   local ok, chara, kind = check(ii, "sell", true, true)
-  if not ok or asking then return false end
+  if not ok or busy() then return false end
   if chara then
     if not take_off(ii, chara, kind, ask, "sold", 14, function(n) return "Sell@" .. n .. "?" end) then
       return false
@@ -138,7 +144,7 @@ end
 function item.donate(ii, opts)
   local ask = ask_of(opts, "donate")
   local ok, chara, kind = check(ii, "donate", true, true)
-  if not ok or asking then return false end
+  if not ok or busy() then return false end
   if chara then
     if not take_off(ii, chara, kind, ask, "donated", 31, function(n) return "Donate " .. n .. "?" end) then
       return false
@@ -162,7 +168,7 @@ function item.buy(ii, opts)
   local chara = opts.chara
   if chara ~= nil and math.type(chara) ~= "integer" then error("rq.item.buy: chara is a roster slot", 2) end
   if math.type(ii) ~= "integer" then error("rq.item.buy: expected an item instance (ii)", 2) end
-  if asking or ii <= 0 or not call("アイテム_確認", ii) or call("アイテム_存在", ii) ~= SHOP then return false end
+  if busy() or ii <= 0 or not call("アイテム_確認", ii) or call("アイテム_存在", ii) ~= SHOP then return false end
   local kind
   if chara then
     if not call("キャラ_確認", chara) then return false end

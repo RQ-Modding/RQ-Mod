@@ -328,6 +328,9 @@ local function wrap(text, style, maxw, maxs, mins)
   return out
 end
 
+-- For dialog.lua (2.19.0): the game's dialogs wrap their text the same way.
+kit.wrap = wrap
+
 -- T_StoreComment::setText2: wraps at 264, and while there are more lines than room, makes the first
 -- line break a space and wraps again tighter. Kept by text.
 local info_cache, info_n = {}, 0

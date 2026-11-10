@@ -19,6 +19,8 @@ extern const char rq_uikit_hub_lua[];
 extern const unsigned rq_uikit_hub_lua_len;
 extern const char rq_uikit_vault_lua[];
 extern const unsigned rq_uikit_vault_lua_len;
+extern const char rq_dialog_lua[];
+extern const unsigned rq_dialog_lua_len;
 
 /* Stack: ui, kit. Runs one part of the kit with rq, ui and kit; leaves the stack as it was. */
 static void run_part(lua_State *L, int rq_index, const char *buf, unsigned len, const char *name)
@@ -37,8 +39,8 @@ static void run_part(lua_State *L, int rq_index, const char *buf, unsigned len, 
 	}
 }
 
-/* Runs uikit.lua with rq, then uikit_hub.lua (2.6.0) and uikit_vault.lua (2.8.0) with rq, the
- * kit and its internals, and sets the kit as rq.uikit. */
+/* Runs uikit.lua with rq, then uikit_hub.lua (2.6.0), uikit_vault.lua (2.8.0) and dialog.lua
+ * (2.19.0) with rq, the kit and its internals, and sets the kit as rq.uikit. */
 void rq_uikit_open(lua_State *L, int rq_index)
 {
 	if (luaL_loadbuffer(L, rq_uikit_lua, rq_uikit_lua_len, "=uikit") != LUA_OK) {
@@ -55,6 +57,9 @@ void rq_uikit_open(lua_State *L, int rq_index)
 	/* stack: ui, kit */
 	run_part(L, rq_index, rq_uikit_hub_lua, rq_uikit_hub_lua_len, "=uikit_hub");
 	run_part(L, rq_index, rq_uikit_vault_lua, rq_uikit_vault_lua_len, "=uikit_vault");
+	/* rq.ui.confirm, notice and ask (2.19.0): the game's dialogs, wrapped with the vault's port
+	 * of the game's WordWrapText (kit.wrap). */
+	run_part(L, rq_index, rq_dialog_lua, rq_dialog_lua_len, "=dialog");
 	lua_pop(L, 1);
 	lua_setfield(L, rq_index, "uikit");
 }

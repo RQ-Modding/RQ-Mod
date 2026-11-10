@@ -1120,6 +1120,9 @@ static void add_skill_array(cJSON *parent, const char *key, struct skill_row *ro
 
 static void add_vault_json(cJSON *root);
 
+/* The choice menu's text rows, one line each (rq.ui.get's select.message, 2.19.0). */
+static char g_select_msg[2048];
+
 static void add_status_json(cJSON *root)
 {
 	cJSON *o, *eq, *st;
@@ -1234,6 +1237,10 @@ static void build_json(char *dst, int dstsz)
 		add_vault_json(root);
 	if (g_info.ok)
 		add_info_json(root);
+	if (!strcmp(g_screen, "select")) {
+		cJSON *se = cJSON_AddObjectToObject(root, "select");
+		cJSON_AddStringToObject(se, "message", g_select_msg);
+	}
 	if (g_has_skillshop) {
 		cJSON *sk = cJSON_AddObjectToObject(root, "skillShop");
 		cJSON_AddNumberToObject(sk, "page", g_skill_page);
@@ -1452,6 +1459,37 @@ static void mem_str(struct page *p, int m, char *dst, int n)
 	if (!u)
 		return;
 	clean_copy(dst, n, u);
+	free(u);
+}
+
+/* A dialog's text as the window shows it (2.19.0): @, $ and a line break each start a line
+ * (WordWrapText); other control characters become spaces. */
+static void mem_str_lines(struct page *p, int m, char *dst, int n)
+{
+	struct string *s;
+	char *u;
+	int i, o = 0;
+	dst[0] = 0;
+	if (!p || m < 0 || m >= p->nr_vars || !string_index_valid(p->values[m].i) || n < 1)
+		return;
+	s = heap_get_string(p->values[m].i);
+	if (!s || s->size <= 0)
+		return;
+	u = sjis2utf(s->text, (size_t)s->size);
+	if (!u)
+		return;
+	for (i = 0; u[i] && o < n - 1; i++) {
+		unsigned char c = (unsigned char)u[i];
+		if (c == '@' || c == '$' || c == 10)
+			dst[o++] = 10;
+		else if (c == 13)
+			continue;
+		else if (c < 32)
+			dst[o++] = ' ';
+		else
+			dst[o++] = (char)c;
+	}
+	dst[o] = 0;
 	free(u);
 }
 
@@ -3500,10 +3538,30 @@ static int fill_select(struct page *sel)
 {
 	struct page *btns, *arr, *data_mgr, *datas;
 	int i, n0 = g_nctrls;
+	g_select_msg[0] = 0;
 	if (!sel || !sprite_live(fpage(sel, "m_spBase")))
 		return 0;
 	data_mgr = global_struct(&gi_selectdata, "g_sSelectData", -1);
 	datas = data_mgr ? fpage(data_mgr, "m_asData") : NULL;
+	if (datas && datas->type == ARRAY_PAGE) {
+		for (i = 0; i < datas->nr_vars; i++) {
+			struct page *d = arr_at(datas, i);
+			char line[512];
+			size_t at, n;
+			if (!d || fint(d, "m_nID") != 0)
+				continue;
+			mem_str_lines(d, memb(d, "m_szText"), line, (int)sizeof line);
+			if (!line[0])
+				continue;
+			at = strlen(g_select_msg);
+			n = strlen(line);
+			if (at + n + 2 >= sizeof g_select_msg)
+				break;
+			if (at)
+				g_select_msg[at++] = 10; /* a line break */
+			memcpy(g_select_msg + at, line, n + 1);
+		}
+	}
 	btns = fpage(sel, "m_sButton");
 	arr = fpage(btns, "m_asButton");
 	if (arr && arr->type == ARRAY_PAGE) {
