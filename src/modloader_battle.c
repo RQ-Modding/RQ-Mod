@@ -2122,6 +2122,8 @@ extern const char rq_skilllist_lua[];
 extern const unsigned rq_skilllist_lua_len;
 extern const char rq_gamedata_lua[];
 extern const unsigned rq_gamedata_lua_len;
+extern const char rq_dungeon_lua[];
+extern const unsigned rq_dungeon_lua_len;
 
 static void run_embedded(lua_State *L, int rq_index, const char *code, unsigned len, const char *name)
 {
@@ -2155,6 +2157,9 @@ void rq_battle_lua_open(lua_State *L, int rq_index)
 	/* rq.world, rq.shop.donations, rq.quests.on_take and the rest, rq.chara.absorbed
 	 * (lua/gamedata.lua, loader 2.23.0): game data three shipped mods read through rq.ain. */
 	run_embedded(L, rq_index, rq_gamedata_lua, rq_gamedata_lua_len, "=gamedata");
+	/* rq.dungeon.on_area, areas and the area's fields on on_map and info (lua/dungeon.lua,
+	 * loader 2.24.0): which dungeon and which area. After scene, whose on_map is removable. */
+	run_embedded(L, rq_index, rq_dungeon_lua, rq_dungeon_lua_len, "=dungeon");
 }
 
 #endif /* RQ_MODLOADER */

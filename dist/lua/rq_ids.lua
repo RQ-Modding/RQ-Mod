@@ -465,6 +465,33 @@
 ---@field FLAG integer 19: Flag
 ---@field FAMILIAR integer 20: Familiar
 
+---Map kinds by name: map kinds (`◆ＭＡＰ基礎型`): the look of a quest's area, as in `rq.dungeon.on_area`'s `ctx.kind`. The game names none; these names are ours, after the picture the game gives each kind.
+---
+---A key that is not here raises an error; `rq.ids.find` looks a name up.
+---@class rq.IdsMapKind
+---@field CAVE integer 1: Cave (Epiphany Cave, Cripple Dungeon, Despair)
+---@field FOREST integer 2: Forest (Kalar Forest, Mushroom Forest)
+---@field BUILDING integer 3: Building (a department store, Hanny Secret Base, Zombie Room)
+---@field SNOW integer 4: Snow (Mount Hakkoda, Yukihira, Prohibited Area)
+---@field CASTLE integer 5: Castle (Curse Castle, Tringer's Castle, Peperon)
+---@field FIELD integer 6: Field (Meg's Ranch, Clicquot Pasture, Hanny Village)
+---@field MOUNTAIN integer 7: Mountain (Rising Dragon Mountain)
+---@field RUINS integer 8: Ruins (a stone corridor: Lerolen, Wamasya, Abandoned Mine)
+---@field WATER_CAVE integer 9: Water Cave (Underwater Shrine, Squidsquidsquid Dungeon)
+---@field BURNING_FOREST integer 10: Burning Forest (Kalar Forest on fire, in The Third Army of Helman)
+---@field TOWER integer 11: Tower (Tower of Babel)
+---@field ROAD integer 12: Road (Route 11 to 13, Arizona, Mesopotamia)
+---@field WATERSIDE integer 13: Waterside (Kawanakajima)
+---@field MALGRID integer 14: Malgrid (Malgrid Dungeon, strata 1 to 10)
+---@field CAMP integer 15: Camp (Cidade North Yard)
+---@field ABYSS integer 16: Abyss (The Abyss, Suspicious Okayu's Lair)
+---@field DREAM_WORLD integer 17: Dream World (Snicker World, Chortle World)
+---@field KAIZ_UNDERGROUND integer 18: Kaiz Underground (Kaiz Underground 12F to 20F)
+---@field PASSAGEWAY integer 19: Passageway (Acetal Passageway, Boarding Passageway)
+---@field MALGRID_X integer 20: Malgrid X (Malgrid Dungeon Xth Stratum, strata up to 15)
+---@field MALGRID_X_DEEP integer 21: Malgrid X Deep (Malgrid Dungeon Xth Stratum, strata past 15)
+---@field SECRET_BASE integer 22: Secret Base (the Shepherds' Secret Base)
+
 ---Monsters by name: monster numbers, as `rq.battle.start` takes them and `rq.battle.snap()` gives them (`enemies[i].no`).
 ---
 ---A key that is not here raises an error; `rq.ids.find` looks a name up.

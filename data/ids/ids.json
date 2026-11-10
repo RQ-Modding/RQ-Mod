@@ -2632,6 +2632,145 @@
    ]
   },
   {
+   "kind": "map_kind",
+   "title": "Map kinds",
+   "what": "map kinds (`◆ＭＡＰ基礎型`): the look of a quest's area, as in `rq.dungeon.on_area`'s `ctx.kind`. The game names none; these names are ours, after the picture the game gives each kind",
+   "entries": [
+    {
+     "no": 1,
+     "name": "Cave",
+     "detail": "Epiphany Cave, Cripple Dungeon, Despair",
+     "key": "CAVE"
+    },
+    {
+     "no": 2,
+     "name": "Forest",
+     "detail": "Kalar Forest, Mushroom Forest",
+     "key": "FOREST"
+    },
+    {
+     "no": 3,
+     "name": "Building",
+     "detail": "a department store, Hanny Secret Base, Zombie Room",
+     "key": "BUILDING"
+    },
+    {
+     "no": 4,
+     "name": "Snow",
+     "detail": "Mount Hakkoda, Yukihira, Prohibited Area",
+     "key": "SNOW"
+    },
+    {
+     "no": 5,
+     "name": "Castle",
+     "detail": "Curse Castle, Tringer's Castle, Peperon",
+     "key": "CASTLE"
+    },
+    {
+     "no": 6,
+     "name": "Field",
+     "detail": "Meg's Ranch, Clicquot Pasture, Hanny Village",
+     "key": "FIELD"
+    },
+    {
+     "no": 7,
+     "name": "Mountain",
+     "detail": "Rising Dragon Mountain",
+     "key": "MOUNTAIN"
+    },
+    {
+     "no": 8,
+     "name": "Ruins",
+     "detail": "a stone corridor: Lerolen, Wamasya, Abandoned Mine",
+     "key": "RUINS"
+    },
+    {
+     "no": 9,
+     "name": "Water Cave",
+     "detail": "Underwater Shrine, Squidsquidsquid Dungeon",
+     "key": "WATER_CAVE"
+    },
+    {
+     "no": 10,
+     "name": "Burning Forest",
+     "detail": "Kalar Forest on fire, in The Third Army of Helman",
+     "key": "BURNING_FOREST"
+    },
+    {
+     "no": 11,
+     "name": "Tower",
+     "detail": "Tower of Babel",
+     "key": "TOWER"
+    },
+    {
+     "no": 12,
+     "name": "Road",
+     "detail": "Route 11 to 13, Arizona, Mesopotamia",
+     "key": "ROAD"
+    },
+    {
+     "no": 13,
+     "name": "Waterside",
+     "detail": "Kawanakajima",
+     "key": "WATERSIDE"
+    },
+    {
+     "no": 14,
+     "name": "Malgrid",
+     "detail": "Malgrid Dungeon, strata 1 to 10",
+     "key": "MALGRID"
+    },
+    {
+     "no": 15,
+     "name": "Camp",
+     "detail": "Cidade North Yard",
+     "key": "CAMP"
+    },
+    {
+     "no": 16,
+     "name": "Abyss",
+     "detail": "The Abyss, Suspicious Okayu's Lair",
+     "key": "ABYSS"
+    },
+    {
+     "no": 17,
+     "name": "Dream World",
+     "detail": "Snicker World, Chortle World",
+     "key": "DREAM_WORLD"
+    },
+    {
+     "no": 18,
+     "name": "Kaiz Underground",
+     "detail": "Kaiz Underground 12F to 20F",
+     "key": "KAIZ_UNDERGROUND"
+    },
+    {
+     "no": 19,
+     "name": "Passageway",
+     "detail": "Acetal Passageway, Boarding Passageway",
+     "key": "PASSAGEWAY"
+    },
+    {
+     "no": 20,
+     "name": "Malgrid X",
+     "detail": "Malgrid Dungeon Xth Stratum, strata up to 15",
+     "key": "MALGRID_X"
+    },
+    {
+     "no": 21,
+     "name": "Malgrid X Deep",
+     "detail": "Malgrid Dungeon Xth Stratum, strata past 15",
+     "key": "MALGRID_X_DEEP"
+    },
+    {
+     "no": 22,
+     "name": "Secret Base",
+     "detail": "the Shepherds' Secret Base",
+     "key": "SECRET_BASE"
+    }
+   ]
+  },
+  {
    "kind": "monster",
    "title": "Monsters",
    "what": "monster numbers, as `rq.battle.start` takes them and `rq.battle.snap()` gives them (`enemies[i].no`)",

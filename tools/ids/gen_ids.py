@@ -35,6 +35,7 @@ KINDS = [
     ("element", "element.tsv", "Elements", "element numbers (`属性`), as in a skill's `element` and `rq.chara.get(iic).weak_element`"),
     ("item", "item.tsv", "Items", "item numbers, not instances: `rq.item.give(rq.ids.item.SKILL_AGAIN)` makes one"),
     ("item_kind", "item_kind.tsv", "Item kinds", "item kinds (`種類詳細`): the weapon or armor kind, as in an item's `subtype`"),
+    ("map_kind", None, "Map kinds", "map kinds (`◆ＭＡＰ基礎型`): the look of a quest's area, as in `rq.dungeon.on_area`'s `ctx.kind`. The game names none; these names are ours, after the picture the game gives each kind"),
     ("monster", "monster.tsv", "Monsters", "monster numbers, as `rq.battle.start` takes them and `rq.battle.snap()` gives them (`enemies[i].no`)"),
     ("music", "music.tsv", "Music", "music track numbers, as `rq.music.replace` and `rq.music.play` take them and `rq.music.current()` gives them"),
     ("quest", "quest.tsv", "Quests", "quest numbers, as in `rq.quests()` and `rq.quests.start`"),
@@ -57,6 +58,32 @@ FIXED = {
               (6, "Ranger"), (7, "Brawler"), (8, "Civilian")],
     # modloader_states.c: 状態変化
     "state": [(0, "None"), (1, "Poison"), (2, "Stun"), (3, "Downed")],
+    # ＭＡＰ基礎型登録 (ＴＡＤＡ/関数／.jaf): the kinds the quests' scripts set, named by their look
+    # (each kind's CG, gＭ 5610 to 5795; plans/plan-dungeon-areas.md in the workspace); detail: places.
+    "map_kind": [
+        (1, "Cave", "Epiphany Cave, Cripple Dungeon, Despair"),
+        (2, "Forest", "Kalar Forest, Mushroom Forest"),
+        (3, "Building", "a department store, Hanny Secret Base, Zombie Room"),
+        (4, "Snow", "Mount Hakkoda, Yukihira, Prohibited Area"),
+        (5, "Castle", "Curse Castle, Tringer's Castle, Peperon"),
+        (6, "Field", "Meg's Ranch, Clicquot Pasture, Hanny Village"),
+        (7, "Mountain", "Rising Dragon Mountain"),
+        (8, "Ruins", "a stone corridor: Lerolen, Wamasya, Abandoned Mine"),
+        (9, "Water Cave", "Underwater Shrine, Squidsquidsquid Dungeon"),
+        (10, "Burning Forest", "Kalar Forest on fire, in The Third Army of Helman"),
+        (11, "Tower", "Tower of Babel"),
+        (12, "Road", "Route 11 to 13, Arizona, Mesopotamia"),
+        (13, "Waterside", "Kawanakajima"),
+        (14, "Malgrid", "Malgrid Dungeon, strata 1 to 10"),
+        (15, "Camp", "Cidade North Yard"),
+        (16, "Abyss", "The Abyss, Suspicious Okayu's Lair"),
+        (17, "Dream World", "Snicker World, Chortle World"),
+        (18, "Kaiz Underground", "Kaiz Underground 12F to 20F"),
+        (19, "Passageway", "Acetal Passageway, Boarding Passageway"),
+        (20, "Malgrid X", "Malgrid Dungeon Xth Stratum, strata up to 15"),
+        (21, "Malgrid X Deep", "Malgrid Dungeon Xth Stratum, strata past 15"),
+        (22, "Secret Base", "the Shepherds' Secret Base"),
+    ],
 }
 
 # Characters the game writes in its own font codes
@@ -97,7 +124,7 @@ def check_fixed(kind, names):
     if not os.path.exists(os.path.join(DATA, kind + ".tsv")):
         return
     game = {int(no): names.get(name, name) for no, name, *_ in read_tsv(kind + ".tsv")}
-    ours = {n: name for n, name in FIXED[kind] if n != 0}
+    ours = {n: name for n, name, *_ in FIXED[kind] if n != 0}
     if game != ours:
         sys.exit("gen_ids: the game's %s list %r differs from FIXED %r" % (kind, game, ours))
 
@@ -109,7 +136,7 @@ def race_names():
 def read_kind(kind, fname):
     if fname is None:
         check_fixed(kind, STATE_JA if kind == "state" else {})
-        return [{"no": n, "name": name, "detail": ""} for n, name in FIXED[kind]]
+        return [{"no": n, "name": name, "detail": (rest or [""])[0]} for n, name, *rest in FIXED[kind]]
     rows = []
     for no, name, detail, *_ in read_tsv(fname):
         if kind == "skill":

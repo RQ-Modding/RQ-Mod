@@ -317,7 +317,10 @@ function dungeon.exploring() end
 
 ---Returns a copy of the current room.
 ---
+---Outside a quest, `quest`, `area`, `row`, `col` and `kind` are 0 and `stratum` is nil.
+---
 ---Since: 0.2.0
+---Changed: 2.24.0 Added `quest`, `area`, `row`, `col`, `kind` and `stratum`.
 ---@return rq.DungeonInfo info The room, the cell and the party.
 function dungeon.info() end
 
@@ -325,8 +328,15 @@ function dungeon.info() end
 ---@class rq.MapCtx
 ---@field quest integer The quest being entered (its `Ｑ` index).
 ---@field cleared boolean The quest was cleared before.
----@field map integer The map number.
+---@field map integer The map layout number (`◆ＭＡＰ番号`), the same as `rq.DungeonInfo.roomId`.
 ---@field party integer[] The party's roster slots.
+---@field area integer The area, 1 to 16: a cell of the quest's 4 by 4 area map. 0 outside a quest. Since 2.24.0.
+---@field row integer The area's row on the area map, 1 to 4 from the top; 0 with no area. Since 2.24.0.
+---@field col integer The area's column on the area map, 1 to 4 from the left; 0 with no area. Since 2.24.0.
+---@field name string The area's name, as the map screen shows it; "" when the game gives none (all of the Malgrid Dungeon's areas). Since 2.24.0.
+---@field kind integer The map kind (`◆ＭＡＰ基礎型`), as in `rq.ids.map_kind`. Since 2.24.0.
+---@field first boolean The party had not been in this area yet in this run of the quest. Since 2.24.0.
+---@field stratum integer|nil The Malgrid Dungeon's stratum: 1 to 10 on its quests, the Xth Stratum's own count on quest 147; nil on any other quest. Since 2.24.0.
 
 ---Calls `fn` when the dungeon map screen is built.
 ---
@@ -334,8 +344,13 @@ function dungeon.info() end
 ---from any callback and the engine reports the quest as cleared for that one check, so the zoom stays
 ---free. The range is whatever is patched at that moment (the game's, or `rq.dungeon.camera`).
 ---
+---The game builds the map screen each time the party enters an area, again when it rebuilds the map
+---after a save, and for the result screen's background. For "the party entered an area", once, use
+---`rq.dungeon.on_area`.
+---
 ---Since: 0.9.0
 ---Changed: 0.23.0 Returns a remover.
+---Changed: 2.24.0 `ctx` has `area`, `row`, `col`, `name`, `kind`, `first` and `stratum`.
 ---
 ---```lua
 ---rq.dungeon.on_map(function(ctx)
@@ -344,7 +359,84 @@ function dungeon.info() end
 ---```
 ---@param fn fun(ctx: rq.MapCtx): boolean|nil Returns true to free the zoom.
 ---@return fun() remove Removes this callback.
+---@see rq.dungeon.on_area
 function dungeon.on_map(fn) end
+
+---What `rq.dungeon.on_area` gets.
+---@class rq.AreaCtx
+---@field quest integer The quest.
+---@field cleared boolean The quest was cleared before.
+---@field party integer[] The party's roster slots.
+---@field area integer The area, 1 to 16: a cell of the quest's 4 by 4 area map.
+---@field row integer The area's row on the area map, 1 to 4 from the top.
+---@field col integer The area's column on the area map, 1 to 4 from the left.
+---@field name string The area's name, as the map screen shows it; "" when the game gives none (all of the Malgrid Dungeon's areas).
+---@field kind integer The map kind (`◆ＭＡＰ基礎型`), as in `rq.ids.map_kind`. The kind belongs to the area: one quest can use several.
+---@field map integer The map layout number (`◆ＭＡＰ番号`). A random layout keeps its number for that quest and area.
+---@field first boolean The party had not been in this area yet in this run of the quest.
+---@field stratum integer|nil The Malgrid Dungeon's stratum: 1 to 10 on its quests, the Xth Stratum's own count on quest 147; nil on any other quest.
+
+---Calls `fn` each time the party enters an area of a quest.
+---
+---It runs once per area entered: at the quest's start, through a portal, and when the quest's own
+---script moves the party. It runs after the game's `ＱＭ登録`: the area's kind, name and map are set and
+---the map is loaded, but not shown yet. It does not run when the game builds the map screen again
+---(after a save, the result screen), as `rq.dungeon.on_map` does.
+---
+---The game has no floor number. A quest's areas are cells of its 4 by 4 area map; names such as
+---"Epiphany Cave 2F" are the areas' names, and each stratum of the Malgrid Dungeon is its own quest.
+---
+---What `fn` returns is ignored. Handlers run in the order they were added; an error in one is written
+---to the log with the mod's id, and the others still run.
+---
+---Raises an error when `fn` is not a function.
+---
+---Since: 2.24.0
+---
+---```lua
+---rq.dungeon.on_area(function(ctx)
+---  if ctx.first and ctx.kind == rq.ids.map_kind.CAVE then
+---    rq.log("a new cave area: " .. ctx.name)
+---  end
+---end)
+---```
+---@param fn fun(ctx: rq.AreaCtx) Gets the area entered.
+---@return fun() remove Removes this callback.
+---@see rq.dungeon.on_map
+function dungeon.on_area(fn) end
+
+---One area of `rq.dungeon.areas()`.
+---@class rq.DungeonArea
+---@field no integer The area, 1 to 16.
+---@field row integer Its row, 1 to 4 from the top.
+---@field col integer Its column, 1 to 4 from the left.
+---@field found boolean The area map draws it: the party found it, in this run or an earlier one.
+---@field north boolean A route to the area north is drawn.
+---@field east boolean A route to the area east is drawn.
+---@field south boolean A route to the area south is drawn.
+---@field west boolean A route to the area west is drawn.
+---@field here boolean The party is in it.
+---@field goal boolean It is the quest's goal. The game marks the goal only once the quest was cleared.
+
+---Returns the current quest's area map, as the game draws it at the top right of the map screen.
+---
+---Areas and routes stay found across runs of the quest. Some quests hide the area map (the Malgrid
+---Dungeon Xth Stratum without its map item); the second value says so, and a mod that draws a map of
+---its own can respect it.
+---
+---Since: 2.24.0
+---
+---```lua
+---local list, shown = rq.dungeon.areas()
+---if list and shown then
+---  for _, a in ipairs(list) do
+---    if a.found then rq.log(a.row, a.col, a.here and "here" or "") end
+---  end
+---end
+---```
+---@return rq.DungeonArea[]|nil areas The 16 areas in order, or nil outside a quest.
+---@return boolean? shown false when the game hides its area map on this quest.
+function dungeon.areas() end
 
 ---Returns the current map, as `rqmod-ctl grid` shows it.
 ---
@@ -4261,8 +4353,14 @@ function battle.snapshot() end
 
 ---Where the party is in a dungeon, from `rq.dungeon.info()`.
 ---@class rq.DungeonInfo
----@field roomId integer The map number.
----@field roomName string The map's name.
+---@field roomId integer The map layout number (`◆ＭＡＰ番号`).
+---@field roomName string The area's name, as the map screen shows it.
+---@field quest integer The quest; 0 outside one. Since 2.24.0.
+---@field area integer The area, 1 to 16: a cell of the quest's 4 by 4 area map. 0 outside a quest. Since 2.24.0.
+---@field row integer The area's row on the area map, 1 to 4 from the top; 0 with no area. Since 2.24.0.
+---@field col integer The area's column on the area map, 1 to 4 from the left; 0 with no area. Since 2.24.0.
+---@field kind integer The map kind (`◆ＭＡＰ基礎型`), as in `rq.ids.map_kind`; 0 outside a quest. Since 2.24.0.
+---@field stratum integer|nil The Malgrid Dungeon's stratum: 1 to 10 on its quests, the Xth Stratum's own count on quest 147; nil on any other quest. Since 2.24.0.
 ---@field mapX integer The player's cell, x.
 ---@field mapZ integer The player's cell, z.
 ---@field cell {x: integer, z: integer} The same cell as `mapX` and `mapZ`.
@@ -5338,6 +5436,7 @@ function statuspage.on_close(fn) end
 ---| `element` | elements (`属性`): `NOTHING`, `LIGHT`, `DARKNESS`, `ELECTRIC`, `ICE`, `FIRE` |
 ---| `item` | item numbers, not instances |
 ---| `item_kind` | item kinds (`種類詳細`), as in an item's `subtype`: `SWORD`, `SHORTSWORD`, `SPEAR`, `CLOTHING`, ... |
+---| `map_kind` | map kinds (`◆ＭＡＰ基礎型`), as in `rq.dungeon.on_area`'s `ctx.kind`: `CAVE`, `FOREST`, `CASTLE`, `MALGRID`, ... The game names none; the names are the docs' |
 ---| `monster` | monster numbers, as `rq.battle.start` takes them and `rq.battle.snap` gives them: `COCKROACH` is 358 |
 ---| `music` | music track numbers, as `rq.music` takes them: `INDOOR_CRAWL_R8` is 1, `BATTLE_2_R8` 52 |
 ---| `quest` | quest numbers |
@@ -5351,6 +5450,8 @@ function statuspage.on_close(fn) end
 ---Changed: 1.16.0 The kinds `chara_type`, `element`, `item_kind`, `monster`, `race` and `target`, and keys without the number for some repeated names.
 ---
 ---Changed: 2.4.0 The kind `music`.
+---
+---Changed: 2.24.0 The kind `map_kind`.
 ---
 ---```lua
 ---local FORTUNE = rq.ids.skill.FORTUNE  -- 448, also FORTUNE_448
@@ -5366,6 +5467,7 @@ function statuspage.on_close(fn) end
 ---@field element rq.IdsElement Elements by name; each key is in the docs' Elements table (Game data). Since 1.16.0.
 ---@field item rq.IdsItem Items by name; each key is in the docs' Items table (Game data).
 ---@field item_kind rq.IdsItemKind Item kinds by name; each key is in the docs' Item kinds table (Game data). Since 1.16.0.
+---@field map_kind rq.IdsMapKind Map kinds by name; each key is in the docs' Map kinds table (Game data). Since 2.24.0.
 ---@field monster rq.IdsMonster Monsters by name; each key is in the docs' Monsters table (Game data). Since 1.16.0.
 ---@field music rq.IdsMusic Music tracks by name; each key is in the docs' Music table (Game data). Since 2.4.0.
 ---@field quest rq.IdsQuest Quests by name; each key is in the docs' Quests table (Game data).
@@ -5391,11 +5493,13 @@ local ids = {}
 ---
 ---Changed: 2.4.0 Takes the kind `music`.
 ---
+---Changed: 2.24.0 Takes the kind `map_kind`.
+---
 ---```lua
 ---local no, err = rq.ids.find("item", cfg.item)
 ---if not no then rq.log(err) end  -- such as: more than one skill is named "Attack": 155, 386, ...
 ---```
----@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"monster"|"music"|"quest"|"race"|"skill"|"state"|"target" The kind.
+---@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"map_kind"|"monster"|"music"|"quest"|"race"|"skill"|"state"|"target" The kind.
 ---@param name string The in-game English name, or a key.
 ---@return integer|nil no The number, or nil when no entry or more than one has that name.
 ---@return string? err Why there is no number.
@@ -5414,11 +5518,13 @@ function ids.find(kind, name) end
 ---
 ---Changed: 2.4.0 Takes the kind `music`.
 ---
+---Changed: 2.24.0 Takes the kind `map_kind`.
+---
 ---```lua
 ---rq.ids.find_all("skill", "fortune")  -- {158, 159, 160, 293, 448, 585}: Fortune, Improve Fortune,
 ---                                     -- 7 Misfortunes, 8 Pains
 ---```
----@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"monster"|"music"|"quest"|"race"|"skill"|"state"|"target" The kind.
+---@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"map_kind"|"monster"|"music"|"quest"|"race"|"skill"|"state"|"target" The kind.
 ---@param text string What the name must contain.
 ---@return integer[] numbers The numbers, smallest first; empty when none.
 ---@see rq.ids.find
@@ -5437,10 +5543,12 @@ function ids.find_all(kind, text) end
 ---
 ---Changed: 2.4.0 Takes the kind `music`.
 ---
+---Changed: 2.24.0 Takes the kind `map_kind`.
+---
 ---```lua
 ---rq.log("used " .. (rq.ids.name("skill", ctx.skill) or "a mod skill"))
 ---```
----@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"monster"|"music"|"quest"|"race"|"skill"|"state"|"target" The kind.
+---@param kind "chara"|"chara_type"|"class"|"element"|"item"|"item_kind"|"map_kind"|"monster"|"music"|"quest"|"race"|"skill"|"state"|"target" The kind.
 ---@param no integer The number.
 ---@return string|nil name The name, or nil when the base game has none for that number.
 function ids.name(kind, no) end
@@ -5509,7 +5617,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.23.0"
+rq.version = "2.24.0"
 
 rq.units = units
 rq.items = items

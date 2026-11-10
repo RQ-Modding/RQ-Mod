@@ -446,6 +446,30 @@ local DATA = {
     19, "FLAG", "Flag",
     20, "FAMILIAR", "Familiar",
   },
+  map_kind = {
+    1, "CAVE", "Cave",
+    2, "FOREST", "Forest",
+    3, "BUILDING", "Building",
+    4, "SNOW", "Snow",
+    5, "CASTLE", "Castle",
+    6, "FIELD", "Field",
+    7, "MOUNTAIN", "Mountain",
+    8, "RUINS", "Ruins",
+    9, "WATER_CAVE", "Water Cave",
+    10, "BURNING_FOREST", "Burning Forest",
+    11, "TOWER", "Tower",
+    12, "ROAD", "Road",
+    13, "WATERSIDE", "Waterside",
+    14, "MALGRID", "Malgrid",
+    15, "CAMP", "Camp",
+    16, "ABYSS", "Abyss",
+    17, "DREAM_WORLD", "Dream World",
+    18, "KAIZ_UNDERGROUND", "Kaiz Underground",
+    19, "PASSAGEWAY", "Passageway",
+    20, "MALGRID_X", "Malgrid X",
+    21, "MALGRID_X_DEEP", "Malgrid X Deep",
+    22, "SECRET_BASE", "Secret Base",
+  },
   monster = {
     113, "CHI_HA_FAMILIAR", "Chi-Ha Familiar",
     114, "CAN_CAN_FAMILIAR", "Can Can Familiar",
@@ -1639,7 +1663,7 @@ local ALIAS = {
   },
 }
 
-local KINDS = "chara, chara_type, class, element, item, item_kind, monster, music, quest, race, skill, state, target"
+local KINDS = "chara, chara_type, class, element, item, item_kind, map_kind, monster, music, quest, race, skill, state, target"
 
 -- How find and find_all compare: lower case, é as e, nothing but letters and digits.
 local function fold(s)
