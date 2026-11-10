@@ -661,6 +661,17 @@ static void item_data(void)
 		apply_edits(L, ii, no, 0);
 }
 
+/* Set by rq.item.info (lua/item.lua, loader 2.20.0) while it makes its lookup's instance: the
+ * rq.item.on_create listeners do not see it, since it never enters the game. The item's own
+ * template on_create still runs: it is part of the item's definition. */
+static int g_quiet;
+
+static int l_item_quiet(lua_State *L)
+{
+	g_quiet = lua_toboolean(L, 1);
+	return 0;
+}
+
 static void item_create(void)
 {
 	lua_State *L = rq_lua();
@@ -684,7 +695,7 @@ static void item_create(void)
 			}
 			lua_pop(L, 1);
 		}
-		for (i = 0; i < g_ncreate; i++) {
+		for (i = 0; !g_quiet && i < g_ncreate; i++) {
 			lua_rawgeti(L, LUA_REGISTRYINDEX, g_create_cb[i]);
 			lua_newtable(L);
 			lua_pushinteger(L, ii);
@@ -1416,7 +1427,8 @@ int rq_lua_item_on_create(lua_State *L)
 	return 0;
 }
 
-/* rq.item.lock, sell, donate and store: Lua over the game's own calls (lua/item.lua, loader 2.9.0). */
+/* rq.item.lock, sell, donate and store: Lua over the game's own calls (lua/item.lua, loader 2.9.0);
+ * rq.item.info (2.20.0). */
 extern const char rq_item_lua[];
 extern const unsigned rq_item_lua_len;
 
@@ -1428,7 +1440,11 @@ void rq_item_open_lua(lua_State *L, int rq_index)
 		return;
 	}
 	lua_pushvalue(L, rq_index);
-	if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+	/* The loader's own switch for rq.item.info (2.20.0); not on rq, so mods do not get it. */
+	lua_newtable(L);
+	lua_pushcfunction(L, l_item_quiet);
+	lua_setfield(L, -2, "quiet");
+	if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
 		rq_log("item.lua: %s", lua_tostring(L, -1));
 		lua_pop(L, 1);
 	}

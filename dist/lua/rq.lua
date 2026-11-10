@@ -509,6 +509,7 @@ local ui = {}
 ---Changed: 2.11.0 `covered`.
 ---Changed: 2.12.0 `focused` on kit controls.
 ---Changed: 2.19.0 `select.message`.
+---Changed: 2.20.0 `status.chara` is the character shown (it was always 0).
 ---
 ---```lua
 ---local s = rq.ui.get()
@@ -2941,11 +2942,48 @@ function item.buy(ii, opts) end
 
 ---Calls `fn` after any item instance is created (`Ｉ生成`), game or mod.
 ---
+---It is not called for the temporary instance of `rq.item.info`, which never enters the game.
+---
 ---Since: 0.8.0
 ---Changed: 0.23.0 Returns a remover.
+---Changed: 2.20.0 Not called for `rq.item.info`'s lookup.
 ---@param fn fun(ctx: {ii: integer, no: integer, id?: string}) Gets the instance, its number, and its text id for a mod's item.
 ---@return fun() remove Removes this callback.
 function item.on_create(fn) end
+
+---What `rq.item.info` returns: an item number's row data, as `rq.uikit.item_data` gives it for an
+---instance, without the fields that belong to one instance (`ii`, `locked`, `place`). The kit's item
+---lists take it as a row.
+---@class rq.ItemInfo
+---@field no integer The item number.
+---@field name string Its name.
+---@field level string The level line, or "".
+---@field info string The stats line, with the game's marks.
+---@field icon integer Its icon CG.
+---@field rank integer Its rarity rank.
+---@field kind integer Its kind: 21 special, 1 weapon, 11 armor, 17 item.
+---@field price integer Its price.
+---@field discard boolean It can be thrown away.
+---@field classes integer[] The class numbers that may equip it.
+
+---Returns an item number's row data, with no instance of it in the game.
+---
+---Read as the game's own lookups by number read it (`Ｉ固有名前`): a temporary instance, read and
+---deleted. The item's own definition runs (a mod item's `on_create` and `rq.item.edit` changes), but
+---`rq.item.on_create` listeners do not see that instance. An item whose data the game makes from the
+---moment (a few read Rance's level) gives the data of the moment. Kept for a second per number.
+---
+---Raises an error when `no` is not an integer.
+---
+---Since: 2.20.0
+---
+---```lua
+---local it = rq.item.info(274)
+---if it then rq.log(it.name, it.info) end
+---```
+---@param no integer The item number.
+---@return rq.ItemInfo? info The data, or nil for 0 or a number the game does not have.
+function item.info(no) end
 
 ---Small key and value storage for each mod and each save.
 ---
@@ -4776,31 +4814,34 @@ function castle.rooms() end
 ---@class rq.GameButtonSpec
 ---@field id string The mod's own name for the entry; one per mod.
 ---@field label string The text of its row in the list.
----@field on_click fun(entry: rq.GameButtonHandle) Runs when the player picks it: in "system-menu" after the menus close; in "skill-window" with the window still open, after the game's click sound.
----@field group? "system-menu"|"skill-window" The game's group. Default "system-menu".
----@field enabled? boolean|fun(): boolean "system-menu": false leaves it out of the list. "skill-window": false greys the button (a click plays the deny sound and runs nothing). A function is asked each time the list or the window's skill list is built. Default true.
----@field tip? string The game's comment while the entry is under the mouse or the keys: beside the list ("system-menu"), or under the button with the label as its title ("skill-window").
+---@field on_click fun(entry: rq.GameButtonHandle) Runs when the player picks it: in "system-menu" after the menus close; in "skill-window" and "status" with the window or page still open, after the game's click sound.
+---@field group? "system-menu"|"skill-window"|"status" The game's group. Default "system-menu".
+---@field enabled? boolean|fun(chara?: integer): boolean "system-menu": false leaves it out of the list. "skill-window" and "status": false greys the button (a click plays the deny sound and runs nothing). A function is asked each time the list or the window's skill list is built, and in "status" on every draw of the card, with the character shown. Default true.
+---@field tip? string|fun(chara: integer): string? The game's comment while the entry is under the mouse or the keys: beside the list ("system-menu"), under the button with the label as its title ("skill-window"), or beside the icon with the label as its title ("status", also on a greyed one). A function only in "status", asked with the character shown when the tip opens; nil or "" shows none. In "status", `\n` starts a line.
+---@field icon? integer "status" only, and needed there: the CG drawn as the button, such as one from `rq.image.add` or `rq.image.compose`. The cell is 32 × 29: a smaller icon is centered, a larger one shrunk to fit. Since 2.20.0.
+---@field shown? boolean|fun(chara: integer, mode: rq.StatusPageMode?): boolean "status" only: false leaves the button out of the title row, and the next entry takes its cell. A function is asked on every draw of the card. Default true. Since 2.20.0.
 
 ---An entry, from `rq.gamebutton.add`.
 ---@class rq.GameButtonHandle
 ---@field id fun(): string `<mod id>.<id>`.
----@field set fun(opts: {label?: string, enabled?: boolean|fun(): boolean, tip?: string}) Changes it; `tip = ""` removes the tip. In "skill-window" a new label or `enabled` shows from the next build of the skill list (`rq.skilllist.refresh` builds it at once).
----@field remove fun() Takes it out. "system-menu": with no entry left, the MODS row goes as well. "skill-window": the button goes at once; the others move up on the next build.
+---@field set fun(opts: {label?: string, enabled?: boolean|fun(chara?: integer): boolean, tip?: string|fun(chara: integer): string?, icon?: integer, shown?: boolean|fun(chara: integer, mode: rq.StatusPageMode?): boolean}) Changes it; `tip = ""` removes the tip. In "skill-window" a new label or `enabled` shows from the next build of the skill list (`rq.skilllist.refresh` builds it at once). In "status" it shows at once while the page is open; `icon` and `shown` are for "status" only (2.20.0).
+---@field remove fun() Takes it out. "system-menu": with no entry left, the MODS row goes as well. "skill-window": the button goes at once; the others move up on the next build. "status": the button goes at once, and the next entry takes its cell.
 
 ---An entry, as `rq.gamebutton.groups` lists it.
 ---@class rq.GameButtonInfo
 ---@field id string `<mod id>.<id>`.
 ---@field mod string The mod that added it.
 ---@field label string Its text.
----@field enabled boolean "system-menu": it is in the list now. "skill-window": it is not greyed now.
----@field placed? boolean "skill-window": it has a cell on the last build. Since 2.17.0.
----@field button? integer "skill-window": its `T_Button` id on the window now, 200101 to 200104. Since 2.17.0.
----@field x? integer "skill-window": its cell's left edge, in game pixels. Since 2.17.0.
----@field y? integer "skill-window": its cell's top edge, in game pixels. Since 2.17.0.
+---@field enabled boolean "system-menu": it is in the list now. "skill-window" and "status": it is not greyed now.
+---@field placed? boolean "skill-window" and "status": it has a cell on the last build or draw. Since 2.17.0.
+---@field shown? boolean "status": `shown` said yes on the last draw. Since 2.20.0.
+---@field button? integer "skill-window": its `T_Button` id on the window now, 200101 to 200104; "status": on the page now, 100101 or 100102. Since 2.17.0.
+---@field x? integer "skill-window" and "status": its cell's left edge, in game pixels. Since 2.17.0.
+---@field y? integer "skill-window" and "status": its cell's top edge, in game pixels. Since 2.17.0.
 
 ---A group, from `rq.gamebutton.groups`.
 ---@class rq.GameButtonGroup
----@field name string "system-menu" or "skill-window".
+---@field name string "system-menu", "skill-window" or "status".
 ---@field open boolean The group is on the screen now.
 ---@field row? boolean "system-menu": the loader's row is in it (some entry exists).
 ---@field entries rq.GameButtonInfo[] The entries, in the order they were added.
@@ -4824,14 +4865,30 @@ function castle.rooms() end
 ---last skill, Down to its first, Left and Right to the other button of the row. Agents see each one
 ---as the control `<mod id>.<id>` of the `skill-shop` screen.
 ---
+---`"status"` (2.20.0): icon buttons in a character's status page's title row, the only free room on
+---the page. The cells are right to left from the X: x 472 and 436, y 61, 32 × 29 each, in the order
+---entries were added; the widest name in the game ends at x 435. Entries with `shown` false give their
+---cell to the next; a third shown entry is not placed (`placed` false, and the log says so). The
+---button is the icon on the page's own background, as the game's CG buttons: the yellow frame under
+---the mouse, the icon moved 1 pixel right and down while pressed, the whole cell darkened while
+---greyed. `shown`, `enabled` and a function `tip` are asked on every draw of the card (open, another
+---character, a change, `rq.statuspage.refresh`). The arrow keys reach the buttons: Up from the Special
+---slot (or its REMOVE) goes to the first button not greyed; from a button Left and Right go to the
+---other, Down to the Special slot, Up to SKILL SCREEN. Agents see each one as the control
+---`<mod id>.<id>` of the `status` screen. See `rq.statuspage` for the page itself.
+---
 ---Since: 2.16.0
 ---Changed: 2.17.0 The group `"skill-window"`.
+---Changed: 2.20.0 The group `"status"`; `enabled` gets the character there.
 ---
 ---```lua
 ---rq.gamebutton.add({ id = "settings", label = "My Mod settings", tip = "Opens My Mod's page",
 ---  on_click = function() rq.log("open my page here") end })
 ---rq.gamebutton.add({ group = "skill-window", id = "plan", label = "Plan Skills",
 ---  on_click = function() rq.log("the skill window is still open") end })
+---rq.gamebutton.add({ group = "status", id = "notes", label = "Notes", icon = 11158,
+---  tip = function(chara) return "Notes on " .. rq.chara.get(chara).name end,
+---  on_click = function() rq.log("notes for", rq.statuspage.chara()) end })
 ---```
 ---@class rq.gamebutton
 local gamebutton = {}
@@ -4839,9 +4896,11 @@ local gamebutton = {}
 ---Adds an entry to a game menu.
 ---
 ---Raises an error for a spec that is not a table, an unknown group, no id or label, no `on_click`,
----an `enabled` or `tip` of the wrong type, or an id the mod already has.
+---an `enabled`, `tip` or `shown` of the wrong type, a `"status"` entry with no `icon`, or an id the
+---mod already has.
 ---
 ---Since: 2.16.0
+---Changed: 2.20.0 The group `"status"`, with `icon` and `shown`.
 ---@param spec rq.GameButtonSpec The entry.
 ---@return rq.GameButtonHandle entry The entry, to change or remove it.
 function gamebutton.add(spec) end
@@ -4851,6 +4910,92 @@ function gamebutton.add(spec) end
 ---Since: 2.16.0
 ---@return rq.GameButtonGroup[] groups One for each group.
 function gamebutton.groups() end
+
+---How the status page was opened, from `rq.statuspage.mode`.
+---
+---- `"party"`: from the footer's party summary, in town or on a quest (the game's mode 0).
+---- `"party-edit"`: from the Party screen (11).
+---- `"party-store"`: from the Party screen's stored characters (12).
+---- `"battle-result"`: the level-up after a battle (20); it has no equip slots and no list to scroll.
+---@alias rq.StatusPageMode "party"|"party-edit"|"party-store"|"battle-result"
+
+---A character's status page, for mods.
+---
+---The page is the game's (`T_Status`): a mod reads which character it shows, draws its card again
+---after changing that character, and hears when it opens, changes character, is drawn again and
+---closes. Buttons on it are `rq.gamebutton`'s `"status"` group. (`rq.status` is the mod states'
+---module.)
+---
+---The card is drawn by the game on open, on a change of character (the scroll bar, the wheel, the
+---keys), after every equip, skill or profile change, and when the skill window closes; `on_update`
+---follows each of those.
+---
+---Since: 2.20.0
+---
+---```lua
+---rq.statuspage.on_chara(function(chara, old) rq.log("from", old, "to", chara) end)
+---rq.gamebutton.add({ group = "status", id = "heal", label = "Heal", icon = 11158,
+---  on_click = function()
+---    local c = rq.statuspage.chara()
+---    rq.chara.set(c, { hp = rq.chara.get(c).hp_max })
+---    rq.statuspage.refresh()
+---  end })
+---```
+---@class rq.statuspage
+local statuspage = {}
+
+---Returns the character the status page shows.
+---
+---Since: 2.20.0
+---@return integer? chara The character number (iic), or nil while the page is closed.
+function statuspage.chara() end
+
+---Returns how the status page was opened.
+---
+---Since: 2.20.0
+---@return rq.StatusPageMode? mode The mode, or nil while the page is closed.
+function statuspage.mode() end
+
+---Draws the status page's card again for the character it shows.
+---
+---Use it after changing that character from Lua (stats, equipment, skills) so the page shows it. It is
+---the game's own redraw (`T_Status::setChara`), with no sound; when the item list is open beside the
+---page, the list is built again too, as a scroll does. `on_update` runs after it.
+---
+---Since: 2.20.0
+---@return boolean ok true when the card was drawn; false while the page is closed, hidden under the
+---skill window (the game draws the card again when it closes), while a skill is being moved, or when
+---called from inside an `on_update`, `on_open` or `on_chara` callback.
+function statuspage.refresh() end
+
+---Calls `fn` when the status page opens, once its first character is drawn.
+---
+---Since: 2.20.0
+---@param fn fun(chara: integer, mode: rq.StatusPageMode?) Gets the character and how the page was opened.
+---@return fun() remove Removes this callback.
+function statuspage.on_open(fn) end
+
+---Calls `fn` when the status page shows another character.
+---
+---Since: 2.20.0
+---@param fn fun(chara: integer, old: integer) Gets the character now shown and the one before.
+---@return fun() remove Removes this callback.
+function statuspage.on_chara(fn) end
+
+---Calls `fn` after every draw of the status page's card: open, another character, a change of
+---equipment, skills or profile, the skill window closing, `refresh`.
+---
+---Since: 2.20.0
+---@param fn fun(chara: integer) Gets the character shown.
+---@return fun() remove Removes this callback.
+function statuspage.on_update(fn) end
+
+---Calls `fn` after the status page closes.
+---
+---Since: 2.20.0
+---@param fn fun() Runs on close.
+---@return fun() remove Removes this callback.
+function statuspage.on_close(fn) end
 
 ---The game's numbers by name: characters, items, monsters, quests, skills, and the small lists the
 ---game names (classes, states, races, character types, elements, item kinds, skill targets).
@@ -5041,13 +5186,14 @@ function ids.name(kind, no) end
 ---@field config rq.config
 ---@field ids rq.ids
 ---@field gamebutton rq.gamebutton
+---@field statuspage rq.statuspage
 rq = {}
 
 ---The loader version.
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.19.0"
+rq.version = "2.20.0"
 
 rq.units = units
 rq.items = items
@@ -7363,3 +7509,4 @@ rq.image = image
 rq.item = item
 rq.ids = ids
 rq.gamebutton = gamebutton
+rq.statuspage = statuspage

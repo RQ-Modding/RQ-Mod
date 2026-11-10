@@ -3283,6 +3283,8 @@ static void emit_btn_group(struct page *group, const char *section,
 		if (!tbtn_read(btn, &b) || !b.show) continue;
 		id[0] = label[0] = value[0] = 0;
 		if (namer) namer(b.id, id, (int)sizeof id, label, (int)sizeof label, value, (int)sizeof value, &hover_only);
+		/* "-": a mod's button (rq.gamebutton), listed as its own agent control instead. */
+		if (!strcmp(id, "-")) continue;
 		if (!id[0]) snprintf(id, sizeof id, "b%d", b.id);
 		if (!label[0]) snprintf(label, sizeof label, "%s", id);
 		emit_named_btn(btn, i, id, label, section, value, hover_only);
@@ -4677,6 +4679,11 @@ static void status_equip_namer(int id, char *idbuf, int idn, char *label, int ln
 	const char *name = status_btn_name(id, &lab);
 	*hover_only = 0;
 	value[0] = 0;
+	if (id >= 100101 && id <= 100109) {
+		/* rq.gamebutton's "status" group (2.20.0): the mod's own control, <mod>.<id>. */
+		snprintf(idbuf, idn, "-");
+		return;
+	}
 	if (id >= 110001 && id <= 110006) {
 		int slot = id - 110001;
 		int skill = (slot >= 0 && slot < 6) ? g_status.active_at[slot] : 0;
@@ -4721,9 +4728,8 @@ static int fill_status(struct page *st)
 	card = fpage(st, "m_sCard");
 	if (!card)
 		return 0;
-	chara = fint(fpage(card, "m_sEquipSkill"), "m_nCharaNo");
-	if (!chara)
-		chara = fint(card, "m_nCharaNo");
+	/* T_StatusCard::getCharaNo's path (fixed in 2.20.0: m_sEquipSkill has no m_nCharaNo). */
+	chara = fint(fpage(fpage(card, "m_sEquipSkill"), "m_sList"), "m_nCharaNo");
 
 	memset(&g_status, 0, sizeof g_status);
 	g_status.ok = 1;

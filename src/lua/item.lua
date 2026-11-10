@@ -4,7 +4,7 @@
 -- Selling without asking does the steps of アイテム_売却 after its question. The game's question
 -- runs inside the call; rq.on_frame keeps running then, so a second sell or donate while one asks
 -- returns false instead of asking again.
-local rq = ...
+local rq, priv = ...
 local item = rq.item
 local call = rq.ain.call
 
@@ -218,4 +218,59 @@ function item.store(ii, where)
   return changed(ii)
 end
 
-rq.on_reset(function() asking = false end)
+-- rq.item.info(no) (2.20.0): an item number's row data with no instance in the game, read as the
+-- game's own lookups read it (Ｉ固有名前: a temporary instance, read, deleted). priv.quiet keeps the
+-- rq.item.on_create listeners from seeing that instance; the item's own definition still runs.
+local infos = {}   -- no -> { t = time, row = row or false }
+
+local function read_info(no)
+  if priv and priv.quiet then priv.quiet(true) end
+  local ok, ii = pcall(call, "Ｉ生成", no, 0)
+  if priv and priv.quiet then priv.quiet(false) end
+  if not ok or type(ii) ~= "number" or ii <= 0 then return nil end
+  local row
+  ok = pcall(function()
+    row = {
+      no = no,
+      name = call("アイテム_名前", ii),
+      level = call("アイテム_実装条件", ii),
+      info = call("アイテム_情報", ii),
+      icon = call("アイテム_ＣＧ番号", ii),
+      rank = call("アイテム_レアランク", ii),
+      kind = call("アイテム_種類", ii),
+      price = call("アイテム_価格", ii),
+      discard = call("アイテム_破棄可能", ii),
+      classes = {},
+    }
+    for c = 1, 8 do
+      if call("アイテム_装備職業", ii, c) > 0 then row.classes[#row.classes + 1] = c end
+    end
+  end)
+  pcall(call, "Ｉ削除", ii)
+  return ok and row or nil
+end
+
+local function copy(row)
+  local out = {}
+  for k, v in pairs(row) do out[k] = v end
+  out.classes = {}
+  for i, c in ipairs(row.classes) do out.classes[i] = c end
+  return out
+end
+
+function item.info(no)
+  if math.type(no) ~= "integer" then error("rq.item.info: expected an item number", 2) end
+  if no <= 0 then return nil end
+  local now = rq.time_ms()
+  local hit = infos[no]
+  if not hit or now - hit.t >= 1000 then
+    hit = { t = now, row = read_info(no) or false }
+    infos[no] = hit
+  end
+  return hit.row and copy(hit.row) or nil
+end
+
+rq.on_reset(function()
+  asking = false
+  infos = {}
+end)

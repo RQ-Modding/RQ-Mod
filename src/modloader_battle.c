@@ -2114,6 +2114,8 @@ extern const char rq_status_lua[];
 extern const unsigned rq_status_lua_len;
 extern const char rq_castle_lua[];
 extern const unsigned rq_castle_lua_len;
+extern const char rq_statuspage_lua[];
+extern const unsigned rq_statuspage_lua_len;
 extern const char rq_gamebutton_lua[];
 extern const unsigned rq_gamebutton_lua_len;
 extern const char rq_skilllist_lua[];
@@ -2140,6 +2142,9 @@ void rq_battle_lua_open(lua_State *L, int rq_index)
 	run_embedded(L, rq_index, rq_status_lua, rq_status_lua_len, "=status");
 	/* rq.castle (lua/castle.lua, loader 2.16.0): mod rooms as the game's own castle areas. */
 	run_embedded(L, rq_index, rq_castle_lua, rq_castle_lua_len, "=castle");
+	/* rq.statuspage (lua/statuspage.lua, loader 2.20.0): the status page for mods; before
+	 * gamebutton, whose "status" group is built on its events. */
+	run_embedded(L, rq_index, rq_statuspage_lua, rq_statuspage_lua_len, "=statuspage");
 	/* rq.gamebutton (lua/gamebutton.lua, loader 2.16.0): the SYSTEM menu's MODS row. */
 	run_embedded(L, rq_index, rq_gamebutton_lua, rq_gamebutton_lua_len, "=gamebutton");
 	/* rq.skilllist (lua/skilllist.lua, loader 2.18.0): the paged buy list, over the game's own
