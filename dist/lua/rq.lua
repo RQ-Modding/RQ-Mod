@@ -3381,12 +3381,14 @@ store.global = {}
 ---@field magic integer The attacker's magic.
 ---@field race integer The defender's race (`rq.ids.race`); 8 is a hanny.
 ---@field defender_type integer The defender's type (`Ｃタイプ`); 22 is humanoid.
+---@field forecast boolean true when the game only works out the battle forecast (`rq.battle.on_forecast`), not a real hit: count nothing and roll no dice then. Since 2.26.0.
 
 ---What `rq.combat.on_accuracy` gets for one accuracy check.
 ---@class rq.AccuracyCtx
 ---@field attacker integer The attacker's roster slot.
 ---@field defender integer The defender's roster slot.
 ---@field skill integer The skill number.
+---@field forecast boolean true when the game only works out the battle forecast (`rq.battle.on_forecast`), not a real hit: count nothing and roll no dice then. Since 2.26.0.
 
 ---What `rq.combat.on_crit` gets where the game rolls a critical.
 ---@class rq.CritCtx
@@ -3395,6 +3397,7 @@ store.global = {}
 ---@field skill integer The skill number.
 ---@field rate integer The critical chance the game is about to roll, in percent.
 ---@field defender_type integer The defender's type (`Ｃタイプ`); 22 is humanoid.
+---@field forecast boolean true when the game only works out the battle forecast (`rq.battle.on_forecast`), not a real hit: count nothing and roll no dice then. Since 2.26.0.
 
 ---Changes physical damage, accuracy and criticals.
 ---
@@ -3402,6 +3405,10 @@ store.global = {}
 ---can replace the attack before defense, scale the final damage, add to the hit chance at the same
 ---place as the game's own -5 and -10 for some skills, and force or deny a critical. The callbacks
 ---need `rq.combat.install` (or `rq.chara.install`), and hold up to 16 each.
+---
+---They also run when the game works out the battle forecast, so the forecast shows what they
+---change; `ctx.forecast` is then true (since 2.26.0), and a callback that counts hits or rolls dice
+---should do nothing.
 ---
 ---Since: 0.2.0
 ---
@@ -3482,18 +3489,21 @@ function combat.on_crit(fn) end
 ---@field magic integer The attacker's magic.
 ---@field race integer The defender's race (`rq.ids.race`); 8 is a hanny.
 ---@field defender_type integer The defender's type (`Ｃタイプ`); 22 is humanoid.
+---@field forecast boolean true when the game only works out the battle forecast (`rq.battle.on_forecast`), not a real hit: count nothing and roll no dice then. Since 2.26.0.
 
 ---Calls `fn` for each magic hit, to change its final damage by a percent.
 ---
 ---`fn` returns a percent of the final damage (100 is unchanged, 50 half, 0 none) or nil to keep it.
 ---The percents of every callback multiply, and the damage is rounded down. It runs after the game's
 ---last damage step (`最終ダメージ計算`), so the barrier, immunities and the game's magic resistance
----are already in `damage`; a spell that does 0 is not reported. The battle forecast is not changed.
----It is the magic twin of the final percent of `rq.combat.on_physical`.
+---are already in `damage`; a spell that does 0 is not reported. It also runs for the battle
+---forecast, with `ctx.forecast` true, so the forecast's damage word shows the percent. It is the
+---magic twin of the final percent of `rq.combat.on_physical`.
 ---
 ---Raises an error, logged, for a return that is not a whole number of 0 or more.
 ---
 ---Since: 2.1.0
+---Changed: 2.26.0 Runs for the battle forecast too, with `ctx.forecast`.
 ---
 ---```lua
 ---rq.combat.on_magic(function(ctx)
@@ -3879,7 +3889,8 @@ local BattleTurnCtx = {}
 ---Takes HP at this turn start and shows it as the game's damage number.
 ---
 ---The HP stops at 1, as with the game's poison, unless `opts.lethal` is true. Damage from several
----callbacks, and the game's poison, show as one number.
+---callbacks and the game's poison shows as one number; with `opts.apart`, as a number of its own
+---after it, in the order the calls came. In an `rq.status` state's `on_turn`, `apart` is on.
 ---
 ---**Lethal.** With `lethal`, the HP may reach 0. Then the character goes down, as the game shows
 ---a death: the enemy fades or the ally's card turns red, and `rq.battle.on_down` runs. The turn
@@ -3889,13 +3900,18 @@ local BattleTurnCtx = {}
 ---needs a killer: with a `source` that is in the fight and not down, the game's own death
 ---handling (`死亡計算`) runs with that killer. When the action ends, the game checks for the end
 ---of the fight, as after an attack: the last enemy's death wins it and the last ally's loses it.
----A familiar never goes down this way: its damage stops at 1 HP. Skills that save a character
----from a hit (Persevere) do not act, as with poison.
+---A familiar never goes down this way, and shows no number: its damage stops at 1 HP.
+---
+---**Persevere.** With `opts.persevere`, a lethal damage that would take the last HP meets Persevere
+---as a hit does: skill 481 always leaves 1 HP, skill 247 does half the time, once a fight (the same
+---once as for hits), and the log line gets " (Persevere activated)". It is off by default, and on in
+---a state's `on_turn` unless the definition says `persevere = false`.
 ---
 ---Raises an error for a number that is not whole or is below 0, or an option of the wrong type.
 ---
 ---Since: 2.1.0
 ---Changed: 2.3.0 `opts`, with `lethal` and `source`.
+---Changed: 2.26.0 `apart` and `persevere`.
 ---
 ---```lua
 ---rq.battle.on_turn(function(ctx)
@@ -3906,21 +3922,24 @@ local BattleTurnCtx = {}
 ---end)
 ---```
 ---@param n integer The HP to take, 0 or more.
----@param opts? {lethal?: boolean, source?: integer} `lethal`: may bring the HP to 0, default false (in an `rq.status` state's `on_turn`, the definition's `lethal`). `source`: the killer's roster slot, default 0 (in a state's `on_turn`, the state's `source`).
+---@param opts? {lethal?: boolean, source?: integer, apart?: boolean, persevere?: boolean} `lethal`: may bring the HP to 0, default false (in an `rq.status` state's `on_turn`, the definition's `lethal`). `source`: the killer's roster slot, default 0 (in a state's `on_turn`, the state's `source`). `apart`: its own number, default false (true in a state's `on_turn`). `persevere`: Persevere may save from a lethal damage, default false (in a state's `on_turn`, the definition's `persevere`).
 ---@return integer taken The HP taken, after the 1 HP floor when not lethal.
 function BattleTurnCtx:damage(n, opts) end
 
 ---Gives HP at this turn start, with the game's regeneration effect and number.
 ---
 ---The HP stops at the most HP. A downed character gets nothing, nor one a lethal `ctx:damage`
----downed in this turn start.
+---downed in this turn start. Healing from several callbacks and the game's regeneration shows as
+---one number; with `opts.apart`, as a number of its own after it.
 ---
----Raises an error for a number that is not whole or is below 0.
+---Raises an error for a number that is not whole or is below 0, or an option of the wrong type.
 ---
 ---Since: 2.1.0
+---Changed: 2.26.0 `opts.apart`.
 ---@param n integer The HP to give, 0 or more.
+---@param opts? {apart?: boolean} `apart`: its own number, default false (true in an `rq.status` state's `on_turn`).
 ---@return integer healed The HP given, after the cap.
-function BattleTurnCtx:heal(n) end
+function BattleTurnCtx:heal(n, opts) end
 
 ---Makes this turn pass, as a stun does: the character uses no skill.
 ---
@@ -3976,10 +3995,10 @@ function battle.on_turn(fn) end
 ---@field attacker integer The attacker's roster slot.
 ---@field defender integer The defender's roster slot.
 ---@field skill integer The skill number.
----@field kind "physical"|"magic" The kind of attack.
----@field damage integer The HP the hit took; 0 for a miss, a barrier or an immune target.
+---@field kind "physical"|"magic"|"special" The kind of action: an attack, or a special skill (since 2.26.0).
+---@field damage integer The HP the hit took; 0 for a miss, a barrier or an immune target. For a special skill, the HP the target lost, 0 for most.
 ---@field missed boolean The hit missed (`◆攻撃外れた`).
----@field crit boolean The hit was a critical.
+---@field crit boolean The hit was a critical; false for a special skill.
 ---@field downed boolean The defender is down after the hit.
 ---@field counter boolean The hit is a counter.
 local BattleHitCtx = {}
@@ -3994,17 +4013,20 @@ local BattleHitCtx = {}
 ---@param text string The text to add.
 function BattleHitCtx:log(text) end
 
----Calls `fn` after each physical or magic attack on a target, with its result.
+---Calls `fn` after each attack or special skill on a target, with its result.
 ---
 ---It runs once per target and per hit: each hit of a multi-hit skill, each target of a skill on
 ---many, and a counter, for allies, enemies and familiars. A miss is reported too, with `missed`
 ---true. The damage is already taken from the HP, and the hit is not shown yet. The turn a skill
----only starts to charge is not a hit and is not reported. Special and support skills are not
----attacks; use `rq.battle.on_support` or `rq.battle.on_use` for them.
+---only starts to charge is not a hit and is not reported. Special skills (action kind 3: the
+---taunt, stuns, poisons and captures, and a mod's skill patched to `action = 3`) come with `kind`
+---"special", so a debuff skill that does no damage can put a state on. Support skills do not; use
+---`rq.battle.on_support` or `rq.battle.on_use` for them.
 ---
 ---This is where a hit gives a mod state.
 ---
 ---Since: 2.1.0
+---Changed: 2.26.0 Special skills, with `kind` "special".
 ---
 ---```lua
 ---rq.battle.on_hit(function(ctx)
@@ -4019,6 +4041,37 @@ function BattleHitCtx:log(text) end
 ---@see rq.battle.on_turn
 ---@see rq.battle.on_use
 function battle.on_hit(fn) end
+
+---What `rq.battle.on_forecast` gets for one forecast line.
+---
+---Since: 2.26.0
+---@class rq.BattleForecastCtx
+---@field attacker integer The attacker's roster slot.
+---@field defender integer The target's roster slot.
+---@field skill integer The skill number.
+---@field text string The game's line so far, such as "Battle Forecast:  Accuracy 85%  Stun 10%　△Medium damage"; "" for a skill the game makes no forecast for.
+
+---Calls `fn` each time the game builds a battle forecast line, to add text to it.
+---
+---With Battle Forecast (488) in the party, the game shows the line when the player points a skill
+---at a target: the hit chance, the stun chance and a damage word for an attack, the capture rate
+---for a capture. The line is built again on every hover, so `fn` must be quick and roll no dice.
+---The strings of every callback are added in load order. The damage word already counts mod states
+---and the `rq.combat` callbacks, which run with `ctx.forecast` true.
+---
+---Raises an error, logged, for a return that is not a string or nil.
+---
+---Since: 2.26.0
+---
+---```lua
+---rq.battle.on_forecast(function(ctx)
+---  if ctx.skill == FIRE_SLASH then return "  Burn 40%" end
+---end)
+---```
+---@param fn fun(ctx: rq.BattleForecastCtx): string|nil Returns text to add, starting with spaces as the game's parts do, or nil.
+---@return fun() remove Removes this callback.
+---@see rq.combat.on_physical
+function battle.on_forecast(fn) end
 
 ---Installs the hooks the flame, the buffs and the marks need.
 ---
@@ -5703,7 +5756,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.25.0"
+rq.version = "2.26.0"
 
 rq.units = units
 rq.items = items
@@ -5992,33 +6045,54 @@ rq.mod = mod
 ---
 ---A mod defines a state once (`define`, in `init.lua`) and adds it to a character in a fight
 ---(`add`, often from `rq.battle.on_hit`). Any mod can add, read, cure or remove any mod's state by
----its id. A state lives only in the fight: it goes when the fight ends, when its bearer goes down
----(unless `keep_on_down`), when its turns run out, when it is cured, or when a mod removes it.
+---its id. A state goes when the fight ends, when its bearer goes down (unless `keep_on_down`), when
+---its turns run out, when it is cured, or when a mod removes it. A state with `lasts = "quest"`
+---stays on an ally from fight to fight until the quest ends.
 ---
 ---**Turns** are the bearer's own: `on_turn` runs at each of the bearer's turn starts, and the
 ---count goes down at the end of each of the bearer's turns. A state added during its bearer's own
 ---turn skips that turn's countdown, so a 3-turn burn an enemy puts on ticks three times, and a
 ---2-turn buff a character gives itself lasts through its next two actions.
 ---
----**Cures.** The game's cure skills cure mod states too, as the game names them by number: Status
----Restore (227), Encourage (237) and Self-Healing (220), which clear every state of the game,
----cure each state whose `cured_by` has `"all"`; First Aid (218 and 219), which cures only poison,
----cures each state whose `cured_by` has `"poison"`. `cured_by` defaults to `{ "all" }` for a bad
----state and `{}` for a good one. A skill number in `cured_by` makes that support skill cure it. A
----mod's own medicine calls `rq.status.cure`, by id, by tag or by kind. The game's items in a fight
----are skills too, and none of them cures a state.
+---**Cures and dispels.** The game's skills take mod states by the classes in `cured_by`:
+---
+---| Class | What takes it |
+---| --- | --- |
+---| `"all"` | Status Restore (227), Encourage (237) and Self-Healing (220): every such state. Skill 475 at the start of the bearer's turn, when the game's own roll cured nothing: the first such state that rolls 50%, in the order they came. Am Powder (498), when it heals no HP and cures no ▼: the oldest such state, with " Rance recovered from Burn." in the log. |
+---| `"poison"` | First Aid (218 and 219). |
+---| `"dispel"` | What takes the game's ▲: a hit that does damage with a skill of function 89 (quietly), Pop Pulse (491), Divine Erosion Wave (519), Guna Beam (515, half the time: where the target had a ▲, the state goes when the ▲ goes) or a Gunner's basic attack with Erasure Arrows (257); and Electroshock (183) on a target with no protection. The log line gets the state's name, as " (Boost canceled)". |
+---| a skill number | That support skill. |
+---
+---`cured_by` defaults to `{ "all" }` for a bad state and `{ "dispel" }` for a good one, so a mod's
+---attack-up goes the way the game's ▲ goes; `{}` keeps a state that nothing of the game takes. The
+---AUTO button's Status Restore aims at an ally with a state it cures, as at a poisoned one. A mod's
+---own medicine calls `rq.status.cure`, by id, by tag or by kind. The game's items in a fight are
+---skills too, and none of them cures a state.
 ---
 ---**On the card** a state with an `icon` shows as a buff (`rq.battle.set_buff`), with the turns
 ---left as its text, or its stacks when it has no turns. A character holds up to 8 buffs, the
 ---mods' own and the states' together.
 ---
+---**Numbers.** At the bearer's turn start, each state's `ctx:damage` and `ctx:heal` show as a
+---number of their own, one after the other, after the game's poison and regeneration, with the HP
+---bar moving step by step. Each number takes the game's display time.
+---
 ---**Lethal.** A state's damage stops at 1 HP, as poison's does, unless its definition has
----`lethal = true`: then `ctx:damage` in its `on_turn` may down the bearer, with the state's
----`source` as the killer (see `BattleTurnCtx:damage`). Once the bearer is down, the states after
----it do not tick that turn.
+---`lethal = true`: then `ctx:damage` in its `on_turn` may down the bearer, on its own number, with
+---the state's `source` as the killer (see `BattleTurnCtx:damage`). Persevere saves the bearer as
+---from a hit: skill 481 always leaves 1 HP, skill 247 half the time once a fight, with
+---" (Persevere activated)" in the log. `persevere = false` makes a doom that nothing stops. Once the
+---bearer is down, the states after it do not tick that turn.
+---
+---**Immunity.** `immune` in the definition and `rq.status.set_immune` make characters take no
+---state: `add` returns nil and `"immune"`, and `rq.status.immune` answers before a skill tries.
+---
+---**Help.** `desc` holds a few lines for players, given by `rq.status.info`. The fight screen does
+---not show it yet.
 ---
 ---Since: 2.2.0
 ---Changed: 2.3.0 `lethal`.
+---Changed: 2.26.0 The game's dispels, skill 475 and Am Powder take states, and good states are dispelled by default; a number per state; Persevere; `immune`, `lasts` and `desc`; `add` says why it put nothing on.
 ---
 ---```lua
 ---local BURN_ICON = rq.image.add("burn", "burn.png", { fit = "contain", w = 56, h = 56 })
@@ -6047,21 +6121,35 @@ local status = {}
 ---Since: 2.2.0
 ---@class rq.StatusDef
 ---@field name? string The name, for logs and other mods. Default the id.
----@field kind? "bad"|"good" Bad states are cured by the game's cure skills; good ones are not. Default "bad".
+---@field kind? "bad"|"good" Bad states are cured by the game's cure skills, good ones taken by its dispels (see `cured_by`). Default "bad".
 ---@field turns? integer How many of the bearer's turns it lasts, 1 or more; `add` can give another. nil lasts the whole fight.
 ---@field stack? "refresh"|"add"|"keep"|integer What adding it again does: "refresh" sets the new turns, "add" adds them, "keep" changes nothing, a number is the most stacks (the turns are set again). Default "refresh".
----@field cured_by? (string|integer)[] What cures it: "all" (Status Restore, Encourage, Self-Healing), "poison" (First Aid), or support skill numbers. Default `{ "all" }` for a bad state, `{}` for a good one.
+---@field cured_by? (string|integer)[] What of the game takes it: "all" (Status Restore, Encourage, Self-Healing, skill 475, Am Powder), "poison" (First Aid), "dispel" (what takes the game's ▲), or support skill numbers; see `rq.status`. Default `{ "all" }` for a bad state, `{ "dispel" }` for a good one (since 2.26.0; `{}` before). `{}` keeps it from the game.
 ---@field tags? string[] Names for families of states, for `rq.status.cure(iic, { tag = ... })`.
 ---@field keep_on_down? boolean Stays when the bearer goes down, until the fight ends. Default false.
 ---@field lethal? boolean Its `on_turn` damage may bring the HP to 0 and down the bearer, with `source` as the killer; `ctx:damage(n, { lethal = false })` still stops at 1. Default false, as poison. Since 2.3.0.
+---@field persevere? boolean With `lethal`, whether Persevere (skill 481, or 247 half the time once a fight) leaves the bearer 1 HP, as it does from a hit. Default true. Since 2.26.0.
+---@field lasts? "fight"|"quest" How long it can stay. "fight": until the fight ends. "quest": on an ally, from fight to fight until the quest ends, however it ends (reason "quest_end"); it can be added outside a fight during a quest and shows on the card when the next fight starts, and its turns count only in fights. On an enemy a "quest" state still ends with the fight. Default "fight". Since 2.26.0.
+---@field immune? rq.StatusImmune Who cannot take it. Since 2.26.0.
+---@field desc? string A few lines for players about what it does, given by `rq.status.info`. Since 2.26.0.
 ---@field icon? rq.BuffDef The buff on the card; its `text` is set by `rq.status`.
 ---@field text? fun(s: rq.StatusInstance): string The icon's text, at most 15 bytes. Default the turns left, else the stacks when more than 1.
 ---@field on_turn? fun(s: rq.StatusInstance, ctx: rq.BattleTurnCtx) Runs at each of the bearer's turn starts, as `rq.battle.on_turn`: damage, heal, skip, log.
 ---@field on_add? fun(s: rq.StatusInstance) Runs when it is put on someone who did not have it.
----@field on_remove? fun(s: rq.StatusInstance, reason: "expired"|"cured"|"down"|"removed"|"fight_end") Runs when it goes.
+---@field on_remove? fun(s: rq.StatusInstance, reason: "expired"|"cured"|"down"|"removed"|"fight_end"|"quest_end") Runs when it goes.
 ---@field physical? fun(s: rq.StatusInstance, side: "attacker"|"defender", ctx: rq.PhysicalCtx): integer|nil, integer|nil For a physical hit by or on the bearer: returns as `rq.combat.on_physical`, an attack and a percent of the final damage.
 ---@field magic? fun(s: rq.StatusInstance, side: "attacker"|"defender", ctx: rq.MagicCtx): integer|nil For a spell by or on the bearer: a percent of its damage, as `rq.combat.on_magic`.
 ---@field accuracy? fun(s: rq.StatusInstance, side: "attacker"|"defender", ctx: rq.AccuracyCtx): integer|nil For an accuracy check by or on the bearer: points added to the hit chance, as `rq.combat.on_accuracy`.
+
+---Who cannot take a state, for `rq.StatusDef.immune`. Any one field that matches is enough.
+---
+---Since: 2.26.0
+---@class rq.StatusImmune
+---@field boss? boolean A boss.
+---@field barrier? boolean A character behind a barrier, as a barrier blocks the game's poison and stun.
+---@field races? integer[] These races (`rq.ids.race`).
+---@field types? integer[] These types (`rq.ids.chara_type`).
+---@field charas? integer[] These character numbers (`rq.CharaState.no`).
 
 ---A state on one character, from `rq.status.add`, `get` and `list`.
 ---
@@ -6093,6 +6181,10 @@ local status = {}
 ---@field tags string[] Its tags.
 ---@field keep_on_down boolean Whether it stays when the bearer goes down.
 ---@field lethal boolean Whether its damage may down the bearer. Since 2.3.0.
+---@field persevere boolean Whether Persevere saves the bearer from its lethal damage. Since 2.26.0.
+---@field lasts "fight"|"quest" How long it can stay. Since 2.26.0.
+---@field immune? rq.StatusImmune Who cannot take it, as defined; nil when the definition has none. Since 2.26.0.
+---@field desc? string The text for players; nil when the definition has none. Since 2.26.0.
 
 ---Defines a state that every mod can then add.
 ---
@@ -6121,20 +6213,24 @@ function status.info(id) end
 ---Puts a state on a character in a fight, or adds to it.
 ---
 ---When the character already has it, the definition's `stack` says what changes, and `power` and
----`source` are set again when given. Not in a fight, or on someone down, it does nothing.
+---`source` are set again when given. It puts nothing on outside a fight, except a `lasts = "quest"`
+---state on an ally during a quest, and nothing on someone down or immune; the second value then
+---says why.
 ---
 ---Raises an error for an id no mod defined, or an option of the wrong type or range.
 ---
 ---Since: 2.2.0
+---Changed: 2.26.0 The reason when nothing is put on; a "quest" state outside a fight.
 ---
 ---```lua
----local s, new = rq.status.add(target, "mymod:burn", { turns = 2, power = 5, source = user })
+---local s, why = rq.status.add(target, "mymod:burn", { turns = 2, power = 5, source = user })
+---if why == "immune" then rq.log("this one does not burn") end
 ---```
 ---@param iic integer The character's roster slot, ally or enemy.
 ---@param id string The state's id.
 ---@param opts? {turns?: integer, stacks?: integer, power?: number, source?: integer, data?: table} `turns`: in place of the definition's, 1 or more. `stacks`: how many to add, default 1. `power`, `source`, `data`: stored on the instance.
 ---@return rq.StatusInstance|nil s The instance, or nil when nothing was put on.
----@return boolean|nil new true when the character did not have it before.
+---@return boolean|"no_fight"|"no_quest"|"down"|"immune" new With an instance: true when the character did not have it before. With nil: "no_fight" (not in a fight, or slot 0), "no_quest" (a "quest" state outside a fight and outside a quest), "down" or "immune".
 function status.add(iic, id, opts) end
 
 ---Returns a character's instance of a state.
@@ -6148,6 +6244,8 @@ function status.add(iic, id, opts) end
 function status.get(iic, id) end
 
 ---Returns every state on a character, in the order they came.
+---
+---Outside a fight it lists the `lasts = "quest"` states an ally keeps.
 ---
 ---Since: 2.2.0
 ---@param iic integer The character's roster slot.
@@ -6181,6 +6279,43 @@ function status.remove(iic, id) end
 ---@return integer count How many states went.
 function status.cure(iic, what) end
 
+---Says whether a character cannot take a state.
+---
+---It reads the definition's `immune` and what `rq.status.set_immune` set, so a skill can log
+---" (No effect)" before it tries.
+---
+---Raises an error for an id no mod defined, or a slot that is not a whole number.
+---
+---Since: 2.26.0
+---
+---```lua
+---if rq.status.immune(ctx.defender, "mymod:burn") then ctx:log(" (No effect)") end
+---```
+---@param iic integer The character's roster slot.
+---@param id string The state's id.
+---@return boolean immune true when `add` would return nil and "immune"; false for slot 0.
+function status.immune(iic, id) end
+
+---Makes a character number immune to a state, or to every state with a tag, whichever mod defined it.
+---
+---A monster mod says once that a monster does not burn, for every mod's burns. It holds for every
+---character with that number, in every fight, until the game closes; call it from `init.lua`. A
+---state already on a character stays.
+---
+---Raises an error for a number below 1, a `what` that is neither an id `"<mod>:<name>"` nor
+---`{ tag = name }`, or an `on` that is not a boolean.
+---
+---Since: 2.26.0
+---
+---```lua
+---rq.status.set_immune(354, { tag = "fire" })     -- monster 354 takes no fire state
+---rq.status.set_immune(354, "mymod:burn", false)  -- but it takes this burn again
+---```
+---@param no integer The character number (`rq.CharaState.no`), 1 or more.
+---@param what string|{tag: string} A state's id, or `{ tag = name }`.
+---@param on? boolean true makes it immune, false takes that back. Default true.
+function status.set_immune(no, what, on) end
+
 ---Calls `fn` each time any mod's state is put on someone who did not have it.
 ---
 ---Since: 2.2.0
@@ -6191,7 +6326,7 @@ function status.on_add(fn) end
 ---Calls `fn` each time any mod's state goes from someone.
 ---
 ---Since: 2.2.0
----@param fn fun(s: rq.StatusInstance, reason: "expired"|"cured"|"down"|"removed"|"fight_end") Gets the instance and why it went.
+---@param fn fun(s: rq.StatusInstance, reason: "expired"|"cured"|"down"|"removed"|"fight_end"|"quest_end") Gets the instance and why it went.
 ---@return fun() remove Removes this callback.
 function status.on_remove(fn) end
 

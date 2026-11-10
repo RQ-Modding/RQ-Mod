@@ -73,6 +73,11 @@ static int g_loc_his = -1;
 static int g_loc_ci1 = -1;
 static int g_loc_ci2 = -1;
 static int g_loc_cis = -1;
+/* The 条件 argument of 物理ダメージ計算, 命中計算 and クリティカル計算: "模擬" when the game only
+ * forecasts (Ｔ戦闘予測), "" for a real hit (2.26.0: ctx.forecast). */
+static int g_loc_pcond = -1;
+static int g_loc_hcond = -1;
+static int g_loc_ccond = -1;
 static int g_gi_dm = -1;
 static int g_gi_offers = -1;
 static int g_gi_offer_pts = -1;
@@ -140,6 +145,27 @@ static int find_local(struct ain *a, int fno, const char *ascii)
 			return i;
 	}
 	return -1;
+}
+
+static int find_local_utf8(struct ain *a, int fno, const char *utf8)
+{
+	char *sjis = utf2sjis(utf8, 0);
+	int i;
+	if (!sjis)
+		return -1;
+	i = find_local(a, fno, sjis);
+	free(sjis);
+	return i;
+}
+
+/* True when the 条件 local holds text: the game only forecasts. */
+static int is_forecast(int loc)
+{
+	struct string *s;
+	if (loc < 0)
+		return 0;
+	s = heap_get_string(local_get(loc).i);
+	return s && s->text && s->text[0];
 }
 
 static uint32_t func_end(struct ain *a, int fno)
@@ -443,6 +469,8 @@ static void combat_physical(void)
 			lua_setfield(L, -2, "race");
 			lua_pushinteger(L, type);
 			lua_setfield(L, -2, "defender_type");
+			lua_pushboolean(L, is_forecast(g_loc_pcond));
+			lua_setfield(L, -2, "forecast");
 			if (lua_pcall(L, 1, 2, 0) != LUA_OK) {
 				rq_log("combat on_physical error: %s", lua_tostring(L, -1));
 				lua_pop(L, 1);
@@ -483,6 +511,8 @@ static void combat_accuracy(void)
 			lua_setfield(L, -2, "defender");
 			lua_pushinteger(L, local_get(g_loc_his).i);
 			lua_setfield(L, -2, "skill");
+			lua_pushboolean(L, is_forecast(g_loc_hcond));
+			lua_setfield(L, -2, "forecast");
 			if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
 				rq_log("combat on_accuracy error: %s", lua_tostring(L, -1));
 				lua_pop(L, 1);
@@ -529,6 +559,8 @@ static void combat_crit(void)
 			lua_setfield(L, -2, "rate");
 			lua_pushinteger(L, type);
 			lua_setfield(L, -2, "defender_type");
+			lua_pushboolean(L, is_forecast(g_loc_ccond));
+			lua_setfield(L, -2, "forecast");
 			if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
 				rq_log("combat on_crit error: %s", lua_tostring(L, -1));
 				lua_pop(L, 1);
@@ -737,6 +769,12 @@ int rq_chara_install(struct ain *a)
 	g_loc_hi1 = find_local(a, f_hit, "iic1");
 	g_loc_hi2 = find_local(a, f_hit, "iic2");
 	g_loc_his = find_local(a, f_hit, "iis");
+	g_loc_pcond = find_local_utf8(a, f_phys, "条件");
+	g_loc_hcond = find_local_utf8(a, f_hit, "条件");
+	g_loc_ccond = find_local_utf8(a, f_crit, "条件");
+	if (g_loc_pcond < 0 || g_loc_hcond < 0 || g_loc_ccond < 0)
+		rq_log("combat: 条件 locals missing (phys=%d hit=%d crit=%d): ctx.forecast stays false",
+		       g_loc_pcond, g_loc_hcond, g_loc_ccond);
 	{
 		int bb = find_local(a, f_hit, "bb");
 		if (g_loc_paa < 0 || g_loc_haa < 0 || bb < 0
