@@ -86,6 +86,11 @@ int rq_lua_image_replace(struct lua_State *L);
 int rq_lua_image_restore(struct lua_State *L);
 int rq_lua_image_info(struct lua_State *L);
 int rq_lua_image_compose(struct lua_State *L);
+/* Bitmaps inside the game's Flash files (modloader_image.c, 2.25.0). */
+int rq_lua_image_flash_bitmap(struct lua_State *L);
+int rq_lua_image_flash_bitmaps(struct lua_State *L);
+typedef void (*rq_flash_bitmap_fn)(void *ctx, int id, int w, int h, const uint8_t *rgba, int mod, int used);
+int rq_flash_bitmaps_each(const char *name_utf8, rq_flash_bitmap_fn fn, void *ctx);
 /* Text in the HUD font as straight-alpha RGBA (modloader_hud.c). Main thread. */
 /* Text in the game's own font (modloader_gametext.c, 2.5.0). */
 struct rq_gametext {
@@ -167,6 +172,22 @@ int rq_battle_face_sprite(int no);
 int rq_battle_card_iic(int no);
 struct sact_sprite;
 int rq_face_render(struct sact_sprite *ss);
+/* Moving pictures on game CGs (rq.image, 2.25.0): the frames, fitted to the CG's size. */
+struct texture;
+int rq_moving_begin(int cg, int w, int h, double fps, int real, const char **err);
+const char *rq_moving_frame(int cg, const uint8_t *rgba, int delay_ms);
+void rq_moving_end(int cg, int ok);
+void rq_moving_drop(int cg);
+int rq_moving_has(int cg);
+int rq_moving_info(int cg, int *frames, int *ms, int *drawn);
+int rq_moving_render(struct sact_sprite *ss);
+struct texture *rq_moving_part_frame(int cg, int w, int h);
+void rq_moving_tag(int spno, int cg);
+int rq_image_syscall(int code);
+/* Pictures inside the game's Flash files (rq.image.flash_bitmap, 2.25.0). */
+struct swf;
+void rq_flash_swap(const char *name, struct swf *swf);
+int rq_ui_cmd_flashdump(const char *args, char **json_out, char *err, int errsz);
 int rq_lua_battle_set_face(struct lua_State *L);
 int rq_lua_battle_get_face(struct lua_State *L);
 int rq_lua_battle_on_hp(struct lua_State *L);
@@ -463,7 +484,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.24.1"
+#define RQ_VERSION "2.25.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -585,6 +606,7 @@ static inline struct cg *rq_image_load(int id) { (void)id; return NULL; }
 static inline bool rq_image_metrics(int id, struct cg_metrics *out) { (void)id; (void)out; return false; }
 static inline int rq_events_syscall(int code) { (void)code; return 0; }
 static inline int rq_scene_syscall(int code) { (void)code; return 0; }
+static inline int rq_image_syscall(int code) { (void)code; return 0; }
 static inline void rq_battle_flames_clear(void) {}
 static inline void rq_battle_forget(void) {}
 static inline void rq_battle_marks_live(int on) { (void)on; }

@@ -35,6 +35,8 @@ static struct texture *DTEX(int sp_no)
 	struct sact_sprite *sp = sact_get_sprite(sp_no);
 	if (!sp) return NULL;
 	sprite_dirty(sp);
+	// RQ MOD (2.25.0): drawn on, so no longer the CG whole (no moving picture here).
+	sp->rq_whole_cg = 0;
 	return sprite_get_texture(sp);
 }
 

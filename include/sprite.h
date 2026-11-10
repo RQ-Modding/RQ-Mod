@@ -62,6 +62,10 @@ struct sact_sprite {
 	int no;
 	// The CG number attached to the sprite.
 	int cg_no;
+	// RQ MOD (2.25.0): the CG this sprite shows whole, set with the CG and by
+	// T_Sprite::stretchCg, and cleared when anything draws on the sprite, so a moving
+	// picture on that CG (rq.image) plays here. 0 for none.
+	int rq_whole_cg;
 	// The sprite is suspended. The exact meaning of this is unknown.
 	bool suspended;
 	// (optional) Draw plugin bound to this sprite.

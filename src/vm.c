@@ -904,7 +904,8 @@ static void system_call(enum syscall_code code)
 			    || rq_discord_syscall(code) || rq_saves_syscall(code)
 			    || rq_roster_syscall(code) || rq_events_syscall(code)
 			    || rq_states_syscall(code) || rq_config_syscall(code)
-			    || rq_item_syscall(code) || rq_scene_syscall(code))
+			    || rq_item_syscall(code) || rq_scene_syscall(code)
+			    || rq_image_syscall(code))
 				break;
 #endif
 			VM_ERROR("Unimplemented syscall: 0x%X", code);

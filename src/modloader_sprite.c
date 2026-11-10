@@ -2150,6 +2150,247 @@ static int faces_tick(void)
 	return dirty || hooks;
 }
 
+/* ---- moving pictures on game CGs (rq.image, 2.25.0) ---- */
+
+/* A GIF or animated WebP that rq.image put on a CG number. modloader_image.c fits each
+ * frame to the CG's size, so wherever the game shows the CG whole (a sprite set from it,
+ * a part, a card's stretched face) the frame is drawn in its place, with the sprite's
+ * blend rate and colours. One clock per CG, so every place shows the same frame. The
+ * frames are not in g_gifs: their size is the CG's, not the file's. */
+#define MOV_MAX 64
+#define MOV_FRAMES_MAX 1024
+#define MOV_PIXELS (64u * 1024u * 1024u)
+#define MOV_SEEN_MS 250
+
+struct moving {
+	int cg;
+	int ready;
+	struct spr_gif g;
+	int cap;
+	struct msprite *s;  /* draws the frames; its gif is g */
+	uint64_t pixels;
+	uint64_t drawn;     /* real ms of the last draw */
+};
+
+static struct moving g_mov[MOV_MAX];
+static int g_nmov;
+static int g_mov_live;
+static uint64_t g_mov_pixels;
+
+static struct moving *mov_of(int cg)
+{
+	int i;
+	if (cg <= 0)
+		return NULL;
+	for (i = 0; i < g_nmov; i++)
+		if (g_mov[i].cg == cg)
+			return &g_mov[i];
+	return NULL;
+}
+
+static void mov_free(struct moving *m)
+{
+	int i;
+	if (!m->cg)
+		return;
+	if (m->ready)
+		g_mov_live--;
+	for (i = 0; i < m->g.n; i++)
+		gfx_delete_texture(&m->g.t[i]);
+	free(m->g.t);
+	free(m->g.at);
+	g_mov_pixels -= m->pixels;
+	free(m->s);
+	memset(m, 0, sizeof *m);
+	while (g_nmov > 0 && !g_mov[g_nmov - 1].cg)
+		g_nmov--;
+	scene_dirty();
+}
+
+void rq_moving_drop(int cg)
+{
+	struct moving *m = mov_of(cg);
+	if (m)
+		mov_free(m);
+}
+
+/* Starts the frames of cg, w by h (the CG's size). Frames come with rq_moving_frame and
+ * rq_moving_end shows them. */
+int rq_moving_begin(int cg, int w, int h, double fps, int real, const char **err)
+{
+	struct moving *m;
+	struct msprite *s;
+	int i;
+
+	rq_moving_drop(cg);
+	if (w <= 0 || h <= 0) {
+		*err = "a moving picture needs a size";
+		return 0;
+	}
+	for (i = 0; i < MOV_MAX && g_mov[i].cg; i++)
+		;
+	if (i == MOV_MAX) {
+		*err = "too many moving pictures (max 64)";
+		return 0;
+	}
+	m = &g_mov[i];
+	memset(m, 0, sizeof *m);
+	m->cg = cg;
+	m->g.w = w;
+	m->g.h = h;
+	s = m->s = xcalloc(1, sizeof *s);
+	s->ref = LUA_NOREF;
+	s->gif_end = LUA_NOREF;
+	s->mv.end = LUA_NOREF;
+	s->scale_x = s->scale_y = 1;
+	s->alpha = 255;
+	s->mr = s->mg = s->mb = 255;
+	s->show = 1;
+	s->sp.render = spr_render;
+	s->kind = SPR_GIF;
+	s->gif = &m->g;
+	s->nat_w = w;
+	s->nat_h = h;
+	s->fps = fps > 0 ? fps : 0;
+	s->real = real;
+	s->loop = 1;
+	if (i >= g_nmov)
+		g_nmov = i + 1;
+	return 1;
+}
+
+/* One frame, RGBA at the CG's size, shown for delay_ms. NULL, or what is wrong. */
+const char *rq_moving_frame(int cg, const uint8_t *rgba, int delay_ms)
+{
+	struct moving *m = mov_of(cg);
+	uint64_t px;
+
+	if (!m || m->ready)
+		return "no moving picture was begun";
+	px = (uint64_t)m->g.w * m->g.h;
+	if (m->g.n >= MOV_FRAMES_MAX)
+		return "more than 1024 frames";
+	if (g_mov_pixels + px > MOV_PIXELS)
+		return "the moving pictures would pass 64 million pixels in all";
+	if (m->g.n == m->cap) {
+		m->cap = m->cap ? m->cap * 2 : 16;
+		m->g.t = xrealloc(m->g.t, m->cap * sizeof *m->g.t);
+		m->g.at = xrealloc(m->g.at, m->cap * sizeof *m->g.at);
+	}
+	memset(&m->g.t[m->g.n], 0, sizeof m->g.t[m->g.n]);
+	gfx_init_texture_with_pixels(&m->g.t[m->g.n], m->g.w, m->g.h, (void *)rgba);
+	m->g.at[m->g.n] = m->g.total;
+	m->g.total += delay_ms > 0 ? delay_ms : 100;
+	m->g.n++;
+	m->pixels += px;
+	g_mov_pixels += px;
+	return NULL;
+}
+
+void rq_moving_end(int cg, int ok)
+{
+	struct moving *m = mov_of(cg);
+
+	if (!m || m->ready)
+		return;
+	if (!ok || m->g.n < 1) {
+		mov_free(m);
+		return;
+	}
+	m->ready = 1;
+	g_mov_live++;
+	m->s->from = 0;
+	m->s->to = m->g.n - 1;
+	m->s->cur = 0;
+	m->s->playing = m->g.n > 1;
+	m->s->t0 = now_of(m->s);
+	scene_dirty();
+}
+
+int rq_moving_has(int cg)
+{
+	struct moving *m = mov_of(cg);
+	return m && m->ready;
+}
+
+int rq_moving_info(int cg, int *frames, int *ms, int *drawn)
+{
+	struct moving *m = mov_of(cg);
+
+	if (!m || !m->ready)
+		return 0;
+	*frames = m->g.n;
+	*ms = m->s->fps > 0 ? (int)(m->g.n * 1000.0 / m->s->fps) : m->g.total;
+	*drawn = m->drawn && SDL_GetTicks64() - m->drawn < MOV_SEEN_MS;
+	return 1;
+}
+
+/* Called by sprite_render for a Chipmunk sprite that shows a CG whole. */
+int rq_moving_render(struct sact_sprite *ss)
+{
+	struct moving *m;
+	struct msprite *s;
+
+	if (!g_mov_live || !(m = mov_of(ss->rq_whole_cg)) || !m->ready)
+		return 0;
+	if (ss->rect.w <= 0 || ss->rect.h <= 0 || ss->draw_method != DRAW_METHOD_NORMAL
+	    || ss->surface_area.x || ss->surface_area.y || ss->surface_area.w || ss->surface_area.h)
+		return 0;
+	s = m->s;
+	s->x = (float)ss->rect.x;
+	s->y = (float)ss->rect.y;
+	s->w = (float)ss->rect.w;
+	s->h = (float)ss->rect.h;
+	s->alpha = ss->blend_rate;
+	s->mr = ss->multiply_color.r;
+	s->mg = ss->multiply_color.g;
+	s->mb = ss->multiply_color.b;
+	s->ar = ss->add_color.r;
+	s->ag = ss->add_color.g;
+	s->ab = ss->add_color.b;
+	spr_render(&s->sp);
+	m->drawn = SDL_GetTicks64();
+	return 1;
+}
+
+/* For parts_render: the frame to draw in place of a part's CG texture of w by h. */
+Texture *rq_moving_part_frame(int cg, int w, int h)
+{
+	struct moving *m;
+
+	if (!g_mov_live || !(m = mov_of(cg)) || !m->ready || m->g.w != w || m->g.h != h)
+		return NULL;
+	m->drawn = SDL_GetTicks64();
+	return &m->g.t[m->s->cur];
+}
+
+/* T_Sprite::stretchCg made sprite spno from the whole of cg. */
+void rq_moving_tag(int spno, int cg)
+{
+	struct sact_sprite *ss = spno > 0 ? sact_try_get_sprite(spno) : NULL;
+	if (ss)
+		ss->rq_whole_cg = cg;
+}
+
+/* Each frame: the frame of each moving picture; a redraw only while one is on screen. */
+static int moving_tick(void)
+{
+	uint64_t now;
+	int i, dirty = 0;
+
+	if (!g_mov_live)
+		return 0;
+	now = SDL_GetTicks64();
+	for (i = 0; i < g_nmov; i++) {
+		struct moving *m = &g_mov[i];
+		if (!m->ready || m->g.n < 2)
+			continue;
+		if (gif_step(m->s, NULL, NULL, NULL) && m->drawn && now - m->drawn < MOV_SEEN_MS)
+			dirty = 1;
+	}
+	return dirty;
+}
+
 /* ---- the scene list ---- */
 
 struct scene_row {
@@ -2308,6 +2549,8 @@ int rq_sprite_tick(void)
 	if (attached())
 		dirty = 1;
 	if (faces_tick())
+		dirty = 1;
+	if (moving_tick())
 		dirty = 1;
 	fire_ends(fn, id, np);
 	return dirty;

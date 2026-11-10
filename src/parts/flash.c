@@ -94,6 +94,10 @@ bool parts_flash_load(struct parts *parts, struct parts_flash *f, struct string 
 
 		f->swf = aff_load(dfile->data, dfile->size);
 		archive_free_data(dfile);
+#ifdef RQ_MODLOADER
+		// RQ MOD (2.25.0): a mod's pictures in place of the file's bitmaps.
+		rq_flash_swap(filename->text, f->swf);
+#endif
 	}
 	if (!f->swf)
 		return false;

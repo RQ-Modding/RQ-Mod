@@ -466,6 +466,7 @@ int rq_ui_wants_frame(void)
 }
 
 static void service_cgdump(void);
+static void service_flashdump(void);
 
 /* cgdump is served here too (2.5.0): a screen that draws no frame, such as the
  * disclaimer, still runs updates, and the pipe would wait until its timeout. */
@@ -473,6 +474,7 @@ void rq_ui_on_update(void)
 {
 	g_lua_built = 0;
 	service_cgdump();
+	service_flashdump();
 }
 
 static void clean_copy(char *dst, int n, const char *src)
@@ -6184,10 +6186,134 @@ static void service_cgdump(void)
 	atomic_store(&g_cgdump_state, SHOT_OK);
 }
 
+/* flashdump (2.25.0): the bitmaps of a game Flash file saved as PNG, on the main
+ * thread for the same reason as cgdump. */
+static atomic_int g_flashdump_state;
+static char g_flashdump_name[256];
+static char g_flashdump_dir[400];
+static char *g_flashdump_json;
+
+struct flashdump_ctx {
+	cJSON *list;
+	int n;
+};
+
+static void flashdump_row(void *vctx, int id, int w, int h, const uint8_t *rgba, int mod, int used)
+{
+	struct flashdump_ctx *ctx = vctx;
+	struct cg cg = { 0 };
+	char path[512];
+	FILE *fp;
+	cJSON *e;
+	(void)used;
+	snprintf(path, sizeof path, "%s/%d_%dx%d.png", g_flashdump_dir, id, w, h);
+	cg.metrics.w = w;
+	cg.metrics.h = h;
+	cg.metrics.bpp = 32;
+	cg.metrics.has_pixel = true;
+	cg.metrics.has_alpha = true;
+	cg.metrics.pixel_pitch = w * 4;
+	cg.pixels = (void *)rgba;
+	fp = file_open_utf8(path, "wb");
+	if (!fp)
+		return;
+	cg_write(&cg, ALCG_PNG, fp);
+	fclose(fp);
+	e = cJSON_CreateObject();
+	cJSON_AddNumberToObject(e, "id", id);
+	cJSON_AddNumberToObject(e, "w", w);
+	cJSON_AddNumberToObject(e, "h", h);
+	if (mod)
+		cJSON_AddTrueToObject(e, "mod");
+	cJSON_AddItemToArray(ctx->list, e);
+	ctx->n++;
+}
+
+static void service_flashdump(void)
+{
+	struct flashdump_ctx ctx;
+	cJSON *root;
+	int all;
+	if (atomic_load(&g_flashdump_state) != SHOT_WANTED)
+		return;
+	root = cJSON_CreateObject();
+	ctx.list = cJSON_AddArrayToObject(root, "bitmaps");
+	ctx.n = 0;
+	all = rq_flash_bitmaps_each(g_flashdump_name, flashdump_row, &ctx);
+	if (all < 0) {
+		cJSON_Delete(root);
+		atomic_store(&g_flashdump_state, SHOT_FAILED);
+		return;
+	}
+	cJSON_AddNumberToObject(root, "count", ctx.n);
+	g_flashdump_json = cJSON_PrintUnformatted(root);
+	cJSON_Delete(root);
+	atomic_store(&g_flashdump_state, ctx.n == all ? SHOT_OK : SHOT_FAILED + 1);
+}
+
+int rq_ui_cmd_flashdump(const char *args, char **json_out, char *err, int errsz)
+{
+	unsigned long long t0;
+	const char *p = args ? args : "";
+	size_t n;
+	int st;
+	*json_out = NULL;
+	n = strcspn(p, " \t");
+	if (!n || n >= sizeof g_flashdump_name || !p[n]) {
+		if (err)
+			snprintf(err, errsz, "usage: flashdump NAME DIR");
+		return 0;
+	}
+	memcpy(g_flashdump_name, p, n);
+	g_flashdump_name[n] = 0;
+	p += n;
+	while (*p == ' ' || *p == '\t')
+		p++;
+	if (!*p || strlen(p) >= sizeof g_flashdump_dir) {
+		if (err)
+			snprintf(err, errsz, "usage: flashdump NAME DIR");
+		return 0;
+	}
+	if (!g_ready) {
+		if (err)
+			snprintf(err, errsz, "not-ready");
+		return 0;
+	}
+	snprintf(g_flashdump_dir, sizeof g_flashdump_dir, "%s", p);
+	g_flashdump_json = NULL;
+	atomic_store(&g_flashdump_state, SHOT_WANTED);
+	t0 = GetTickCount64();
+	while ((st = atomic_load(&g_flashdump_state)) == SHOT_WANTED) {
+		if (GetTickCount64() - t0 > 60000) {
+			if (err)
+				snprintf(err, errsz, "timeout");
+			return 0;
+		}
+		Sleep(5);
+	}
+	atomic_store(&g_flashdump_state, SHOT_IDLE);
+	if (st == SHOT_FAILED) {
+		if (err)
+			snprintf(err, errsz, "no Flash file %s in the game", g_flashdump_name);
+		return 0;
+	}
+	if (st != SHOT_OK) {
+		free(g_flashdump_json);
+		g_flashdump_json = NULL;
+		if (err)
+			snprintf(err, errsz, "write-failed (is DIR there?)");
+		return 0;
+	}
+	*json_out = g_flashdump_json;
+	g_flashdump_json = NULL;
+	return 1;
+}
+
 static void service_shot(void)
 {
 	int ok;
 	service_cgdump();
+	service_flashdump();
 	if (g_lua_shot_wanted) {
 		ok = gfx_save_texture(gfx_main_surface(), g_lua_shot_path, ALCG_PNG);
 		g_lua_shot_result = ok ? 1 : -1;

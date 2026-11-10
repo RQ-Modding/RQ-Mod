@@ -32,6 +32,9 @@
 
 #include "parts_internal.h"
 #include "profile.h"
+#ifdef RQ_MODLOADER
+#include "modloader.h"
+#endif
 
 static struct {
 	struct shader shader;
@@ -143,8 +146,12 @@ static void parts_render_text(struct parts *parts, struct parts_text *t)
 	}
 }
 
-static void parts_render_cg(struct parts *parts, struct parts_common *common)
+/* tex: what to draw in place of common->texture, of the same size (a moving picture's
+ * frame, rq.image 2.25.0); NULL for common->texture. */
+static void parts_render_cg(struct parts *parts, struct parts_common *common, struct texture *tex)
 {
+	if (!tex)
+		tex = &common->texture;
 	set_draw_filter_blend_func(parts->draw_filter);
 
 	mat4 mw_transform = GLM_MAT4_IDENTITY_INIT;
@@ -177,7 +184,7 @@ static void parts_render_cg(struct parts *parts, struct parts_common *common)
 
 	Rectangle r = common->surface_area;
 	if (!r.w && !r.h) {
-		r = (Rectangle) { 0, 0, common->texture.w, common->texture.h };
+		r = (Rectangle) { 0, 0, tex->w, tex->h };
 	}
 
 	vec3 add_color = {
@@ -190,7 +197,7 @@ static void parts_render_cg(struct parts *parts, struct parts_common *common)
 		parts->global.multiply_color.g / 255.0f,
 		parts->global.multiply_color.b / 255.0f,
 	};
-	parts_render_texture(&common->texture, mw_transform, &r, parts->global.alpha / 255.0,
+	parts_render_texture(tex, mw_transform, &r, parts->global.alpha / 255.0,
 			add_color, multiply_color, parts->draw_filter,
 			parts->global.alpha_clipper_parts_no);
 
@@ -484,7 +491,7 @@ static void parts_render_3dlayer(struct parts *parts, struct parts_3dlayer *l)
 	l->common.texture = *tex;
 	l->common.w = tex->w;
 	l->common.h = tex->h;
-	parts_render_cg(parts, &l->common);
+	parts_render_cg(parts, &l->common, NULL);
 }
 
 static void parts_render_flash_shape(struct parts *parts, struct parts_flash *f, struct parts_flash_object *obj, struct swf_tag_define_shape *tag)
@@ -616,8 +623,19 @@ void parts_render(struct parts *parts)
 	case PARTS_VGAUGE:
 	case PARTS_CONSTRUCTION_PROCESS:
 	case PARTS_MOVIE:
-		if (state->common.texture.handle)
-			parts_render_cg(parts, &state->common);
+		if (!state->common.texture.handle)
+			break;
+#ifdef RQ_MODLOADER
+		if (state->type == PARTS_CG && state->cg.no > 0) {
+			struct texture *frame = rq_moving_part_frame(state->cg.no,
+					state->common.texture.w, state->common.texture.h);
+			if (frame) {
+				parts_render_cg(parts, &state->common, frame);
+				break;
+			}
+		}
+#endif
+		parts_render_cg(parts, &state->common, NULL);
 		break;
 	case PARTS_TEXT:
 		parts_render_text(parts, &state->text);

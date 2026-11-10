@@ -368,6 +368,8 @@ if get_option('modloader')
     if host_machine.system() == 'windows'
         static_link_args += ['-lpsapi', '-lshell32', '-lole32']
     endif
+    # Animated WebP as a moving picture (rq.image, 2.25.0).
+    xsystem4_deps += dependency('libwebpdemux', static : static_libs)
     exe_inc += lua_inc
     exe_link += lua_lib
 endif

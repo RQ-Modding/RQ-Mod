@@ -260,6 +260,16 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 			free(json);
 		return 1;
 	}
+	if (!_stricmp(cmd, "flashdump")) {
+		char *json = NULL;
+		if (!rq_ui_cmd_flashdump(skip_ws(p), &json, err, errsz))
+			return 0;
+		if (extra)
+			*extra = json;
+		else
+			free(json);
+		return 1;
+	}
 	if (rq_ui_paused() && is_input_cmd(cmd)) {
 		if (err)
 			snprintf(err, errsz, "paused");

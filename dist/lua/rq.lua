@@ -2321,9 +2321,9 @@ function chara.max_uses(iic, skillId) end
 ---@class rq.CharaFields
 ---@field name? string The full name.
 ---@field short? string The short name.
----@field face? integer|string A game face CG number, or an image path inside the mod's folder (shown at 196×232, proportions kept). Default 2916.
+---@field face? integer|string A game face CG number, or an image path inside the mod's folder (shown at 196×232, proportions kept). Default 2916. A GIF or an animated WebP moves wherever the game shows the face (2.25.0).
 ---@field face_name? string The face CG text (`顔ＣＧ文字列`).
----@field portrait? integer|string A standing-picture CG number, or an image path inside the mod's folder (on a 1024×768 canvas, proportions kept).
+---@field portrait? integer|string A standing-picture CG number, or an image path inside the mod's folder (on a 1024×768 canvas, proportions kept). A GIF or an animated WebP moves in scenes (2.25.0).
 ---@field class? integer 1 Fighter, 2 Guard, 3 Gunner, 4 Sorcerer, 5 Healer, 6 Ranger, 7 Brawler, 8 Civilian.
 ---@field sex? integer The sex, as the game numbers it.
 ---@field level? integer The level. `define` only.
@@ -2672,6 +2672,8 @@ function chara.on_forget(fn) end
 ---@field w? integer Target width. Default: the file's (for `replace`, the game CG's).
 ---@field h? integer Target height. Default: the file's (for `replace`, the game CG's).
 ---@field keep_size? boolean `replace` only: keep the file's size instead of the game CG's.
+---@field fps? number A moving picture's frames a second, above 0 and up to 240. Default: the file's own delays. Since 2.25.0.
+---@field clock? "game"|"real" A moving picture runs on the game's clock, which follows `rq.speed` (default), or on real time. Since 2.25.0.
 
 ---What `rq.image.info` returns.
 ---@class rq.ImageInfo
@@ -2682,21 +2684,35 @@ function chara.on_forget(fn) end
 ---@field h? integer Height.
 ---@field game_w? integer The game CG's own width, when replaced.
 ---@field game_h? integer The game CG's own height, when replaced.
+---@field frames? integer A moving picture's frames. Since 2.25.0.
+---@field ms? integer A moving picture's loop, in ms. Since 2.25.0.
+---@field drawn? boolean A moving picture was drawn by the game in the last quarter second. Since 2.25.0.
 
 ---Images from a mod's folder, shown by the game as CGs.
 ---
 ---The engine checks these before the game's archives, so sprites, parts and every game call see the
----mod image. Paths are inside the mod's folder. Formats: PNG (with alpha), JPEG and WebP (still), and
----the game's QNT, AJP and PMS; a GIF goes through `add_gif`. Face cards are 196×232 and standing
----pictures 1024×768. `face` and `portrait` in `rq.chara.define`, `edit` and `set` take a path too: a
----base-game character's own CG is replaced, because screens keep the number they read. A save keeps a
----mod image's number; without the mod it shows no picture there.
+---mod image. Paths are inside the mod's folder. Formats: PNG (with alpha), JPEG and WebP, the game's
+---QNT, AJP and PMS, and since 2.25.0 GIF and animated WebP as moving pictures. Face cards are 196×232
+---and standing pictures 1024×768. `face` and `portrait` in `rq.chara.define`, `edit` and `set` take a
+---path too: a base-game character's own CG is replaced, because screens keep the number they read. A
+---save keeps a mod image's number; without the mod it shows no picture there.
+---
+---A moving picture's first frame is the CG. The game shows the frames wherever it shows the CG whole:
+---a scene's background, standing picture, face and event CG, and the faces on character cards (the
+---town's party bar, the Party screen, the status page, and fights, where `rq.battle.set_face` wins).
+---Where the game copies part of the CG or draws on it, and in `compose`, `rq.hud` and `rq.sprite`
+---(`cg`), it is the still; `rq.sprite`'s `gif` plays a file there. Every frame is fitted as the still
+---is. Up to 64 moving pictures, 1024 frames each and 64 million pixels in all.
+---
+---`flash_bitmap` puts a still picture on a bitmap inside one of the game's Flash files, such as a
+---cut-in or a battle effect (2.25.0).
 ---
 ---Since: 0.6.0
+---Changed: 2.25.0 GIF and animated WebP are moving pictures; `flash_bitmap` and `flash_bitmaps`.
 ---
 ---```lua
 ---rq.chara.define({ id = "mymod:alice", name = "Alice", face = "faces/alice.png", class = 1 })
----rq.chara.edit(52, { face = "faces/kaoru.png" })  -- a new face for Kaoru
+---rq.chara.edit(52, { face = "faces/kaoru.gif" })  -- a new, moving face for Kaoru
 ---rq.image.replace(2000, "faces/rance.webp", { fit = "cover" })
 ---```
 ---@class rq.image
@@ -2705,15 +2721,21 @@ local image = {}
 ---Registers a file from the mod's folder as a new CG number.
 ---
 ---The number comes from the key (900000 and up), so it is the same every run and safe to keep in a
----save. Without `w` and `h` the file keeps its own size.
+---save. Without `w` and `h` the file keeps its own size. A GIF or an animated WebP is a moving picture
+---(see `rq.image`); it is read when it is added, so a bad file is an error here.
 ---
 ---Raises an error for a file not in the mod's folder, a path outside it, an unknown fit, a too long
----key, a key whose number another key has, or past 256 mod images.
+---key, a key whose number another key has, or past 256 mod images; for a moving picture also for a bad
+---`fps` or `clock`, a file it cannot read, a GIF over 1024 pixels a side or a WebP over 4096, and the
+---limits in `rq.image`. A call that raises an error adds nothing, except that a moving picture that
+---cannot be read takes away the image the key had.
 ---
 ---Since: 0.6.0
+---Changed: 2.25.0 A GIF or an animated WebP is a moving picture; `opts.fps` and `opts.clock`.
 ---
 ---```lua
 ---local ICON = rq.image.add("mymod:icon", "icons/star.png", { fit = "contain", w = 56, h = 56 })
+---local SEA = rq.image.add("mymod:sea", "bg/sea.webp", { fps = 12 })  -- a moving background
 ---```
 ---@param key string A key unique to this image, such as "mymod:alice_face".
 ---@param path string A path inside the mod's folder.
@@ -2724,10 +2746,16 @@ function image.add(key, path, opts) end
 ---Shows a file wherever the game uses one of its CG numbers.
 ---
 ---The file is scaled to the game CG's size. Screens already built show it when they next load the CG.
+---A GIF or an animated WebP is a moving picture, as in `add`.
 ---
 ---Raises an error as `rq.image.add` does.
 ---
 ---Since: 0.6.0
+---Changed: 2.25.0 A GIF or an animated WebP is a moving picture.
+---
+---```lua
+---rq.image.replace(10011, "bg/castle_night.gif", { fit = "cover", clock = "real" })
+---```
 ---@param cg integer The game's CG number.
 ---@param path string A path inside the mod's folder.
 ---@param opts? rq.ImageOpts Fit (default "stretch") and size.
@@ -2743,9 +2771,11 @@ function image.restore(cg) end
 
 ---Returns what is on a CG number, and its size.
 ---
----Use it to read a game CG's size before drawing art for it.
+---Use it to read a game CG's size before drawing art for it. A moving picture also has `frames`, `ms`
+---and `drawn`.
 ---
 ---Since: 0.6.0
+---Changed: 2.25.0 `frames`, `ms` and `drawn` for a moving picture.
 ---@param cg integer The CG number.
 ---@return rq.ImageInfo info What the number shows.
 function image.info(cg) end
@@ -2848,6 +2878,62 @@ function image.remove_gif(key) end
 ---@param key string The key.
 ---@return rq.GifInfo|nil info The GIF, or nil when no GIF has that key.
 function image.gif_info(key) end
+
+---Options for `rq.image.flash_bitmap`.
+---@class rq.FlashBitmapOpts
+---@field fit? "stretch"|"contain"|"cover" How the picture fits the bitmap's size. Default "stretch".
+
+---One bitmap of a game Flash file, as `rq.image.flash_bitmaps` lists it.
+---@class rq.FlashBitmap
+---@field id integer The bitmap's id in the file.
+---@field w integer Width.
+---@field h integer Height.
+---@field mod boolean A mod's picture is on it.
+---@field used? integer With `mod`: how many loads of the file got the mod's picture.
+
+---Puts a picture from the mod's folder on one bitmap of a game Flash file.
+---
+---The picture is fitted to the bitmap's size, so the file's placement, motion and blends stay: a new
+---face in a cut-in moves as the old one did. `file` is named as in `add_gif`: a bare name is
+---`Data/Flash/System/<name>.swf`, and a name with a slash is the full name. Still pictures only.
+---New loads of the file show it; a Flash that is playing keeps its bitmap until it loads again. A file
+---that `add_gif` or `rq.battle.set_mark` replaced plays the mod's file instead, with none of the
+---game's bitmaps. `rqmod-ctl flashdump` saves a file's bitmaps with their ids. With `path` nil the
+---bitmap is the game's again.
+---
+---Raises an error for a file the game does not have, an id that is no bitmap in it, a GIF or an
+---animated WebP, a fit of "none", a picture as `add` does, or past 256 bitmaps or 32 million pixels
+---in all.
+---
+---Since: 2.25.0
+---
+---```lua
+----- A new look for Chiha in her cut-in: her picture and her white silhouette.
+---rq.image.flash_bitmap("カットイン・チハ", 28, "cutin/chiha.png")
+---rq.image.flash_bitmap("カットイン・チハ", 19, "cutin/chiha_white.png")
+---```
+---@param file string The Flash file, as in `add_gif`.
+---@param id integer The bitmap's id, from `flash_bitmaps`.
+---@param path string|nil A still picture inside the mod's folder, or nil for the game's bitmap.
+---@param opts? rq.FlashBitmapOpts The fit.
+function image.flash_bitmap(file, id, path, opts) end
+
+---Lists the bitmaps of a game Flash file, as the game has them.
+---
+---Read a bitmap's size here before drawing a picture for it.
+---
+---Raises an error for a file the game does not have.
+---
+---Since: 2.25.0
+---
+---```lua
+---for _, b in ipairs(rq.image.flash_bitmaps("毒マーク")) do
+---  rq.log(("%d: %dx%d%s"):format(b.id, b.w, b.h, b.mod and " (mod)" or ""))
+---end
+---```
+---@param file string The Flash file, as in `add_gif`.
+---@return rq.FlashBitmap[] bitmaps In the file's order.
+function image.flash_bitmaps(file) end
 
 ---One of an item's effects: the game's own code and amount.
 ---@class rq.ItemEffect
@@ -5617,7 +5703,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.24.1"
+rq.version = "2.25.0"
 
 rq.units = units
 rq.items = items

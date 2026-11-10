@@ -5,8 +5,36 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <shellapi.h>
 
 #define PIPE_NAME "\\\\.\\pipe\\rqmod"
+
+/* The arguments as UTF-8 (2.25.0), so a Japanese Flash file name reaches the engine
+ * whole. The ANSI argv turns it into question marks. NULL on failure. */
+static char **utf8_args(int *argc)
+{
+	LPWSTR *w;
+	char **out;
+	int n, i;
+
+	w = CommandLineToArgvW(GetCommandLineW(), &n);
+	if (!w)
+		return NULL;
+	out = (char **)calloc((size_t)n + 1, sizeof *out);
+	for (i = 0; out && i < n; i++) {
+		int len = WideCharToMultiByte(CP_UTF8, 0, w[i], -1, NULL, 0, NULL, NULL);
+		out[i] = len > 0 ? (char *)malloc((size_t)len) : NULL;
+		if (!out[i] || !WideCharToMultiByte(CP_UTF8, 0, w[i], -1, out[i], len, NULL, NULL)) {
+			LocalFree(w);
+			return NULL;
+		}
+	}
+	LocalFree(w);
+	if (!out)
+		return NULL;
+	*argc = n;
+	return out;
+}
 
 int main(int argc, char **argv)
 {
@@ -16,7 +44,14 @@ int main(int argc, char **argv)
 	DWORD n, w, got;
 	int i, used = 0;
 	const int reply_cap = 128 * 1024;
+	char **uargv;
+	int uargc = 0;
 
+	uargv = utf8_args(&uargc);
+	if (uargv) {
+		argc = uargc;
+		argv = uargv;
+	}
 	if (argc < 2) {
 		fprintf(stderr,
 			"rqmod-ctl - send input to the running Mods-copy xsystem4.\n"
@@ -33,6 +68,10 @@ int main(int argc, char **argv)
 			"  rqmod-ctl pause              hold the game on this frame (ui and shot still work)\n"
 			"  rqmod-ctl resume             let the game run again\n"
 			"  rqmod-ctl shot <path.png>    save the game surface as a PNG (ASCII path)\n"
+			"  rqmod-ctl cgdump FROM TO DIR save the game's CGs in that number range as PNG\n"
+			"  rqmod-ctl flashdump NAME DIR save every bitmap of a game Flash file as\n"
+			"                               <id>_<w>x<h>.png; NAME as in rq.image.flash_bitmap\n"
+			"                               (a bare name is Data/Flash/System/NAME.swf)\n"
 			"  rqmod-ctl grid               JSON 2D room (walls, pits, events, player)\n"
 			"  rqmod-ctl goto <x> <z>       walk to that map cell, avoiding event tiles\n"
 			"  rqmod-ctl goto portal        walk to the eastmost teleporter in the room\n"

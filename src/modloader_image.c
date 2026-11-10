@@ -9,6 +9,12 @@
  * asset_manager.c asks rq_image_has / rq_image_load / rq_image_metrics before
  * it touches the game archive, so sprites, parts and HLL calls all see it.
  * Formats are whatever libsys4 decodes (PNG, JPEG, WebP, QNT, AJP, PMS).
+ * A GIF or an animated WebP (2.25.0) is a moving picture: its first frame is the CG,
+ * and every frame, fitted the same way, goes to the moving store in modloader_sprite.c,
+ * which draws it wherever the game shows the CG whole. T_Sprite::stretchCg is wrapped so
+ * the stretched copy on a character card counts as the CG whole.
+ *   flash_bitmap(file, id, path)  a picture on one bitmap of a game Flash file (2.25.0)
+ *   flash_bitmaps(file)           that file's bitmaps
  */
 
 #ifdef RQ_MODLOADER
@@ -22,13 +28,23 @@
 #include "lua.h"
 #include "lauxlib.h"
 
+#include <webp/demux.h>
+
 #include "system4.h"
+#include "system4/ain.h"
 #include "system4/archive.h"
+#include "system4/buffer.h"
 #include "system4/cg.h"
+#include "system4/instructions.h"
+#include "system4/utfsjis.h"
 
 #include "asset_manager.h"
 #include "modloader.h"
 #include "modloader_priv.h"
+#include "swf.h"
+#include "vm.h"
+#include "vm/heap.h"
+#include "vm/page.h"
 
 #define IMG_MAX 256
 #define IMG_BASE 900000
@@ -51,6 +67,9 @@ struct img {
 	struct layer *layers; /* compose: built on first use instead of read from path */
 	int nlayers;
 	int building;
+	double fps;       /* a moving picture's speed, 0 = the file's own delays */
+	int real;         /* clock = "real" */
+	char err[160];    /* why a moving picture could not be read */
 };
 
 enum layer_kind { LAYER_CG, LAYER_FILL, LAYER_TEXT };
@@ -481,10 +500,277 @@ static struct cg *build_compose(struct img *m)
 	return c;
 }
 
+/* ---- moving pictures (2.25.0) ---- */
+
+enum { KIND_STILL, KIND_GIF, KIND_WEBP };
+
+#define WEBP_SIDE_MAX 4096
+
+/* A GIF, an animated WebP (a VP8X chunk with the animation flag), or anything else. */
+static int file_kind(const char *path)
+{
+	unsigned char h[32];
+	size_t n;
+	FILE *f = fopen(path, "rb");
+
+	if (!f)
+		return KIND_STILL;
+	n = fread(h, 1, sizeof h, f);
+	fclose(f);
+	if (n >= 6 && (!memcmp(h, "GIF87a", 6) || !memcmp(h, "GIF89a", 6)))
+		return KIND_GIF;
+	if (n >= 21 && !memcmp(h, "RIFF", 4) && !memcmp(h + 8, "WEBPVP8X", 8) && (h[20] & 0x02))
+		return KIND_WEBP;
+	return KIND_STILL;
+}
+
+struct anim_load {
+	struct img *m;
+	int tw, th;        /* the size to fit to; 0 keeps the file's */
+	struct cg *still;  /* the first frame, fitted */
+	int started, n;
+};
+
+/* One frame, RGBA at the file's size (c is taken): fitted as the still is, then given to
+ * the moving store. */
+static const char *anim_put(struct anim_load *ld, struct cg *c, int delay_ms)
+{
+	struct cg *f = fit_cg(c, ld->tw, ld->th, ld->m->fit);
+	const char *err = NULL;
+
+	if (!ld->started) {
+		if (!rq_moving_begin(ld->m->id, f->metrics.w, f->metrics.h, ld->m->fps, ld->m->real, &err)) {
+			cg_free(f);
+			return err;
+		}
+		ld->started = 1;
+	}
+	err = rq_moving_frame(ld->m->id, f->pixels, delay_ms);
+	if (!err && !ld->still) {
+		ld->still = f;
+		f = NULL;
+	}
+	if (f)
+		cg_free(f);
+	ld->n++;
+	return err;
+}
+
+static const char *gif_cb(void *ctx, const uint8_t *argb, int w, int h, int delay_cs)
+{
+	struct cg *c = new_cg(w, h);
+	unsigned char *o = c->pixels;
+	size_t i, cells = (size_t)w * h;
+
+	for (i = 0; i < cells; i++) {
+		o[i * 4] = argb[i * 4 + 1];
+		o[i * 4 + 1] = argb[i * 4 + 2];
+		o[i * 4 + 2] = argb[i * 4 + 3];
+		o[i * 4 + 3] = argb[i * 4];
+	}
+	/* As browsers do: a delay under 20 ms plays as 100 ms. */
+	return anim_put(ctx, c, delay_cs >= 2 ? delay_cs * 10 : 100);
+}
+
+static const char *webp_frames(const char *path, struct anim_load *ld)
+{
+	WebPAnimDecoderOptions opt;
+	WebPAnimDecoder *dec;
+	WebPAnimInfo info;
+	WebPData data;
+	const char *err = NULL;
+	uint8_t *buf;
+	long len;
+	int prev = 0;
+	FILE *f = fopen(path, "rb");
+
+	if (!f)
+		return "not found";
+	fseek(f, 0, SEEK_END);
+	len = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	if (len <= 0) {
+		fclose(f);
+		return "empty";
+	}
+	buf = xmalloc((size_t)len);
+	if (fread(buf, 1, (size_t)len, f) != (size_t)len) {
+		fclose(f);
+		free(buf);
+		return "could not be read";
+	}
+	fclose(f);
+	data.bytes = buf;
+	data.size = (size_t)len;
+	if (!WebPAnimDecoderOptionsInit(&opt)) {
+		free(buf);
+		return "the WebP decoder did not start";
+	}
+	opt.color_mode = MODE_RGBA;
+	opt.use_threads = 0;
+	if (!(dec = WebPAnimDecoderNew(&data, &opt))) {
+		free(buf);
+		return "not an animated WebP it can read";
+	}
+	if (!WebPAnimDecoderGetInfo(dec, &info) || info.canvas_width < 1 || info.canvas_height < 1
+	    || info.canvas_width > WEBP_SIDE_MAX || info.canvas_height > WEBP_SIDE_MAX)
+		err = "WebP size must be 1 to 4096 pixels per side";
+	while (!err && WebPAnimDecoderHasMoreFrames(dec)) {
+		uint8_t *px;
+		int ts;
+		struct cg *c;
+		if (!WebPAnimDecoderGetNext(dec, &px, &ts)) {
+			err = "a broken WebP frame";
+			break;
+		}
+		c = new_cg((int)info.canvas_width, (int)info.canvas_height);
+		memcpy(c->pixels, px, (size_t)info.canvas_width * info.canvas_height * 4);
+		err = anim_put(ld, c, ts - prev);
+		prev = ts;
+	}
+	WebPAnimDecoderDelete(dec);
+	free(buf);
+	return err;
+}
+
+/* T_Sprite::stretchCg is wrapped once a moving picture exists: after the original, the
+ * sprite it made shows the CG whole (VM_XSYS_IMAGE_STRETCH). Only T_CharaFace calls it,
+ * for the faces on every character card. */
+static int g_stretch_on;
+static int g_m_spno = -2;
+
+static void emit0(struct buffer *out, enum opcode op)
+{
+	buffer_write_int16(out, (uint16_t)op);
+}
+
+static void emit1(struct buffer *out, enum opcode op, int32_t arg)
+{
+	buffer_write_int16(out, (uint16_t)op);
+	buffer_write_int32(out, (uint32_t)arg);
+}
+
+static void install_stretch_hook(void)
+{
+	struct buffer out;
+	char *sj;
+	int fno, dup, nargs, i;
+
+	if (g_stretch_on || !ain)
+		return;
+	g_stretch_on = 1;
+	sj = utf2sjis("T_Sprite@stretchCg", 0);
+	fno = sj ? ain_get_function(ain, sj) : -1;
+	free(sj);
+	if (fno < 0) {
+		rq_log("image: T_Sprite@stretchCg not found; card faces show a moving picture's first frame");
+		return;
+	}
+	nargs = ain->functions[fno].nr_args;
+	dup = ain_dup_function(ain, fno);
+	buffer_init(&out, NULL, 0);
+	emit1(&out, FUNC, fno);
+	emit0(&out, PUSHSTRUCTPAGE);
+	for (i = 0; i < nargs; i++)
+		emit1(&out, SH_LOCALREF, i);
+	emit1(&out, CALLMETHOD, dup);
+	/* The result stays for RETURN; the copy, this and the CG number go to the syscall. */
+	emit0(&out, DUP);
+	emit0(&out, PUSHSTRUCTPAGE);
+	emit1(&out, SH_LOCALREF, 0);
+	emit1(&out, CALLSYS, VM_XSYS_IMAGE_STRETCH);
+	emit0(&out, RETURN);
+	emit1(&out, ENDFUNC, fno);
+	ain->functions[fno].address = (uint32_t)(ain->code_size + 6);
+	ain->code = xrealloc(ain->code, ain->code_size + out.index);
+	memcpy(ain->code + ain->code_size, out.buf, out.index);
+	ain->code_size += out.index;
+	free(out.buf);
+	rq_log("image: wrapped T_Sprite@stretchCg (moving pictures on card faces)");
+}
+
+static int sprite_spno_member(void)
+{
+	char *st, *mem;
+	int s, i;
+
+	if (g_m_spno != -2)
+		return g_m_spno;
+	g_m_spno = -1;
+	st = utf2sjis("T_Sprite", 0);
+	mem = utf2sjis("m_nSpNo", 0);
+	s = st ? ain_get_struct(ain, st) : -1;
+	for (i = 0; s >= 0 && mem && i < ain->structures[s].nr_members; i++) {
+		if (ain->structures[s].members[i].name && !strcmp(ain->structures[s].members[i].name, mem)) {
+			g_m_spno = i;
+			break;
+		}
+	}
+	free(st);
+	free(mem);
+	return g_m_spno;
+}
+
+int rq_image_syscall(int code)
+{
+	int cg, page_no, ok, mem;
+	struct page *pg;
+
+	if (code != VM_XSYS_IMAGE_STRETCH)
+		return 0;
+	cg = stack_pop().i;
+	page_no = stack_pop().i;
+	ok = stack_pop().i;
+	if (!ok || cg <= 0 || (mem = sprite_spno_member()) < 0)
+		return 1;
+	pg = heap_get_page(page_no);
+	if (pg && mem < pg->nr_vars)
+		rq_moving_tag(pg->values[mem].i, cg);
+	return 1;
+}
+
+/* A GIF or an animated WebP: the first frame becomes m->cg, and the frames go to the
+ * moving store. NULL with m->err on a bad file. */
+static struct cg *anim_decode(struct img *m, int kind)
+{
+	struct anim_load ld = { 0 };
+	const char *err;
+	int w, h, count;
+
+	ld.m = m;
+	ld.tw = m->w;
+	ld.th = m->h;
+	if (m->replace && !m->keep_size && ld.tw <= 0) {
+		struct cg_metrics om;
+		if (asset_cg_get_metrics_original(m->id, &om)) {
+			ld.tw = om.w;
+			ld.th = om.h;
+		}
+	}
+	if (kind == KIND_GIF)
+		err = rq_gif_frames(m->path, gif_cb, &ld, &w, &h, &count);
+	else
+		err = webp_frames(m->path, &ld);
+	if (!err && !ld.still)
+		err = "it has no frames";
+	rq_moving_end(m->id, !err && ld.n > 1);
+	if (err) {
+		snprintf(m->err, sizeof m->err, "%s", err);
+		rq_log("image: %s: %s", m->path, err);
+		if (ld.still)
+			cg_free(ld.still);
+		m->failed = 1;
+		return NULL;
+	}
+	if (ld.n > 1)
+		install_stretch_hook();
+	return m->cg = ld.still;
+}
+
 static struct cg *decode(struct img *m)
 {
 	struct cg *cg;
-	int tw = m->w, th = m->h;
+	int tw = m->w, th = m->h, kind;
 
 	if (m->cg)
 		return m->cg;
@@ -500,6 +786,8 @@ static struct cg *decode(struct img *m)
 			m->failed = 1;
 		return m->cg;
 	}
+	if ((kind = file_kind(m->path)) != KIND_STILL)
+		return anim_decode(m, kind);
 	cg = cg_load_file(m->path);
 	if (!cg || !cg->pixels) {
 		rq_log("image: cannot decode %s", m->path);
@@ -573,12 +861,18 @@ void rq_image_redirect(int game_id, int custom_id)
 		m->cg = NULL;
 	}
 	free_layers(m);
+	rq_moving_drop(game_id);
 	m->replace = 1;
 	m->fit = src->fit;
 	m->w = m->h = 0;
 	m->keep_size = 0;
 	m->failed = 0;
+	m->err[0] = 0;
+	m->fps = src->fps;
+	m->real = src->real;
 	snprintf(m->path, sizeof m->path, "%s", src->path);
+	if (file_kind(m->path) != KIND_STILL)
+		decode(m);
 	cg_changed(game_id);
 }
 
@@ -592,6 +886,263 @@ int rq_image_placeholder(void)
 		g_img[g_nimg++].id = PLACEHOLDER_ID;
 	}
 	return PLACEHOLDER_ID;
+}
+
+/* ---- bitmaps inside the game's Flash files (2.25.0) ----
+ * rq.image.flash_bitmap keeps a picture fitted to one bitmap of a game Flash file, and
+ * parts_flash_load hands each game file it reads to rq_flash_swap, which puts the picture
+ * in the bitmap's place before the file plays. Files are matched as the archive matches
+ * them: archive_basename (no extension, upper case, backslashes). */
+
+#define FBMP_MAX 256
+#define FBMP_SIDE_MAX 4096
+#define FBMP_PIXELS (32u * 1024u * 1024u)
+
+static int parse_fit(lua_State *L, int opts, int def);
+
+struct fbmp {
+	char base[256];  /* archive_basename of the file */
+	int id, w, h;
+	uint8_t *rgba;   /* fitted to w x h */
+	int used;        /* loads of the file that got it */
+};
+
+static struct fbmp g_fbmp[FBMP_MAX];
+static int g_nfbmp;
+static size_t g_fbmp_pixels;
+
+static void flash_base(const char *full, char *out, size_t n)
+{
+	char *b = archive_basename(full);
+	snprintf(out, n, "%s", b);
+	free(b);
+}
+
+static struct fbmp *fbmp_find(const char *base, int id)
+{
+	int i;
+	for (i = 0; i < g_nfbmp; i++) {
+		if (g_fbmp[i].id == id && !strcmp(g_fbmp[i].base, base))
+			return &g_fbmp[i];
+	}
+	return NULL;
+}
+
+static void fbmp_remove(struct fbmp *b)
+{
+	g_fbmp_pixels -= (size_t)b->w * b->h;
+	free(b->rgba);
+	*b = g_fbmp[--g_nfbmp];
+}
+
+/* The game's own file, read from the archive as parts_flash_load reads it. */
+static struct swf *game_flash(const char *full)
+{
+	struct archive_data *d = asset_get_by_name(ASSET_FLASH, full, NULL);
+	struct swf *swf;
+
+	if (!d)
+		return NULL;
+	swf = aff_load(d->data, d->size);
+	archive_free_data(d);
+	return swf;
+}
+
+static struct swf_tag_define_bits_lossless *bitmap_tag(struct swf_tag *tag, int id)
+{
+	for (; tag; tag = tag->next) {
+		if (tag->type == TAG_DEFINE_BITS_LOSSLESS || tag->type == TAG_DEFINE_BITS_LOSSLESS2) {
+			struct swf_tag_define_bits_lossless *b = (struct swf_tag_define_bits_lossless *)tag;
+			if (id < 0 || b->character_id == id)
+				return b;
+		}
+	}
+	return NULL;
+}
+
+void rq_flash_swap(const char *name, struct swf *swf)
+{
+	char base[256];
+	struct swf_tag *tag;
+	int i;
+
+	if (!g_nfbmp || !name || !swf)
+		return;
+	flash_base(name, base, sizeof base);
+	for (i = 0; i < g_nfbmp; i++) {
+		struct fbmp *b = &g_fbmp[i];
+		struct swf_tag_define_bits_lossless *t;
+		size_t bytes;
+
+		if (strcmp(b->base, base))
+			continue;
+		for (tag = swf->tags; (t = bitmap_tag(tag, b->id)); tag = t->t.next) {
+			if (t->width != b->w || t->height != b->h)
+				continue;
+			bytes = (size_t)b->w * b->h * 4;
+			free(t->data);
+			t->data = xmalloc(bytes);
+			memcpy(t->data, b->rgba, bytes);
+			b->used++;
+		}
+	}
+}
+
+/* Every bitmap of a game Flash file, as the game has it. -1 for a file the game does not have. */
+int rq_flash_bitmaps_each(const char *name_utf8, rq_flash_bitmap_fn fn, void *ctx)
+{
+	char full[256], base[256];
+	struct swf *swf;
+	struct swf_tag_define_bits_lossless *t;
+	struct swf_tag *tag;
+	int n = 0;
+
+	rq_anim_full_name(name_utf8, full, sizeof full);
+	if (!(swf = game_flash(full)))
+		return -1;
+	flash_base(full, base, sizeof base);
+	for (tag = swf->tags; (t = bitmap_tag(tag, -1)); tag = t->t.next) {
+		struct fbmp *b = fbmp_find(base, t->character_id);
+		fn(ctx, t->character_id, t->width, t->height, t->data, b ? 1 : 0, b ? b->used : 0);
+		n++;
+	}
+	swf_free(swf);
+	return n;
+}
+
+static int fit_of(lua_State *L, int opts)
+{
+	int fit = parse_fit(L, opts, FIT_STRETCH);
+	if (fit == FIT_NONE)
+		return luaL_error(L, "flash_bitmap fit must be stretch, contain or cover");
+	return fit;
+}
+
+/* flash_bitmap(file, id, path|nil[, opts]) */
+int rq_lua_image_flash_bitmap(lua_State *L)
+{
+	const char *file = luaL_checkstring(L, 1);
+	int id = (int)luaL_checkinteger(L, 2);
+	const char *rel = luaL_optstring(L, 3, NULL);
+	int opts = lua_istable(L, 4) ? 4 : 0;
+	char full[256], base[256], path[RQ_PATH_MAX];
+	struct swf_tag_define_bits_lossless *t;
+	struct swf *swf;
+	struct fbmp *b;
+	struct cg *cg;
+	int w, h, fit;
+	FILE *f;
+
+	if (!lua_isnoneornil(L, 4) && !opts)
+		return luaL_error(L, "flash_bitmap opts must be a table");
+	if (strlen(file) > 200)
+		return luaL_error(L, "flash file name is too long");
+	rq_anim_full_name(file, full, sizeof full);
+	flash_base(full, base, sizeof base);
+	if (!rel) {
+		if ((b = fbmp_find(base, id))) {
+			fbmp_remove(b);
+			rq_log("image: %s bitmap %d is the game's again", file, id);
+		}
+		return 0;
+	}
+	fit = fit_of(L, opts);
+	if (!(swf = game_flash(full)))
+		return luaL_error(L, "flash file '%s' is not in the game", file);
+	t = bitmap_tag(swf->tags, id);
+	w = t ? t->width : 0;
+	h = t ? t->height : 0;
+	swf_free(swf);
+	if (!t)
+		return luaL_error(L, "flash file '%s' has no bitmap %d (rq.image.flash_bitmaps lists them)", file, id);
+	if (w <= 0 || h <= 0 || w > FBMP_SIDE_MAX || h > FBMP_SIDE_MAX)
+		return luaL_error(L, "flash file '%s' bitmap %d is %dx%d, too large to replace", file, id, w, h);
+
+	if (!rq_sandbox_resolve(L, rel, path, (int)sizeof path))
+		return luaL_error(L, "image path '%s' is not inside the mod folder", rel);
+	if (!(f = fopen(path, "rb")))
+		return luaL_error(L, "image '%s' not found in the mod folder", rel);
+	fclose(f);
+	if (file_kind(path) != KIND_STILL)
+		return luaL_error(L, "image '%s': a Flash bitmap takes a still picture, not a GIF or an animated WebP", rel);
+	cg = cg_load_file(path);
+	if (!cg || !cg->pixels) {
+		if (cg)
+			cg_free(cg);
+		return luaL_error(L, "image '%s' cannot be decoded", rel);
+	}
+	cg = fit_cg(cg, w, h, fit);
+	if (cg->metrics.w != w || cg->metrics.h != h) {
+		cg_free(cg);
+		return luaL_error(L, "image '%s' could not be fitted to %dx%d", rel, w, h);
+	}
+
+	b = fbmp_find(base, id);
+	if (!b && g_nfbmp >= FBMP_MAX) {
+		cg_free(cg);
+		return luaL_error(L, "too many Flash bitmaps replaced (max %d)", FBMP_MAX);
+	}
+	if (g_fbmp_pixels - (b ? (size_t)b->w * b->h : 0) + (size_t)w * h > FBMP_PIXELS) {
+		cg_free(cg);
+		return luaL_error(L, "Flash bitmaps take too much memory (max %u pixels in all)", FBMP_PIXELS);
+	}
+	if (b) {
+		g_fbmp_pixels -= (size_t)b->w * b->h;
+		free(b->rgba);
+	} else {
+		b = &g_fbmp[g_nfbmp++];
+		memset(b, 0, sizeof *b);
+		snprintf(b->base, sizeof b->base, "%s", base);
+		b->id = id;
+	}
+	b->w = w;
+	b->h = h;
+	b->rgba = xmalloc((size_t)w * h * 4);
+	memcpy(b->rgba, cg->pixels, (size_t)w * h * 4);
+	g_fbmp_pixels += (size_t)w * h;
+	cg_free(cg);
+	rq_log("image: %s bitmap %d (%dx%d) shows %s", file, id, w, h, rel);
+	return 0;
+}
+
+struct bitmaps_list {
+	lua_State *L;
+	int n;
+};
+
+static void bitmaps_row(void *ctx, int id, int w, int h, const uint8_t *rgba, int mod, int used)
+{
+	struct bitmaps_list *bl = ctx;
+	lua_State *L = bl->L;
+	(void)rgba;
+	lua_newtable(L);
+	lua_pushinteger(L, id);
+	lua_setfield(L, -2, "id");
+	lua_pushinteger(L, w);
+	lua_setfield(L, -2, "w");
+	lua_pushinteger(L, h);
+	lua_setfield(L, -2, "h");
+	lua_pushboolean(L, mod);
+	lua_setfield(L, -2, "mod");
+	if (mod) {
+		lua_pushinteger(L, used);
+		lua_setfield(L, -2, "used");
+	}
+	lua_rawseti(L, -2, ++bl->n);
+}
+
+/* flash_bitmaps(file) -> { {id, w, h, mod, used?}, ... } */
+int rq_lua_image_flash_bitmaps(lua_State *L)
+{
+	const char *file = luaL_checkstring(L, 1);
+	struct bitmaps_list bl = { L, 0 };
+
+	if (strlen(file) > 200)
+		return luaL_error(L, "flash file name is too long");
+	lua_newtable(L);
+	if (rq_flash_bitmaps_each(file, bitmaps_row, &bl) < 0)
+		return luaL_error(L, "flash file '%s' is not in the game", file);
+	return 1;
 }
 
 /* ---- Lua ---- */
@@ -648,24 +1199,107 @@ static struct img *slot_for(lua_State *L, int id)
 	return m;
 }
 
-static void set_path(lua_State *L, struct img *m, const char *rel)
+/* The full path of a file in the calling mod's folder; raises an error for a path outside it
+ * or a file that is not there. */
+static void resolve_file(lua_State *L, const char *rel, char *full, int n)
 {
-	char full[RQ_PATH_MAX];
 	FILE *f;
 
-	if (!rq_sandbox_resolve(L, rel, full, (int)sizeof full))
+	if (!rq_sandbox_resolve(L, rel, full, n))
 		luaL_error(L, "image path '%s' is not inside the mod folder", rel);
 	f = fopen(full, "rb");
 	if (!f)
 		luaL_error(L, "image '%s' not found in the mod folder", rel);
 	fclose(f);
+}
+
+static void set_path(struct img *m, const char *full)
+{
 	snprintf(m->path, sizeof m->path, "%s", full);
 	free_layers(m);
 	if (m->cg) {
 		cg_free(m->cg);
 		m->cg = NULL;
 	}
+	rq_moving_drop(m->id);
 	m->failed = 0;
+	m->err[0] = 0;
+}
+
+/* What add and replace are given, read and checked before an image slot is touched, so a
+ * call that raises an error leaves the slot as it was (2.25.0). */
+struct img_args {
+	int fit, w, h, keep_size;
+	double fps;       /* opts.fps and opts.clock, for a moving picture */
+	int real;
+	char path[RQ_PATH_MAX];
+};
+
+static void parse_args(lua_State *L, int opts, const char *rel, int def_fit, int def_w, int def_h,
+		       struct img_args *a)
+{
+	memset(a, 0, sizeof *a);
+	if (opts && !lua_istable(L, opts))
+		opts = 0;
+	a->fit = parse_fit(L, opts, def_fit);
+	a->w = opts && opt_int(L, opts, "w") ? opt_int(L, opts, "w") : def_w;
+	a->h = opts && opt_int(L, opts, "h") ? opt_int(L, opts, "h") : def_h;
+	if (opts) {
+		lua_getfield(L, opts, "keep_size");
+		a->keep_size = lua_toboolean(L, -1);
+		lua_pop(L, 1);
+		lua_getfield(L, opts, "fps");
+		if (!lua_isnil(L, -1)) {
+			if (!lua_isnumber(L, -1) || lua_tonumber(L, -1) <= 0 || lua_tonumber(L, -1) > 240)
+				luaL_error(L, "image fps must be a number above 0, up to 240");
+			a->fps = lua_tonumber(L, -1);
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, opts, "clock");
+		if (!lua_isnil(L, -1)) {
+			const char *c = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+			if (!strcmp(c, "real"))
+				a->real = 1;
+			else if (strcmp(c, "game"))
+				luaL_error(L, "image clock must be \"game\" or \"real\"");
+		}
+		lua_pop(L, 1);
+	}
+	resolve_file(L, rel, a->path, (int)sizeof a->path);
+}
+
+static void apply_args(struct img *m, const struct img_args *a)
+{
+	m->fit = a->fit;
+	m->w = a->w;
+	m->h = a->h;
+	m->keep_size = a->keep_size;
+	m->fps = a->fps;
+	m->real = a->real;
+	set_path(m, a->path);
+}
+
+static void remove_img(struct img *m)
+{
+	int id = m->id;
+	if (m->cg)
+		cg_free(m->cg);
+	free_layers(m);
+	rq_moving_drop(id);
+	*m = g_img[--g_nimg];
+	cg_changed(id);
+}
+
+/* A moving picture is read when it is set, so a bad file is an error for the mod, not a
+ * blank picture later. Raises the error after taking the image away. */
+static void check_moving(lua_State *L, struct img *m, const char *rel)
+{
+	char err[160];
+	if (file_kind(m->path) == KIND_STILL || decode(m))
+		return;
+	snprintf(err, sizeof err, "%s", m->err[0] ? m->err : "it cannot be read");
+	remove_img(m);
+	luaL_error(L, "image '%s': %s", rel, err);
 }
 
 static int key_to_id(const char *key)
@@ -683,16 +1317,17 @@ static int add_image(lua_State *L, const char *key, const char *rel, int opts, i
 {
 	int id = key_to_id(key);
 	struct img *m = find_img(id);
+	struct img_args a;
 
 	if (m && (m->replace || strcmp(m->key, key)))
 		return luaL_error(L, "image key '%s' collides with '%s'; pick another key", key, m->replace ? "a replaced CG" : m->key);
+	parse_args(L, opts, rel, def_fit, def_w, def_h, &a);
+	a.keep_size = 0;
 	m = slot_for(L, id);
 	m->replace = 0;
 	snprintf(m->key, sizeof m->key, "%s", key);
-	m->fit = parse_fit(L, opts, def_fit);
-	m->w = opts && opt_int(L, opts, "w") ? opt_int(L, opts, "w") : def_w;
-	m->h = opts && opt_int(L, opts, "h") ? opt_int(L, opts, "h") : def_h;
-	set_path(L, m, rel);
+	apply_args(m, &a);
+	check_moving(L, m, rel);
 	cg_changed(id);
 	return id;
 }
@@ -714,23 +1349,17 @@ int rq_lua_image_replace(lua_State *L)
 {
 	int id = (int)luaL_checkinteger(L, 1);
 	const char *path = luaL_checkstring(L, 2);
+	struct img_args a;
 	struct img *m;
 
 	if (id <= 0 || id >= IMG_BASE)
 		return luaL_error(L, "replace needs a game CG number");
+	parse_args(L, 3, path, FIT_STRETCH, 0, 0, &a);
 	m = slot_for(L, id);
 	m->replace = 1;
 	m->key[0] = 0;
-	m->fit = parse_fit(L, 3, FIT_STRETCH);
-	m->w = opt_int(L, 3, "w");
-	m->h = opt_int(L, 3, "h");
-	m->keep_size = 0;
-	if (lua_istable(L, 3)) {
-		lua_getfield(L, 3, "keep_size");
-		m->keep_size = lua_toboolean(L, -1);
-		lua_pop(L, 1);
-	}
-	set_path(L, m, path);
+	apply_args(m, &a);
+	check_moving(L, m, path);
 	cg_changed(id);
 	return 0;
 }
@@ -742,11 +1371,7 @@ int rq_lua_image_restore(lua_State *L)
 
 	for (i = 0; i < g_nimg; i++) {
 		if (g_img[i].id == id && g_img[i].replace) {
-			if (g_img[i].cg)
-				cg_free(g_img[i].cg);
-			free_layers(&g_img[i]);
-			g_img[i] = g_img[--g_nimg];
-			cg_changed(id);
+			remove_img(&g_img[i]);
 			lua_pushboolean(L, 1);
 			return 1;
 		}
@@ -1006,6 +1631,17 @@ int rq_lua_image_info(lua_State *L)
 		lua_setfield(L, -2, "game_w");
 		lua_pushinteger(L, om.h);
 		lua_setfield(L, -2, "game_h");
+	}
+	{
+		int frames, ms, drawn;
+		if (rq_moving_info(id, &frames, &ms, &drawn)) {
+			lua_pushinteger(L, frames);
+			lua_setfield(L, -2, "frames");
+			lua_pushinteger(L, ms);
+			lua_setfield(L, -2, "ms");
+			lua_pushboolean(L, drawn);
+			lua_setfield(L, -2, "drawn");
+		}
 	}
 	return 1;
 }

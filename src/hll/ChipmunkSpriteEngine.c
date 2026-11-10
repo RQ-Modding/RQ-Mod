@@ -237,6 +237,7 @@ static bool ChipmunkSpriteEngine_SP_RenderView(int sp_no)
 	if (!sp) return false;
 
 	scene_render();
+	sp->rq_whole_cg = 0;
 	gfx_copy(sprite_get_texture(sp), 0, 0, gfx_main_surface(), 0, 0,
 			sprite_get_width(sp), sprite_get_height(sp));
 

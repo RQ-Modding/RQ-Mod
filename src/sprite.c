@@ -183,6 +183,15 @@ static void sprite_render(struct sprite *_sp)
 	/* rq.battle.set_face: a mod's picture in place of a fight card's face. */
 	if (rq_face_render(sp))
 		return;
+	/* rq.image (2.25.0): the frame of a moving picture on the CG this sprite shows whole,
+	 * then the sprite's text over it as usual. */
+	if (sp->rq_whole_cg && rq_moving_render(sp)) {
+		if (sp->text.texture.handle) {
+			Rectangle tr = sp->rect;
+			_gfx_render_texture(&sprite_shader.s, &sp->text.texture, &tr, sp);
+		}
+		return;
+	}
 #endif
 	rq_prof_begin(RQ_PROF_SPRITE);
 	sprite_init_texture(sp);
@@ -238,6 +247,7 @@ static cJSON *_sprite_to_json(struct sprite *sp, bool verbose)
 
 void sprite_set_cg(struct sact_sprite *sp, struct cg *cg)
 {
+	sp->rq_whole_cg = 0;
 	sprite_drop_texture(sp);
 	gfx_init_texture_with_cg(&sp->texture, cg);
 	sp->rect.w = cg->metrics.w;
@@ -261,6 +271,7 @@ void sprite_set_cg_2x(struct sact_sprite *sp, struct cg *cg)
 	int h = cg->metrics.h*2;
 
 	// upscale into sprite texture
+	sp->rq_whole_cg = 0;
 	sprite_drop_texture(sp);
 	if (cg->metrics.has_alpha) {
 		gfx_init_texture_rgba(&sp->texture, w, h, c);
@@ -286,6 +297,7 @@ int sprite_set_cg_from_asset(struct sact_sprite *sp, int cg_no)
 		return 0;
 	sprite_set_cg(sp, cg);
 	sp->cg_no = cg_no;
+	sp->rq_whole_cg = cg_no;
 	cg_free(cg);
 	return 1;
 }
@@ -307,6 +319,7 @@ int sprite_set_cg_by_name(struct sact_sprite *sp, const char *name)
 	if (!cg)
 		return 0;
 	sprite_set_cg(sp, cg);
+	sp->rq_whole_cg = sp->cg_no > 0 ? sp->cg_no : 0;
 	cg_free(cg);
 	return 1;
 }
@@ -334,6 +347,7 @@ void sprite_init_color(struct sact_sprite *sp, int w, int h, int r, int g, int b
 	sp->color = (SDL_Color) { .r = r, .g = g, .b = b, .a = (a >= 0 ? a : 255) };
 	sp->rect.w = w;
 	sp->rect.h = h;
+	sp->rq_whole_cg = 0;
 	sprite_drop_texture(sp);
 
 	sp->sp.has_pixel = true;
@@ -353,6 +367,7 @@ void sprite_bind_unowned_texture(struct sact_sprite *sp, struct texture *tex)
 		sprite_dirty(sp);
 		return;
 	}
+	sp->rq_whole_cg = 0;
 	sprite_drop_texture(sp);
 	sp->texture = *tex;
 	sp->texture_unowned = true;

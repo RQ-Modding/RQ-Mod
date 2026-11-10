@@ -50,6 +50,7 @@ void DrawEffect_Draw(int time, int totalTime)
 	if (!dst || !old || !new)
 		return;
 
+	dst->rq_whole_cg = 0;
 	Texture *dst_tex = sprite_get_texture(dst);
 	Texture *old_tex = sprite_get_texture(old);
 	Texture *new_tex = sprite_get_texture(new);
