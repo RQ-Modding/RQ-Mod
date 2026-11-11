@@ -292,6 +292,7 @@ function ain.find(needle) end
 ---@field min? number The nearest zoom. Default 17.5.
 ---@field max? number The farthest zoom. Default 120.
 ---@field fog_far? number Where the fog ends. Default 160.
+---@field far? number Where the 3D view is cut: ground farther than this from the camera is not drawn. Default 200, the game's. More than 5, the near cut. Since 2.30.0.
 ---@field slider_steps? integer Steps on the zoom slider. Default 25.
 
 ---Reads and changes the dungeon: the map, the player's place, objects on it, and the camera.
@@ -302,14 +303,31 @@ function ain.find(needle) end
 ---@class rq.dungeon
 local dungeon = {}
 
----Patches the dungeon camera's zoom range, fog and slider in memory.
+---Patches the dungeon camera's zoom range, fog, view cut and slider in memory.
 ---
----Raises an error when `opts` is not a table or the AIN is not loaded.
+---It can be called again, from `rq.dungeon.on_map` too: each call sets the range in place of the last
+---one, and a field left out takes its default again. A call in `on_map` holds for the map being built;
+---a call elsewhere holds from the next map the game builds.
+---
+---The game keeps one zoom distance for every map (in its shared save) and clamps it to the range each
+---time a map opens, so after a map with a smaller `max` the camera starts nearer.
+---
+---The 3D view is cut at `far` (the game's 200): with it, a `max` past about 120 shows black at the top
+---of an outdoor map, and past about 170 loses the far rows of ground. With `far` 400 the ground stays
+---whole at 180. What is left is the edge of the sky backdrop under outdoor maps, a plane of fixed size,
+---which shows as black corners in some areas. Caves have a black background.
+---
+---Raises an error when `opts` is not a table, `far` is 5 or less, or the AIN is not loaded.
 ---
 ---Since: 0.2.0
+---Changed: 2.30.0 Can be called again. It worked only once: a second call changed nothing but the wheel, whose step it multiplied a second time. New field `far`.
 ---
 ---```lua
----rq.dungeon.camera({ max = 160, fog_far = 220 })
+---rq.dungeon.camera({ max = 120, fog_far = 160 })
+---rq.dungeon.on_map(function(ctx)
+---  local open = ctx.kind == rq.ids.map_kind.FIELD
+---  rq.dungeon.camera({ max = open and 150 or 120, far = open and 400 or 200 })
+---end)
 ---```
 ---@param opts rq.DungeonCamera The range; a field left out keeps its default.
 ---@return boolean ok false when the game lacks one of the camera functions (the log says which).
@@ -5848,7 +5866,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.29.0"
+rq.version = "2.30.0"
 
 rq.units = units
 rq.items = items

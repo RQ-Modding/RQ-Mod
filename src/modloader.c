@@ -583,75 +583,169 @@ static uint32_t last_localref_before_last_callfunc(struct ain *ain, int fno)
 	return 0;
 }
 
-static int dungeon_camera(struct ain *ain, float lock, float dmin, float dmax, float fog_far, int steps)
+/*
+ * Where dungeon_camera wrote each number, so that a later call writes the new range there (2.30.0).
+ * The first call finds its places by the game's own numbers (35, 60, 80, 200), which it replaces, so it
+ * cannot find them again; a second pass would also insert the wheel's step a second time. The
+ * places are offsets into ain->code: they stay valid when the code grows.
+ */
+#define CAM_SITES 8
+static struct {
+	int done;
+	uint32_t min[CAM_SITES * 3], max[CAM_SITES], fog[CAM_SITES], cut[CAM_SITES], step[2];
+	int n_min, n_max, n_fog, n_cut, n_step;
+} g_cam;
+
+/* patch_floats, recording where each float was written (the immediate's address). */
+static int patch_floats_rec(struct ain *ain, int fno, float from, float to, int nth,
+			    uint32_t *rec, int *nrec, int cap)
 {
-	int clamp_fno, scroll_fno, update_fno, fog_fno, move_fno;
+	uint32_t start = ain->functions[fno].address;
+	uint32_t end = func_end_addr(ain, fno);
+	uint32_t ip;
+	int hit = 0, n = 0;
+	for (ip = start; ip + 6 <= end; ) {
+		uint16_t op = rd16(ain->code + ip);
+		int len = instr_len(op);
+		if (op == 0x40) {
+			float v = rdf(ain->code + ip + 2);
+			if (v == from || (from != 0.f && fabsf(v - from) < 0.0001f)) {
+				if (nth < 0 || n == nth) {
+					wrf(ain->code + ip + 2, to);
+					if (*nrec < cap)
+						rec[(*nrec)++] = ip + 2;
+					hit++;
+				}
+				n++;
+			}
+		}
+		if (len < 2)
+			len = 2;
+		ip += (uint32_t)len;
+	}
+	return hit;
+}
+
+/* An address in a function relocate_func copied from old_start to new_start, with extra_len bytes
+ * put in at insert_at: the same instruction's place in the copy. */
+static uint32_t moved_addr(uint32_t a, uint32_t old_start, uint32_t new_start, uint32_t insert_at,
+			   size_t extra_len)
+{
+	uint32_t ins = a - 2; /* the instruction holding the immediate */
+	return new_start + (a - old_start) + (ins >= insert_at ? (uint32_t)extra_len : 0);
+}
+
+/* A later call: the new numbers at the places the first call recorded. */
+static int dungeon_camera_again(struct ain *ain, float dmin, float dmax, float fog_far, float cut,
+				float step)
+{
+	int i;
+	for (i = 0; i < g_cam.n_min; i++)
+		wrf(ain->code + g_cam.min[i], dmin);
+	for (i = 0; i < g_cam.n_max; i++)
+		wrf(ain->code + g_cam.max[i], dmax);
+	for (i = 0; i < g_cam.n_fog; i++)
+		wrf(ain->code + g_cam.fog[i], fog_far);
+	for (i = 0; i < g_cam.n_cut; i++)
+		wrf(ain->code + g_cam.cut[i], cut);
+	for (i = 0; i < g_cam.n_step; i++)
+		wrf(ain->code + g_cam.step[i], step);
+	rq_log("dungeon_camera again: [%.2f, %.2f] fog_far %.2f far %.2f step %.2f (%d/%d/%d/%d/%d places)",
+	       dmin, dmax, fog_far, cut, step, g_cam.n_min, g_cam.n_max, g_cam.n_fog, g_cam.n_cut,
+	       g_cam.n_step);
+	return 1;
+}
+
+static int dungeon_camera(struct ain *ain, float lock, float dmin, float dmax, float fog_far, float cut,
+			  int steps)
+{
+	int clamp_fno, scroll_fno, update_fno, fog_fno, move_fno, clear_fno;
 	float step;
-	int n;
-	uint32_t insert_at, new_addr, jump_ip, dest;
+	int n, i, first;
+	uint32_t insert_at, new_addr, old_start, jump_ip, dest;
+	uint32_t tmp[CAM_SITES];
+	int ntmp;
 	uint8_t extra[16];
-	uint8_t *p;
+	uint8_t *p = extra;
 
 	if (steps < 1)
 		steps = 25;
 	step = (dmax - dmin) / (float)steps;
+
+	if (g_cam.done)
+		return dungeon_camera_again(ain, dmin, dmax, fog_far, cut, step);
 
 	clamp_fno = find_func_utf8(ain, "３Ｄマップ_カメラ距離設定");
 	scroll_fno = find_func_utf8(ain, "T_MapParts@scrollCameraLength");
 	update_fno = find_func_utf8(ain, "T_MapParts@updateCameraLength");
 	fog_fno = find_func_utf8(ain, "CMapMode@SetFogParam");
 	move_fno = find_func_utf8(ain, "キャラ_移動距離設定");
+	clear_fno = find_func_utf8(ain, "CMapMode@Clear");
 
-	if (clamp_fno < 0 || scroll_fno < 0 || update_fno < 0 || fog_fno < 0 || move_fno < 0) {
-		rq_log("dungeon_camera: missing function (clamp=%d scroll=%d update=%d fog=%d move=%d)",
-		       clamp_fno, scroll_fno, update_fno, fog_fno, move_fno);
+	if (clamp_fno < 0 || scroll_fno < 0 || update_fno < 0 || fog_fno < 0 || move_fno < 0 ||
+	    clear_fno < 0) {
+		rq_log("dungeon_camera: missing function (clamp=%d scroll=%d update=%d fog=%d move=%d "
+		       "clear=%d)", clamp_fno, scroll_fno, update_fno, fog_fno, move_fno, clear_fno);
 		return 0;
 	}
 
-	n = patch_floats(ain, clamp_fno, 35.0f, dmin, -1);
-	n += patch_floats(ain, clamp_fno, 60.0f, dmax, -1);
+	n = patch_floats_rec(ain, clamp_fno, 35.0f, dmin, -1, g_cam.min, &g_cam.n_min, CAM_SITES);
+	n += patch_floats_rec(ain, clamp_fno, 60.0f, dmax, -1, g_cam.max, &g_cam.n_max, CAM_SITES);
 	rq_log("clamp fno=%d: patched %d float immediates -> [%.2f, %.2f] (lock %.2f still in range)",
 	       clamp_fno, n, dmin, dmax, lock);
 
-	n = patch_floats(ain, fog_fno, 80.0f, fog_far, -1);
+	n = patch_floats_rec(ain, fog_fno, 80.0f, fog_far, -1, g_cam.fog, &g_cam.n_fog, CAM_SITES);
 	rq_log("CMapMode@SetFogParam: patched %d x 80 -> fog_far %.2f (battle/viewer fog untouched)", n, fog_far);
 
-	insert_at = find_op_after_float(ain, update_fno, 35.0f, 0x33, 0);
-	n = patch_floats(ain, update_fno, 35.0f, dmin, 1);
-	if (insert_at) {
-		p = extra;
-		wr16(p, 0x40); p += 2;
-		wrf(p, step); p += 4;
-		wr16(p, 0x39); p += 2;
-		new_addr = relocate_func(ain, ain->functions[update_fno].address,
-					 func_end_addr(ain, update_fno), insert_at, extra, (size_t)(p - extra));
-		if (new_addr) {
-			ain->functions[update_fno].address = new_addr;
-			rq_log("updateCameraLength: slider maps (d-%.2f)/%.2f, relocated to 0x%x",
-			       dmin, step, new_addr);
-		}
-	} else {
-		rq_log("updateCameraLength: could not find slider FTOI (float patches=%d)", n);
-	}
+	/* The view's far cut: Clear sets m_fProjectionFar, and Create runs Clear (through Release)
+	 * before InitProjection, so the number holds from the next map built. */
+	n = patch_floats_rec(ain, clear_fno, 200.0f, cut, -1, g_cam.cut, &g_cam.n_cut, CAM_SITES);
+	rq_log("CMapMode@Clear: patched %d x 200 -> far %.2f", n, cut);
 
-	n = patch_floats(ain, scroll_fno, 35.0f, dmin, -1);
-	insert_at = find_op_after_float(ain, scroll_fno, dmin, 0x36, 0);
-	if (!insert_at)
-		insert_at = find_op_after_float(ain, scroll_fno, 35.0f, 0x36, 0);
-	if (insert_at) {
-		p = extra;
-		wr16(p, 0x40); p += 2;
-		wrf(p, step); p += 4;
-		wr16(p, 0x38); p += 2;
-		new_addr = relocate_func(ain, ain->functions[scroll_fno].address,
-					 func_end_addr(ain, scroll_fno), insert_at, extra, (size_t)(p - extra));
-		if (new_addr) {
-			ain->functions[scroll_fno].address = new_addr;
-			rq_log("scrollCameraLength: formula dmin+n*%.2f, relocated to 0x%x", step, new_addr);
+	/* The slider and the wheel: patched, then copied elsewhere with the step put in, so the
+	 * places recorded in the old copy move with it (moved_addr). */
+	for (first = 0; first < 2; first++) {
+		int fno = first == 0 ? update_fno : scroll_fno;
+		ntmp = 0;
+		if (first == 0) {
+			insert_at = find_op_after_float(ain, fno, 35.0f, 0x33, 0);
+			n = patch_floats_rec(ain, fno, 35.0f, dmin, 1, tmp, &ntmp, CAM_SITES);
+		} else {
+			n = patch_floats_rec(ain, fno, 35.0f, dmin, -1, tmp, &ntmp, CAM_SITES);
+			insert_at = find_op_after_float(ain, fno, dmin, 0x36, 0);
+			if (!insert_at)
+				insert_at = find_op_after_float(ain, fno, 35.0f, 0x36, 0);
 		}
-	} else {
-		rq_log("scrollCameraLength: could not find F_ADD after 35.0 (float patches=%d)", n);
+		old_start = ain->functions[fno].address;
+		new_addr = 0;
+		if (insert_at) {
+			p = extra;
+			wr16(p, 0x40); p += 2;
+			wrf(p, step); p += 4;
+			wr16(p, first == 0 ? 0x39 : 0x38); p += 2;
+			new_addr = relocate_func(ain, old_start, func_end_addr(ain, fno), insert_at,
+						 extra, (size_t)(p - extra));
+			if (new_addr) {
+				ain->functions[fno].address = new_addr;
+				if (g_cam.n_step < 2)
+					g_cam.step[g_cam.n_step++] = new_addr + (insert_at - old_start) + 2;
+				if (first == 0)
+					rq_log("updateCameraLength: slider maps (d-%.2f)/%.2f, relocated to 0x%x",
+					       dmin, step, new_addr);
+				else
+					rq_log("scrollCameraLength: formula dmin+n*%.2f, relocated to 0x%x", step, new_addr);
+			}
+		} else if (first == 0) {
+			rq_log("updateCameraLength: could not find slider FTOI (float patches=%d)", n);
+		} else {
+			rq_log("scrollCameraLength: could not find F_ADD after 35.0 (float patches=%d)", n);
+		}
+		for (i = 0; i < ntmp && g_cam.n_min < CAM_SITES * 3; i++)
+			g_cam.min[g_cam.n_min++] = new_addr
+				? moved_addr(tmp[i], old_start, new_addr, insert_at, (size_t)(p - extra))
+				: tmp[i];
 	}
+	g_cam.done = 1;
 
 	jump_ip = find_jump_after_op(ain, move_fno, 0x3c);
 	dest = last_localref_before_last_callfunc(ain, move_fno);
@@ -797,7 +891,7 @@ static int l_log(lua_State *L)
 
 static int l_dungeon_camera(lua_State *L)
 {
-	float lock = 35.0f, dmin = 17.5f, dmax = 120.0f, fog = 160.0f;
+	float lock = 35.0f, dmin = 17.5f, dmax = 120.0f, fog = 160.0f, cut = 200.0f;
 	int steps = 25;
 	if (!lua_istable(L, 1))
 		return luaL_error(L, "dungeon_camera expects a table");
@@ -809,12 +903,16 @@ static int l_dungeon_camera(lua_State *L)
 	if (lua_isnumber(L, -1)) dmax = (float)lua_tonumber(L, -1);
 	lua_getfield(L, 1, "fog_far");
 	if (lua_isnumber(L, -1)) fog = (float)lua_tonumber(L, -1);
+	lua_getfield(L, 1, "far");
+	if (lua_isnumber(L, -1)) cut = (float)lua_tonumber(L, -1);
 	lua_getfield(L, 1, "slider_steps");
 	if (lua_isinteger(L, -1)) steps = (int)lua_tointeger(L, -1);
 	lua_settop(L, 1);
+	if (!(cut > 5.0f))
+		return luaL_error(L, "dungeon.camera: far must be more than 5, the near cut");
 	if (!g_ain)
 		return luaL_error(L, "AIN not loaded");
-	lua_pushboolean(L, dungeon_camera(g_ain, lock, dmin, dmax, fog, steps));
+	lua_pushboolean(L, dungeon_camera(g_ain, lock, dmin, dmax, fog, cut, steps));
 	return 1;
 }
 
