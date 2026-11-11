@@ -19,6 +19,8 @@ extern const char rq_uikit_hub_lua[];
 extern const unsigned rq_uikit_hub_lua_len;
 extern const char rq_uikit_vault_lua[];
 extern const unsigned rq_uikit_vault_lua_len;
+extern const char rq_uikit_windows_lua[];
+extern const unsigned rq_uikit_windows_lua_len;
 extern const char rq_dialog_lua[];
 extern const unsigned rq_dialog_lua_len;
 
@@ -39,8 +41,8 @@ static void run_part(lua_State *L, int rq_index, const char *buf, unsigned len, 
 	}
 }
 
-/* Runs uikit.lua with rq, then uikit_hub.lua (2.6.0), uikit_vault.lua (2.8.0) and dialog.lua
- * (2.19.0) with rq, the kit and its internals, and sets the kit as rq.uikit. */
+/* Runs uikit.lua with rq, then uikit_hub.lua (2.6.0), uikit_vault.lua (2.8.0), uikit_windows.lua
+ * (2.32.0) and dialog.lua (2.19.0) with rq, the kit and its internals, and sets the kit as rq.uikit. */
 void rq_uikit_open(lua_State *L, int rq_index)
 {
 	if (luaL_loadbuffer(L, rq_uikit_lua, rq_uikit_lua_len, "=uikit") != LUA_OK) {
@@ -57,6 +59,9 @@ void rq_uikit_open(lua_State *L, int rq_index)
 	/* stack: ui, kit */
 	run_part(L, rq_index, rq_uikit_hub_lua, rq_uikit_hub_lua_len, "=uikit_hub");
 	run_part(L, rq_index, rq_uikit_vault_lua, rq_uikit_vault_lua_len, "=uikit_vault");
+	/* The game's windows (2.32.0): the Quest Storage window, the quest panel's heading, the
+	 * shop's balloon and Trivia's parchment, on the hub's and the vault's parts. */
+	run_part(L, rq_index, rq_uikit_windows_lua, rq_uikit_windows_lua_len, "=uikit_windows");
 	/* rq.ui.confirm, notice and ask (2.19.0): the game's dialogs, wrapped with the vault's port
 	 * of the game's WordWrapText (kit.wrap). kit.under_z sets the menu's z for the HUD's split
 	 * and kit.patch_local_int the menu's own (2.28.0: over Config). */

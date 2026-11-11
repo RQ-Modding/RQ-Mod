@@ -5487,35 +5487,35 @@ function castle.rooms() end
 ---@class rq.GameButtonSpec
 ---@field id string The mod's own name for the entry; one per mod.
 ---@field label string The text of its row in the list.
----@field on_click fun(entry: rq.GameButtonHandle) Runs when the player picks it: in "system-menu" after the menus close; in "skill-window" and "status" with the window or page still open, after the game's click sound.
----@field group? "system-menu"|"skill-window"|"status" The game's group. Default "system-menu".
----@field enabled? boolean|fun(chara?: integer): boolean "system-menu": false leaves it out of the list. "skill-window" and "status": false greys the button (a click plays the deny sound and runs nothing). A function is asked each time the list or the window's skill list is built, and in "status" on every draw of the card, with the character shown. Default true.
----@field tip? string|fun(chara: integer): string? The game's comment while the entry is under the mouse or the keys: beside the list ("system-menu"), under the button with the label as its title ("skill-window"), or beside the icon with the label as its title ("status", also on a greyed one). A function only in "status", asked with the character shown when the tip opens; nil or "" shows none. In "status", `\n` starts a line.
----@field icon? integer "status" only, and needed there: the CG drawn as the button, such as one from `rq.image.add` or `rq.image.compose`. The cell is 32 × 29: a smaller icon is centered, a larger one shrunk to fit. Since 2.20.0.
----@field shown? boolean|fun(chara: integer, mode: rq.StatusPageMode?): boolean "status" only: false leaves the button out of the title row, and the next entry takes its cell. A function is asked on every draw of the card. Default true. Since 2.20.0.
+---@field on_click fun(entry: rq.GameButtonHandle) Runs when the player picks it: in "system-menu" after the menus close; in "skill-window", "status" and "map" with the window, page or map still there, after the game's click sound.
+---@field group? "system-menu"|"skill-window"|"status"|"map" The game's group. Default "system-menu". "map" since 2.32.0.
+---@field enabled? boolean|fun(chara?: integer): boolean "system-menu": false leaves it out of the list. "skill-window", "status" and "map": false greys the button (a click plays the deny sound and runs nothing). A function is asked each time the list or the window's skill list is built, in "status" on every draw of the card, with the character shown, and in "map" every 200 ms while the map shows, with no argument. Default true.
+---@field tip? string|fun(chara: integer): string? The game's comment while the entry is under the mouse or the keys: beside the list ("system-menu"), under the button with the label as its title ("skill-window"), or beside the icon with the label as its title ("status", also on a greyed one; "map", left of the tab). A function only in "status" and "map", asked when the tip opens (in "status" with the character shown); nil or "" shows none. In "status" and "map", `\n` starts a line.
+---@field icon? integer "status" and "map" only, and needed there: the CG drawn as the button, such as one from `rq.image.add` or `rq.image.compose`. The cell is 32 × 29 in "status" and 32 × 34 inside the 40 × 44 tab in "map": a smaller icon is centered, a larger one shrunk to fit. Since 2.20.0.
+---@field shown? boolean|fun(chara: integer, mode: rq.StatusPageMode?): boolean "status" and "map" only: false leaves the button out, and the next entry takes its cell. A function is asked on every draw of the card in "status", and every 200 ms while the map shows in "map" (with no argument). Default true. Since 2.20.0.
 
 ---An entry, from `rq.gamebutton.add`.
 ---@class rq.GameButtonHandle
 ---@field id fun(): string `<mod id>.<id>`.
----@field set fun(opts: {label?: string, enabled?: boolean|fun(chara?: integer): boolean, tip?: string|fun(chara: integer): string?, icon?: integer, shown?: boolean|fun(chara: integer, mode: rq.StatusPageMode?): boolean}) Changes it; `tip = ""` removes the tip. In "skill-window" a new label or `enabled` shows from the next build of the skill list (`rq.skilllist.refresh` builds it at once). In "status" it shows at once while the page is open; `icon` and `shown` are for "status" only (2.20.0).
----@field remove fun() Takes it out. "system-menu": with no entry left, the MODS row goes as well. "skill-window": the button goes at once; the others move up on the next build. "status": the button goes at once, and the next entry takes its cell.
+---@field set fun(opts: {label?: string, enabled?: boolean|fun(chara?: integer): boolean, tip?: string|fun(chara: integer): string?, icon?: integer, shown?: boolean|fun(chara: integer, mode: rq.StatusPageMode?): boolean}) Changes it; `tip = ""` removes the tip. In "skill-window" a new label or `enabled` shows from the next build of the skill list (`rq.skilllist.refresh` builds it at once). In "status" it shows at once while the page is open, and in "map" on the next frame; `icon` and `shown` are for "status" (2.20.0) and "map" (2.32.0) only.
+---@field remove fun() Takes it out. "system-menu": with no entry left, the MODS row goes as well. "skill-window": the button goes at once; the others move up on the next build. "status": the button goes at once, and the next entry takes its cell. "map": the tab goes on the next frame, and the tabs under it move up.
 
 ---An entry, as `rq.gamebutton.groups` lists it.
 ---@class rq.GameButtonInfo
 ---@field id string `<mod id>.<id>`.
 ---@field mod string The mod that added it.
 ---@field label string Its text.
----@field enabled boolean "system-menu": it is in the list now. "skill-window" and "status": it is not greyed now.
----@field placed? boolean "skill-window" and "status": it has a cell on the last build or draw. Since 2.17.0.
----@field shown? boolean "status": `shown` said yes on the last draw. Since 2.20.0.
----@field button? integer "skill-window": its `T_Button` id on the window now, 200101 to 200104; "status": on the page now, 100101 or 100102. Since 2.17.0.
----@field x? integer "skill-window" and "status": its cell's left edge, in game pixels. Since 2.17.0.
----@field y? integer "skill-window" and "status": its cell's top edge, in game pixels. Since 2.17.0.
+---@field enabled boolean "system-menu": it is in the list now. "skill-window", "status" and "map": it is not greyed now.
+---@field placed? boolean "skill-window", "status" and "map": it has a cell on the last build or draw (in "map": a tab on the map now). Since 2.17.0.
+---@field shown? boolean "status" and "map": `shown` said yes on the last draw or ask. Since 2.20.0.
+---@field button? integer "skill-window": its `T_Button` id on the window now, 200101 to 200104; "status": on the page now, 100101 or 100102; "map": on the map panel now, 700101 to 700104. Since 2.17.0.
+---@field x? integer "skill-window", "status" and "map": its cell's left edge, in game pixels. Since 2.17.0.
+---@field y? integer "skill-window", "status" and "map": its cell's top edge, in game pixels. Since 2.17.0.
 
 ---A group, from `rq.gamebutton.groups`.
 ---@class rq.GameButtonGroup
----@field name string "system-menu", "skill-window" or "status".
----@field open boolean The group is on the screen now.
+---@field name string "system-menu", "skill-window", "status" or "map".
+---@field open boolean The group is on the screen now. "map": the map panel exists (a quest's map, also while it hides for a dialog or a fight).
 ---@field row? boolean "system-menu": the loader's row is in it (some entry exists).
 ---@field entries rq.GameButtonInfo[] The entries, in the order they were added.
 
@@ -5550,9 +5550,28 @@ function castle.rooms() end
 ---other, Down to the Special slot, Up to SKILL SCREEN. Agents see each one as the control
 ---`<mod id>.<id>` of the `status` screen. See `rq.statuspage` for the page itself.
 ---
+---`"map"` (2.32.0): tabs on a quest's map, on the 3D view's right edge against the map panel, under
+---the area map (AREA DISPLAY) and above the Magnum gauge, the only free room there. The tabs are
+---40 × 44 at x 768, from y 129, 47 apart, in the order entries were added; entries with `shown`
+---false give their cell to the next, and a fifth shown entry is not placed (`placed` false, and the
+---log says so). Each tab is a button of the panel itself (`T_MapParts`, ids 700101 to 700104): the
+---game's plain grey bar (CG 11009) with the icon on it, the yellow frame under the mouse, the icon
+---moved 1 pixel right and down while pressed, the whole tab darkened while greyed. So it hides
+---with the panel (a dialog, a fight, a menu, an event) and comes back with it, and the panel makes
+---it again for each area. `shown` and `enabled` are asked every 200 ms while the map shows, and at
+---once after `set`; a change in the shown tabs makes them again. The tip is the game's comment
+---window with the label as its title, left of the tab. In the map's key mode (Space turns it on and
+---off, as for the panel's own buttons) the arrow keys reach the tabs: Left from AREA DISPLAY goes to
+---the first tab not greyed; from a tab Up and Down go to the next one, Right back to AREA DISPLAY,
+---and Enter presses it. `on_click` runs with the map still there; to show a window of your own, draw
+---it from `rq.on_frame` (`rq.uikit.item_window` is the game's Quest Storage window). Agents see each
+---tab as the control `<mod id>.<id>` with its `button`, while the map takes input (not while the
+---Quest Storage screen shows over the panel, which stays drawn under it).
+---
 ---Since: 2.16.0
 ---Changed: 2.17.0 The group `"skill-window"`.
 ---Changed: 2.20.0 The group `"status"`; `enabled` gets the character there.
+---Changed: 2.32.0 The group `"map"`.
 ---
 ---```lua
 ---rq.gamebutton.add({ id = "settings", label = "My Mod settings", tip = "Opens My Mod's page",
@@ -5562,6 +5581,10 @@ function castle.rooms() end
 ---rq.gamebutton.add({ group = "status", id = "notes", label = "Notes", icon = 11158,
 ---  tip = function(chara) return "Notes on " .. rq.chara.get(chara).name end,
 ---  on_click = function() rq.log("notes for", rq.statuspage.chara()) end })
+---local open = false
+---rq.gamebutton.add({ group = "map", id = "bag", label = "My Bag", icon = 11329,
+---  tip = "What is in my bag.", enabled = function() return rq.dungeon.exploring() end,
+---  on_click = function() open = true end })
 ---```
 ---@class rq.gamebutton
 local gamebutton = {}
@@ -5569,11 +5592,12 @@ local gamebutton = {}
 ---Adds an entry to a game menu.
 ---
 ---Raises an error for a spec that is not a table, an unknown group, no id or label, no `on_click`,
----an `enabled`, `tip` or `shown` of the wrong type, a `"status"` entry with no `icon`, or an id the
----mod already has.
+---an `enabled`, `tip` or `shown` of the wrong type, a `"status"` or `"map"` entry with no `icon`, or
+---an id the mod already has.
 ---
 ---Since: 2.16.0
 ---Changed: 2.20.0 The group `"status"`, with `icon` and `shown`.
+---Changed: 2.32.0 The group `"map"`, with `icon` and `shown`.
 ---@param spec rq.GameButtonSpec The entry.
 ---@return rq.GameButtonHandle entry The entry, to change or remove it.
 function gamebutton.add(spec) end
@@ -5876,7 +5900,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.31.0"
+rq.version = "2.32.0"
 
 rq.units = units
 rq.items = items
@@ -6606,6 +6630,10 @@ function sound.set_volume(handle, volume, fade_ms) end
 ---@field hub_page? table A page over the hub: `x`, `y`, `w`, `h`, `dim`, `outer`, `line` (colors), `title` (a text style), `pad`. Since 2.6.0.
 ---@field options? table The choice menu's look for `rq.uikit.options`: `base` (the menu's background), `sep`, `panels` (the text row's pieces for 1 to 3 lines, with `ph`, their height), `text`, `text_fit` (text styles). Since 2.7.0; `comment` gone in 2.13.0 (the comment is the game's window).
 ---@field vault? table The vault's item rows: `rows` (the backgrounds by style: vault, storage, and since 2.9.0 shop and equip), `name`, `info`, `number`, `level_text`, `count` (text styles), `name_fit`, `info_fit`, `level_fit`, `level`, `locked`, `count_box`, `stock_box` (2.9.0) (pieces), `rank` (the first rank badge CG), `kinds` (the kind marks' CGs), `current` (a color), `buttons` (the row buttons' pieces and places), `gold` (the gold digits), `price` (2.9.0: the shop's price place, cells and gap). Since 2.8.0.
+---@field item_window? table The Quest Storage window for `rq.uikit.item_window`: `top`, `middle`, `last`, `foot` (pieces of CG 11335; `foot` closes a window of one row), `w`, `cols`, `cell`, `tile_x`, `tile_y`, `band`, `close_x`, `close_y`, `x`, `y`, `bottom` (where a taller window ends), `title`, `page`, `empty` (text styles), `title_x`. Since 2.32.0.
+---@field section? table The quest panel's heading for `rq.uikit.section`: `left`, `middle`, `right`, `box` (pieces of CG 11014), `w`, `h`, `text_x`, `box_x`, `box_y`, `box_right`, `text` (the heading's gold), `fit` (as a button style's), `body` (the panel's own text style, for text in the box). Since 2.32.0.
+---@field balloon? table Frostbuy's balloon for `rq.uikit.balloon`: `top`, `base`, `left`, `tail`, `right` (pieces of CG 11110), `w`, `h`, `edge`, `tail_x`, `tail_w`, `tail_h`, `pad_x`, `pad_y`, `pad_r`, `line_h`, `text`. Since 2.32.0.
+---@field parchment? table Trivia's paper for `rq.uikit.page`'s `style = "parchment"`: `paper` (a piece of CG 20001), `x`, `y`, `w`, `h`, `pad_x`, `pad_y`, `pad_b`, `close_x`, `close_y`, `text` (the brown text, also the labels inside), `dim`, `title_h`. Since 2.32.0.
 ---@field filters? table The vault's filter column: `back`, `backs` (2.9.0: the column's grey by style), `cats`, `classes`, `lock`, `equip` (2.9.0) (each with `lit` and `dim` pieces), and `sub` (the sub-filters' panel: `base`, `title`, and by category `title`, `cgs`, `names`). Since 2.8.0.
 
 ---A button style of the hub theme: two states of a grey button and its text.
@@ -7455,8 +7483,15 @@ function uikit.sort(list, index, opts) end
 ---Changed: 2.7.0 Stays open, under it, while the game's choice menu shows over it.
 ---Changed: 2.12.0 The arrow keys and Enter move between its widgets.
 ---Changed: 2.22.0 Esc that ends a number field's typing does not close it.
+---With `style = "parchment"` the page is Trivia's paper (CG 20001) instead: 700 by 536 at 162, 56
+---by default, the vine strip down each side kept and the middle cut for a lower page, the title in
+---the paper's brown text at the top left and the close button inside the vines at the top right.
+---The game under it is not dimmed. Labels inside are the paper's brown (`label` and `dim` of the theme
+---changed while `fn` runs); the other widgets keep their look.
+---
 ---Changed: 2.29.0 The same for a text field's. With a title, the box starts at the tab's bottom edge,
 ---8 pixels higher than before, so the tab touches what it titles.
+---Changed: 2.32.0 `style = "parchment"`.
 ---
 ---```lua
 ---local open = false
@@ -7466,11 +7501,121 @@ function uikit.sort(list, index, opts) end
 ---    rq.uikit.button("Do it", { style = "large" })
 ---  end)
 ---end)
+---
+----- Trivia's paper, drawn the same way:
+---open = rq.uikit.page({ id = "lore", title = "Lore", style = "parchment" }, function()
+---  rq.uikit.label("Long ago, a castle stood here.")
+---end)
 ---```
----@param opts? rq.UiPlace|{title?: string, pad?: integer, gap?: integer} `x`, `y`, `w`, `h` (the hub's area by default), `id` (keeps its state), `title`, `pad` (default 16), `gap` between widgets.
+---@param opts? rq.UiPlace|{title?: string, pad?: integer, gap?: integer, style?: "hub"|"parchment"} `x`, `y`, `w`, `h` (the hub's area by default, or the paper's), `id` (keeps its state), `title`, `pad` (default 16; not used by the parchment), `gap` between widgets, `style` ("hub" by default; "parchment" since 2.32.0).
 ---@param fn? fun(x: integer, y: integer, w: integer, h: integer) The widgets inside, in a column at the box under the title, clipped to it.
 ---@return boolean open false on the update it closes.
 function uikit.page(opts, fn) end
+
+---An entry of `rq.uikit.item_window`'s list, when a tile needs more than the item.
+---
+---Since: 2.32.0
+---@class rq.UiItemWindowEntry
+---@field item integer|rq.UiItemRow The tile's item: an instance or row data, as `rq.uikit.item_icon` takes.
+---@field judged? boolean false: the tip is the game's UNIDENTIFIED card. Default true.
+---@field tip? string|false The tile's tip instead of the item card, or false for none.
+---@field disabled? boolean The tile darkened; it cannot be clicked.
+
+---Options for `rq.uikit.item_window`.
+---
+---Since: 2.32.0
+---@class rq.UiItemWindowOpts
+---@field id? string|integer Keeps its state (the page shown) and names its controls. Default "itemwindow".
+---@field title? string Text in the grey band at the top left, in the game's font; cut where it would reach the page arrows.
+---@field rows? integer Rows of five tiles, 1 to 5. Default 3, or 4 with more than 15 items.
+---@field x? integer The left edge, in game pixels. Default 473, the game's.
+---@field y? integer The top edge, in game pixels. Default 165, the game's, or higher for a window that would go past y 607 (the 3D view's bottom).
+---@field empty? string Text in the window's middle when the list is empty.
+---@field cell? fun(index: integer, x: integer, y: integer, entry: any) Called after each tile is drawn, with the item's place in the list, the tile's top left (100 × 100) and the list's value, to draw marks on it.
+
+---Draws the game's Quest Storage window holding item tiles, and returns whether it is still open.
+---
+---The window is the Quest Storage's own (CG 11335, `T_StoreQuest`): 542 wide, a grey band 34 high
+---with the close button at its right, and the tiles in the yellow frame under it, five to a row, 106
+---apart, from the window's x + 9, y + 39. A window of n rows is 42 + 106 × n high (146 for one row);
+---the rows are cut from the game's CG, not stretched. Each tile is `rq.uikit.item_icon`, with the
+---game's item card as its tip. With more items than fit, the band gets the page arrows (`<` and `>`)
+---and the page's number, and the window shows a page at a time.
+---
+---It is modal, as `rq.uikit.page`: the game gets no mouse and no keys while it shows. It closes by its
+---close button, a right click, or Esc, when let go. Keep its state yourself: draw it while it is open,
+---and stop when it returns false. Agents see the window as `page-<id>`, its close button as
+---`button-close-<id>`, each tile as `item-<id>-<n>` and the arrows as `button-<id>-prev` and
+---`button-<id>-next`.
+---
+---Since: 2.32.0
+---
+---```lua
+---local open = false
+---rq.gamebutton.add({ group = "map", id = "bag", label = "My Bag", icon = 11329,
+---  on_click = function() open = true end })
+---rq.on_frame(function()
+---  if not open then return end
+---  local list = {}
+---  for i, row in ipairs(rq.items()) do
+---    if i > 30 then break end
+---    list[#list + 1] = row.id
+---  end
+---  local clicked
+---  open, clicked = rq.uikit.item_window(list, { id = "bag", title = "My Bag" })
+---  if clicked then rq.log("picked", list[clicked]) end
+---end)
+---```
+---@param items (integer|rq.UiItemRow|rq.UiItemWindowEntry)[] The tiles, in order.
+---@param opts? rq.UiItemWindowOpts `id`, `title`, `rows`, `x`, `y`, `empty`, `cell`.
+---@return boolean open false on the update it closes.
+---@return integer|nil clicked The place in `items` of the tile clicked on this update.
+function uikit.item_window(items, opts) end
+
+---Draws a heading in the quest panel's look, with an optional box under it.
+---
+---The heading is the band of the quest panel's headings (CG 11014, `T_QuestComment`): a ★ at the left,
+---the band fading from black to dark green, the gold stripes of its slanted right end, 26 high and
+---575 wide by default (any width from 100). The text is the game's font in the heading's gold, made
+---smaller and tighter to fit. With `box`, the panel's see-through dark red box (4 pixel round
+---corners) follows, 29 under the heading's top and 32 in, `box` high; draw what goes in it at the
+---box's place it returns. The theme's `section.body` is the panel's own text style for it.
+---
+---Since: 2.32.0
+---
+---```lua
+---local x, y, w, h = rq.uikit.section("Rewards", { x = 420, y = 100, w = 560, box = 90 })
+---rq.hud.text(x + 12, y + 8, "300 gold", rq.uikit.themes.hub.section.body)
+---```
+---@param text string The heading.
+---@param opts? rq.UiPlace|{box?: integer} Place (default 575 wide), `id`, `box` (the box's height in pixels, 8 or more).
+---@return integer x The box's left edge, or the text's without a box.
+---@return integer y The box's top edge, or the heading's.
+---@return integer w The box's width, or the room for text in the heading.
+---@return integer h The box's height, or the heading's (26).
+function uikit.section(text, opts) end
+
+---Draws text in Frostbuy's speech balloon.
+---
+---The balloon is the shop's (CG 11110, `T_ShopMessage`): see-through cream with 12 pixel round
+---corners, 384 wide by default, and a tail under it pointing down. The text is the shop's (the
+---game's font, size 28, dark brown), wrapped to the width, lines 25 apart; the balloon grows to hold
+---them (94 high at least, the shop's). `tail_x` moves the tail along the bottom; `tail = false`
+---leaves it out. The tail is not mirrored, so it always leans as the shop's does.
+---
+---Since: 2.32.0
+---
+---```lua
+---rq.uikit.balloon("Welcome! Take a look around.", { x = 20, y = 87 })
+---rq.uikit.balloon("Over here!", { x = 600, y = 200, w = 260, tail_x = 200 })
+---```
+---@param text string The text; `\n`, `@` and `$` start a line, as in the game's own texts.
+---@param opts? rq.UiPlace|{tail?: boolean, tail_x?: integer} Place (default 384 wide; `h` sets the body's height), `id`, `tail` (default true), `tail_x` (the tail's left edge from the balloon's, in pixels; default 140).
+---@return integer x The body's left edge.
+---@return integer y The body's top edge.
+---@return integer w The body's width.
+---@return integer h The body's height, without the tail.
+function uikit.balloon(text, opts) end
 
 ---One row of `rq.uikit.options`.
 ---

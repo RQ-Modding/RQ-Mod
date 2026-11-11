@@ -10,6 +10,9 @@
 -- "status" (2.20.0): icon buttons in a character's status page's title row, up to two. See the
 -- status page's part below.
 --
+-- "map" (2.32.0): tabs on a quest's map, attached to the panel's left edge under the area map, up to
+-- four. See the map panel's part below.
+--
 -- Built on public calls only:
 --   rq.image.compose   CG 10051 (the menu's rows) and 10052 (the rows under the cursor) one row
 --                      taller: the MODS row is the game's own pieces (the SAVE row's plate, "MOD"
@@ -27,7 +30,7 @@ local gamebutton = {}
 rq.gamebutton = gamebutton
 
 local ROW_ID = 910050
-local GROUPS = { ["system-menu"] = true, ["skill-window"] = true, ["status"] = true }
+local GROUPS = { ["system-menu"] = true, ["skill-window"] = true, ["status"] = true, ["map"] = true }
 
 local entries = {}   -- in the order they were added
 local hooked, composed = false, false
@@ -587,6 +590,270 @@ local function st_install()
   end })
 end
 
+-- ---- The map panel ("map", 2.32.0) ----
+--
+-- A quest's map has the panel g_sMapParts (T_MapParts) at the right; its buttons are one group,
+-- m_sButton, made again for each area by T_MapParts::create. The panel has no free room, so a mod's
+-- buttons are tabs on its left edge, on the 3D view's right edge between the area map (AREA DISPLAY,
+-- CG 11371 at 695,11, 110x110) and the Magnum gauge (CG 11315 at 778,349): up to four of 40x44 at
+-- x 768, from y 129, 47 apart (notes/plans/plan-map-panel-windows.md).
+-- Built on public calls only:
+--   after T_MapParts@create    the shown entries as buttons of that group, ids 700101 to 700104
+--                              (T_ButtonGroup::addButtonRect, its three sprites set to faces composed
+--                              from the game's plain grey bar, CG 11009, and the icon). A button
+--                              exists only while its tab is shown: T_MapParts::setShow shows the
+--                              whole group, a hidden button too.
+--   before T_MapParts@delete   forget them (the group deletes its buttons)
+--   rq.on_frame                shown and enabled asked again every 200 ms, or at once after a set;
+--                              a change in the shown tabs makes them again
+--   before T_MapParts@exec     a click: T_Map::exec sends ids 700001 to 799999 there, and exec
+--                              does nothing for an id it does not know; on_click runs there
+--   after T_MapParts@showComment  the tip, in the game's comment window, left of the tabs (the
+--                              panel's own buttons have none). The panel calls it on every update
+--                              under the mouse and returns at once when that id is already shown:
+--                              so does the tip
+--   before T_Map@checkInput    the map takes input (every pass of its loop, in key mode too):
+--                              agents see the tabs only then, not while the quest storage screen
+--                              shows over the panel (the panel stays)
+--   after マップ_上/下/左/右矢印   the keys: Left from AREA DISPLAY (which stays today) reaches the
+--                              first tab, Up and Down move between the tabs, Right goes back
+-- Inactive (status 1) is the face darkened; pressed is the icon moved 1 right and 1 down, as on the
+-- status page.
+local MP_GRID = { "g_sMapParts", "m_sButton" }
+local MP_WIN = { "g_sMapParts" }
+local MP_BASE = 700100
+local MP_X, MP_Y, MP_W, MP_H, MP_STEP, MP_MAX = 768, 129, 40, 44, 47, 4
+local MP_FACE = { cg = 11009, src = { 0, 0, 228, 30 }, edge = { 6, 6, 6, 6 } }
+local MP_AREA_ON, MP_AREA_OFF = 700002, 700001
+
+local mp = {
+  hooked = false,
+  made = false,    -- the panel exists (after create, until delete)
+  by_id = {},      -- button id -> entry
+  faces = {},      -- icon -> { normal, inactive, pressed }
+  nfaces = 0,
+  sig = nil,       -- the shown tabs and their icons, as made
+  next_ask = 0,    -- rq.time_ms() of the next ask
+  dirty = false,   -- ask at the next frame
+  input_at = -1000, -- rq.time_ms() of the map's last checkInput
+  listed = false,  -- the tabs are agent controls now
+  tip_was = nil,   -- the panel's comment id before showComment
+}
+
+local function mp_faces(icon)
+  local f = mp.faces[icon]
+  if f then return f end
+  mp.nfaces = mp.nfaces + 1
+  local base = rq.uikit.layers(MP_FACE, 0, 0, MP_W, MP_H)
+  local w, h = rq.hud.cg_size(icon)
+  local il
+  if w and w > 0 and h > 0 then
+    local s = math.min(1, (MP_W - 8) / w, (MP_H - 10) / h)
+    local fw, fh = math.max(1, math.floor(w * s + 0.5)), math.max(1, math.floor(h * s + 0.5))
+    il = { x = (MP_W - fw) // 2, y = (MP_H - fh) // 2, w = fw, h = fh }
+  end
+  local function face(state, d, dark)
+    local layers = {}
+    for _, l in ipairs(base) do layers[#layers + 1] = l end
+    if il then layers[#layers + 1] = { cg = icon, x = il.x + d, y = il.y + d, w = il.w, h = il.h } end
+    if dark then layers[#layers + 1] = { fill = { 0, 0, 0, 128 } } end
+    return rq.image.compose(string.format("rq.gamebutton:map:%d:%d", mp.nfaces, state), layers,
+      { w = MP_W, h = MP_H })
+  end
+  f = { face(0, 0, false), face(1, 0, true), face(2, 1, false) }
+  mp.faces[icon] = f
+  return f
+end
+
+local function mp_control(e, id)
+  local name = e.mod .. "." .. e.id
+  if id then
+    pcall(rq.agent.control, name, { label = e.label, button = id })
+  else
+    pcall(rq.agent.control, name)
+  end
+end
+
+local function mp_erase()
+  for id, e in pairs(mp.by_id) do
+    mp_control(e, nil)
+    if mp.made then m(MP_GRID, "T_ButtonGroup@eraseButton", id) end
+    e.button, e.cell = nil, nil
+  end
+  mp.by_id, mp.sig = {}, nil
+end
+
+-- The z of the panel's buttons: AREA DISPLAY's (T_MapParts::create set the group's z before ours).
+local function mp_z()
+  local idx = m(MP_GRID, "T_ButtonGroup@getButtonIndex", MP_AREA_OFF)
+  if not idx or idx < 0 then return nil end
+  return m({ "g_sMapParts", "m_sButton", "m_asButton", idx }, "T_Button@getZ")
+end
+
+local function mp_add(e, cell)
+  local id = MP_BASE + cell
+  local f = mp_faces(e.icon)
+  m(MP_GRID, "T_ButtonGroup@addButtonRect", id, MP_W, MP_H, MP_W, MP_H, MP_W, MP_H)
+  local idx = m(MP_GRID, "T_ButtonGroup@getButtonIndex", id)
+  if not idx or idx < 0 then return false end
+  for state = 0, 2 do
+    m({ "g_sMapParts", "m_sButton", "m_asButton", idx, "m_aspButton", state, "m_spBase" },
+      "T_TextSprite@setCg", f[state + 1])
+  end
+  -- The game's frames (ＣＧ_システムボタン作成): yellow, red under the cursor while inactive.
+  m(MP_GRID, "T_ButtonGroup@setButtonFrame", id, 0, -1, -1, 216, 255, 0, 102, MIN_INT, MIN_INT, 0)
+  m(MP_GRID, "T_ButtonGroup@setButtonFrame", id, 1, -1, -1, 255, 0, 0, 128, MIN_INT, MIN_INT, 0)
+  m(MP_GRID, "T_ButtonGroup@setButtonFrame", id, 2, -1, -1, 216, 255, 0, 102, MIN_INT, MIN_INT, 0)
+  local z = mp_z()
+  if z and z > 0 then m(MP_GRID, "T_ButtonGroup@setButtonZ", id, z) end
+  m(MP_GRID, "T_ButtonGroup@setButtonPos", id, MP_X, MP_Y + MP_STEP * (cell - 1))
+  m(MP_GRID, "T_ButtonGroup@setButtonSoundClick", id, 0)
+  m(MP_GRID, "T_ButtonGroup@setButtonShow", id, call("マップ部品_表示中") == true)
+  m(MP_GRID, "T_ButtonGroup@setButtonActive", id, e.active)
+  e.button, e.cell = id, cell
+  mp.by_id[id] = e
+  if mp.listed then mp_control(e, id) end
+  return true
+end
+
+-- Asks every entry; makes the tabs again when the shown ones or their icons changed, else sets
+-- enabled on the ones there.
+local function mp_place()
+  if not mp.made then return end
+  local list, sig = {}, {}
+  for _, e in ipairs(entries) do
+    if e.group == "map" then
+      e.shown_now = false
+      if not e.removed then
+        local shown, bad = ask(e, "shown")
+        if shown == nil and not bad then shown = true end
+        e.shown_now = shown == true
+        if e.shown_now then
+          if #list < MP_MAX then
+            list[#list + 1] = e
+            sig[#sig + 1] = e.mod .. "." .. e.id .. ":" .. tostring(e.icon)
+          elseif not e.warned then
+            e.warned = true
+            logf("%s %s: no room left for a tab on the map (up to %d)", e.mod, e.id, MP_MAX)
+          end
+        end
+      end
+    end
+  end
+  sig = table.concat(sig, "\n")
+  if sig ~= mp.sig then
+    -- Not while the panel is suspended (a fight): a button made then would not be.
+    if call("マップ部品_サスペンド状態") == true then return end
+    mp_erase()
+    for cell, e in ipairs(list) do
+      e.active = is_enabled(e)
+      if not mp_add(e, cell) then logf("%s %s: the tab was not made", e.mod, e.id) end
+    end
+    mp.sig = sig
+    return
+  end
+  for id, e in pairs(mp.by_id) do
+    local active = is_enabled(e)
+    if active ~= e.active then
+      e.active = active
+      m(MP_GRID, "T_ButtonGroup@setButtonActive", id, active)
+    end
+  end
+end
+
+-- The tabs that take the keys, top to bottom.
+local function mp_keys()
+  local out = {}
+  for cell = 1, MP_MAX do
+    local e = mp.by_id[MP_BASE + cell]
+    if e and e.active then out[#out + 1] = e.button end
+  end
+  return out
+end
+
+local function mp_install()
+  mp.hooked = true
+  hook("T_MapParts@delete", { before = function()
+    for _, e in pairs(mp.by_id) do
+      mp_control(e, nil)
+      e.button, e.cell = nil, nil
+    end
+    mp.made, mp.by_id, mp.sig, mp.listed = false, {}, nil, false
+  end })
+  hook("T_MapParts@create", { after = function()
+    mp.made, mp.by_id, mp.sig = true, {}, nil
+    mp_place()
+  end })
+  hook("T_Map@checkInput", { before = function() mp.input_at = rq.time_ms() end })
+  rq.on_frame(function()
+    if not mp.made then return end
+    local now = rq.time_ms()
+    local live = now - mp.input_at < 300
+    if live ~= mp.listed then
+      mp.listed = live
+      for id, e in pairs(mp.by_id) do mp_control(e, live and id or nil) end
+    end
+    if not mp.dirty and now < mp.next_ask then return end
+    mp.dirty, mp.next_ask = false, now + 200
+    mp_place()
+  end)
+  hook("T_MapParts@exec", { before = function(h)
+    local e = mp.by_id[h.args[1]]
+    if not e then return end
+    m(MP_WIN, "T_MapParts@hideComment", -1)
+    if e.removed or not e.active then
+      call("効果音_エラー")
+      return
+    end
+    call("効果音_クリック")
+    local ok, err = pcall(e.on_click, e.handle)
+    if not ok then logf("%s %s on_click: %s", e.mod, e.id, tostring(err)) end
+  end })
+  hook("T_MapParts@showComment", { before = function()
+    mp.tip_was = rq.ain.global("g_sMapParts", "m_nCommentID")
+  end, after = function(h)
+    local id = h.args[1]
+    local e = mp.by_id[id]
+    if not e or e.removed or mp.tip_was == id then return end
+    local tip = ask(e, "tip")
+    if type(tip) ~= "string" or tip == "" then return end
+    local y = MP_Y + MP_STEP * (e.cell - 1)
+    -- The comment window starts a line at "@", as the game's own texts do. It goes left of the
+    -- tab: the game puts it at the screen's right edge, over the panel, when it does not fit.
+    call("ボタン説明_表示", id, e.label, (tip:gsub("\n", "@")), 0, y, 500)
+    local w = call("説明_幅")
+    if type(w) == "number" and w > 0 then call("説明_位置設定", math.max(0, MP_X - w - 2), y) end
+  end })
+  local function area() return call("マップ部品_エリア表示中") == true and MP_AREA_ON or MP_AREA_OFF end
+  local function step(from, d)
+    local list = mp_keys()
+    for i, id in ipairs(list) do
+      if id == from then return list[i + d] or from end
+    end
+    return from
+  end
+  hook("マップ_左矢印", { after = function(h)
+    local id = h.args[1]
+    if mp.by_id[id] then
+      h.result = id
+    elseif id == MP_AREA_ON or id == MP_AREA_OFF then
+      local first = mp_keys()[1]
+      if first then h.result = first end
+    end
+  end })
+  hook("マップ_右矢印", { after = function(h)
+    if mp.by_id[h.args[1]] then h.result = area() end
+  end })
+  hook("マップ_上矢印", { after = function(h)
+    local id = h.args[1]
+    if mp.by_id[id] then h.result = step(id, -1) end
+  end })
+  hook("マップ_下矢印", { after = function(h)
+    local id = h.args[1]
+    if mp.by_id[id] then h.result = step(id, 1) end
+  end })
+end
+
 local function check_text(v, what, where)
   if type(v) ~= "string" or v == "" then error(where .. ": " .. what .. " must be a non-empty string", 3) end
 end
@@ -601,9 +868,9 @@ function gamebutton.add(spec)
   if spec.enabled ~= nil and type(spec.enabled) ~= "boolean" and type(spec.enabled) ~= "function" then
     error("rq.gamebutton.add: enabled must be a boolean or a function", 2)
   end
-  if group == "status" then
+  if group == "status" or group == "map" then
     if math.type(spec.icon) ~= "integer" or spec.icon <= 0 then
-      error("rq.gamebutton.add: a \"status\" entry needs icon, a CG number", 2)
+      error("rq.gamebutton.add: a \"" .. group .. "\" entry needs icon, a CG number", 2)
     end
     if spec.tip ~= nil and type(spec.tip) ~= "string" and type(spec.tip) ~= "function" then
       error("rq.gamebutton.add: tip must be a string or a function", 2)
@@ -629,12 +896,12 @@ function gamebutton.add(spec)
     if opts.label ~= nil then check_text(opts.label, "label", "rq.gamebutton handle set"); e.label = opts.label end
     -- skill-window: a label, a tip or enabled shows from the next build of the list.
     if opts.tip ~= nil then
-      if type(opts.tip) ~= "string" and not (group == "status" and type(opts.tip) == "function") then
+      if type(opts.tip) ~= "string" and not ((group == "status" or group == "map") and type(opts.tip) == "function") then
         error("rq.gamebutton handle set: tip must be a string", 2)
       end
       e.tip = opts.tip ~= "" and opts.tip or nil
     end
-    if group == "status" then
+    if group == "status" or group == "map" then
       if opts.icon ~= nil then
         if math.type(opts.icon) ~= "integer" or opts.icon <= 0 then
           error("rq.gamebutton handle set: icon must be a CG number", 2)
@@ -654,8 +921,9 @@ function gamebutton.add(spec)
       end
       e.enabled = opts.enabled
     end
-    -- status: at once while the page is open.
+    -- status: at once while the page is open. map: at the next frame.
     if group == "status" and st.made then st_place(rq.statuspage.chara()) end
+    if group == "map" then mp.dirty = true end
   end
   function handle.remove()
     if e.removed then return end
@@ -665,6 +933,8 @@ function gamebutton.add(spec)
     elseif group == "status" then
       if e.button then st_control(e, nil) end
       if st.made then st_place(rq.statuspage.chara()) end
+    elseif group == "map" then
+      mp.dirty = true
     else
       if e.button then
         sw_control(e, nil)
@@ -682,6 +952,9 @@ function gamebutton.add(spec)
   elseif group == "status" then
     if not st.hooked then st_install() end
     if st.made then st_place(rq.statuspage.chara()) end
+  elseif group == "map" then
+    if not mp.hooked then mp_install() end
+    mp.dirty = true
   elseif not sw.hooked then
     sw_install()
   end
@@ -709,9 +982,17 @@ function gamebutton.groups()
       shown = e.shown_now == true, placed = e.placed == true, button = e.button,
       x = e.cell and ST_CELLS[e.cell][1], y = e.cell and ST_CELLS[e.cell][2] }
   end
+  local map = {}
+  for _, e in ipairs(live("map")) do
+    map[#map + 1] = { id = e.mod .. "." .. e.id, mod = e.mod, label = e.label,
+      enabled = e.button and e.active == true or (not e.button and is_enabled(e)),
+      shown = e.shown_now == true, placed = e.button ~= nil, button = e.button,
+      x = e.cell and MP_X, y = e.cell and (MP_Y + MP_STEP * (e.cell - 1)) }
+  end
   return {
     { name = "system-menu", open = mode > 0, row = #list > 0, entries = list },
     { name = "skill-window", open = sw_open(), entries = skill },
     { name = "status", open = rq.statuspage.chara() ~= nil, entries = status },
+    { name = "map", open = mp.made, entries = map },
   }
 end

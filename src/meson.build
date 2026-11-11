@@ -285,6 +285,11 @@ if get_option('modloader')
         input: 'lua/uikit_vault.lua',
         output: 'rq_uikit_vault_lua.c',
         command: [py, meson.current_source_dir() / 'gen_lua_embed.py', '@INPUT@', '@OUTPUT@', 'rq_uikit_vault_lua'])
+    rq_uikit_windows = custom_target(
+        'rq_uikit_windows_lua_c',
+        input: 'lua/uikit_windows.lua',
+        output: 'rq_uikit_windows_lua.c',
+        command: [py, meson.current_source_dir() / 'gen_lua_embed.py', '@INPUT@', '@OUTPUT@', 'rq_uikit_windows_lua'])
     rq_config = custom_target(
         'rq_config_lua_c',
         input: 'lua/config.lua',
@@ -364,7 +369,7 @@ if get_option('modloader')
                  'modloader_chara.c', 'modloader_shop.c',
                  'modloader_debug.c', 'modloader_discord.c',
                  'modloader_saves.c', 'modloader_roster.c', 'modloader_crash.c', 'modloader_events.c', 'modloader_scene.c', 'modloader_anim.c', 'modloader_image.c', 'modloader_item.c',
-                 'modloader_uikit.c', 'modloader_config.c', 'modloader_sprite.c', 'modloader_unwind.c', 'modloader_ids.c', rq_stamp, rq_uikit, rq_uikit_hub, rq_uikit_vault, rq_dialog, rq_config, rq_sprite, rq_scene, rq_ids, rq_battle_lua, rq_status_lua, rq_music_lua, rq_item_lua, rq_castle_lua, rq_statuspage_lua, rq_gamebutton_lua, rq_skilllist_lua, rq_gamedata_lua, rq_dungeon_lua]
+                 'modloader_uikit.c', 'modloader_config.c', 'modloader_sprite.c', 'modloader_unwind.c', 'modloader_ids.c', rq_stamp, rq_uikit, rq_uikit_hub, rq_uikit_vault, rq_uikit_windows, rq_dialog, rq_config, rq_sprite, rq_scene, rq_ids, rq_battle_lua, rq_status_lua, rq_music_lua, rq_item_lua, rq_castle_lua, rq_statuspage_lua, rq_gamebutton_lua, rq_skilllist_lua, rq_gamedata_lua, rq_dungeon_lua]
     if host_machine.system() == 'windows'
         static_link_args += ['-lpsapi', '-lshell32', '-lole32']
     endif

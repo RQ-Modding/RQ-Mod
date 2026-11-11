@@ -609,14 +609,82 @@ end
 
 local ESC = input.code("esc")
 
+-- With style = "parchment" (2.32.0) the labels inside are Trivia's brown text: the theme in use
+-- with its label and dim changed, made once for each theme.
+local parchment_themes = setmetatable({}, { __mode = "k" })
+local function parchment_theme(base, pa)
+  local t = parchment_themes[base]
+  if t then return t end
+  t = {}
+  for k, v in pairs(base) do t[k] = v end
+  t.label, t.dim = pa.text, pa.dim
+  parchment_themes[base] = t
+  return t
+end
+
+-- A right click or Esc closes a page when let go, so the game does not get the rest of it. Only a
+-- press the page saw counts: not the one that closed a choice menu over it. Esc that belongs to a
+-- number field's typing (2.22.0) puts its number back; it does not close.
+local function page_closing(st, closed)
+  local esc = input.key(ESC) and not kit.typed(ESC)
+  if frame.blind then
+    st.esc = nil
+  elseif esc and not st.esc_was then
+    st.esc = true
+  end
+  st.esc_was = esc
+  if not closed and (mouse.right_released or (st.esc and not esc)) then
+    closed = true
+    play("click")
+  end
+  if not esc then st.esc = nil end
+  return closed
+end
+
+-- The widgets inside a page, in a column at the box, clipped to it.
+local function page_content(o, fn, cx, cy, cw, ch)
+  hud.clip_push(cx, cy, cw, ch)
+  local ok, err = pcall(ui.col, { x = cx, y = cy, w = cw, gap = o.gap or 0 }, function() fn(cx, cy, cw, ch) end)
+  hud.clip_pop()
+  if not ok then error(err, 0) end
+end
+
+-- Trivia's paper (2.32.0): the parchment, the title in its text at the top left, the close button at
+-- the top right inside the vine strip, and the labels inside in its brown.
+local function parchment_page(o, fn, pa, st, x, y, w, h)
+  ui.draw(pa.paper, x, y, w, h)
+  local top = y + pa.pad_y
+  if o.title then
+    hud.text(x + pa.pad_x, top, o.title, with(pa.text, { h = pa.title_h, valign = "center" }))
+    top = top + pa.title_h
+  end
+  local closed = ui.close({ x = x + w - 24 - pa.close_x, y = y + pa.close_y, id = o.id ~= nil and o.id or "page" })
+  closed = page_closing(st, closed)
+  show("page", o.id or o.title or "page", o.title, x, y, w, h)
+  if fn then
+    local was = ui.theme
+    ui.theme = parchment_theme(was, pa)
+    local ok, err = pcall(page_content, o, fn, x + pa.pad_x, top, w - 2 * pa.pad_x, y + h - pa.pad_b - top)
+    ui.theme = was
+    if not ok then error(err, 0) end
+  end
+  if closed then st.esc = nil end
+  return not closed
+end
+
 ---A page of a mod's own over the hub, under the town tabs and above the footer. While it shows
 ---the game gets no mouse and no keys. It closes by its close button, a right click or Esc.
----opts: id, title, x, y, w, h (default 0, 56, 1024, 536), pad, gap. fn runs in a column inside.
+---opts: id, title, x, y, w, h (default 0, 56, 1024, 536), pad, gap, style ("hub", or "parchment"
+---for Trivia's paper, 2.32.0: 162, 56, 700, 536 by default). fn runs in a column inside.
 ---Returns true while it stays open: false on the update it closes.
 function ui.page(o, fn)
   if type(o) == "function" then o, fn = nil, o end
   o = o or {}
-  local p = T("hub_page")
+  if o.style ~= nil and o.style ~= "hub" and o.style ~= "parchment" then
+    error("uikit.page: style is \"hub\" or \"parchment\"", 2)
+  end
+  local pa = o.style == "parchment" and T("parchment") or nil
+  local p = pa or T("hub_page")
   local id = id_of(o, "page")
   local st = ui.state(id)
   local x, y, w, h = o.x or p.x, o.y or p.y, o.w or p.w, o.h or p.h
@@ -628,6 +696,9 @@ function ui.page(o, fn)
     ui.keys() -- the arrows, Enter, Page Up and Down move the kit's cursor (2.12.0)
   end
   frame.over = true
+  if pa then
+    return parchment_page(o, fn, pa, st, x, y, w, h)
+  end
   local d = p.dim
   hud.rect(x, y, w, h, d.r, d.g, d.b, d.a)
   box_line(x, y, w, h, p.outer)
@@ -645,29 +716,9 @@ function ui.page(o, fn)
     top = y + 8 + 45
   end
   local closed = ui.close({ x = x + w - 24 - pad, y = y + pad - 4, id = o.id ~= nil and o.id or "page" })
-  -- A right click or Esc closes when let go, so the game does not get the rest of it. Only a
-  -- press the page saw counts: not the one that closed a choice menu over it.
-  -- Esc that belongs to a number field's typing (2.22.0) puts its number back; it does not close.
-  local esc = input.key(ESC) and not kit.typed(ESC)
-  if frame.blind then
-    st.esc = nil
-  elseif esc and not st.esc_was then
-    st.esc = true
-  end
-  st.esc_was = esc
-  if not closed and (mouse.right_released or (st.esc and not esc)) then
-    closed = true
-    play("click")
-  end
-  if not esc then st.esc = nil end
+  closed = page_closing(st, closed)
   show("page", o.id or o.title or "page", o.title, x, y, w, h)
-  if fn then
-    local cx, cy, cw, ch = x + pad, top, w - 2 * pad, y + h - pad - top
-    hud.clip_push(cx, cy, cw, ch)
-    local ok, err = pcall(ui.col, { x = cx, y = cy, w = cw, gap = o.gap or 0 }, function() fn(cx, cy, cw, ch) end)
-    hud.clip_pop()
-    if not ok then error(err, 0) end
-  end
+  if fn then page_content(o, fn, x + pad, top, w - 2 * pad, y + h - pad - top) end
   if closed then st.esc = nil end
   return not closed
 end
