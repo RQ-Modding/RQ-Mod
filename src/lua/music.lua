@@ -12,7 +12,9 @@
 -- the next mod down in load order that replaced it.
 -- SYS_PlayBGM returns at once when the number is _音楽 (the track playing); setting _音楽 to
 -- the lowest integer makes it start the track again, as the game's own load does.
-local rq, c = ...
+-- rq.battle.start's music (2.36.0): basics.lua sets it for one fight through the loader's private
+-- table (priv.fight_music); it is applied at the fight's own music, after the on_play callbacks.
+local rq, c, priv = ...
 local call, hook, global, set_global = rq.ain.call, rq.ain.hook, rq.ain.global, rq.ain.set_global
 
 local music = {}
@@ -28,6 +30,7 @@ local unchecked = {}      -- no -> true: replaced before the game opened its mus
 local check_off
 local from_mod = false    -- rq.music.play is calling the game
 local entries = {}        -- no -> { { mod, full, rel, opts }, ... } in the order they came
+local fight_music         -- { track } or { full, rel, mod }: rq.battle.start's, for its fight
 
 local function mod_id()
   return rq.mod and rq.mod.id and rq.mod.id() or "?"
@@ -203,6 +206,23 @@ local function install()
         if fn then
           local ok, err = pcall(fn, ctx)
           if not ok then rq.log("rq.music.on_play: " .. tostring(err)) end
+        end
+      end
+      if fight_music and (kind == "fight" or kind == "boss") then
+        local s = fight_music
+        if s.track then
+          if once and once.no == ctx.no then
+            once = nil
+            c.clear_once()
+          end
+          ctx.no = s.track
+        else
+          local ok, err = pcall(c.set, ctx.no, s.full, nil, nil, 100, s.mod, true, s.rel)
+          if ok then
+            once = { no = ctx.no, file = s.rel, mod = s.mod }
+          else
+            rq.log("rq.battle.start: music: " .. tostring(err))
+          end
         end
       end
       if ctx.no ~= no then
@@ -618,4 +638,27 @@ function music.on_play(fn)
   cbs[#cbs + 1] = cell
   if not hooked then install() end
   return function() cell.fn = nil end
+end
+
+-- ---- rq.battle.start's music (2.36.0) ----
+
+-- Checks a fight's music while the mod that asked is on the stack: a game track, or a file in
+-- its folder. Returns what fight_music takes; raises for a track the game has not, a path
+-- outside the mod's folder, or a file that is not a sound.
+priv.fight_music_check = function(v)
+  if math.type(v) == "integer" then
+    if v < 1 or not c.exists(v) then error("the game has no music " .. v, 0) end
+    return { track = v }
+  end
+  local mod = mod_id()
+  local full = c.resolve(v)
+  c.set(51, full, nil, nil, 100, mod, true, v) -- the file is checked now
+  c.clear_once()
+  return { full = full, rel = v, mod = mod }
+end
+
+-- Set before the fight, nil after it.
+priv.fight_music = function(spec)
+  fight_music = spec
+  if spec and not hooked then install() end
 end

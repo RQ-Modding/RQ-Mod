@@ -367,7 +367,8 @@ void rq_music_open_lua(lua_State *L, int rq_index)
 	}
 	lua_pushvalue(L, rq_index);
 	luaL_newlib(L, c);
-	if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+	rq_private_push(L); /* 2.36.0: rq.battle.start's music */
+	if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
 		rq_log("music.lua: %s", lua_tostring(L, -1));
 		lua_pop(L, 1);
 	}

@@ -1,4 +1,5 @@
-/* Setting up a situation without raw game names: rq.party, rq.battle.start, rq.random. */
+/* Setting up a situation without raw game names: rq.party, rq.random, and the internal calls of
+ * rq.battle.start (lua/basics.lua since 2.36.0). */
 
 #ifdef RQ_MODLOADER
 
@@ -38,22 +39,6 @@ static int call_ints(const char *utf, const int *args, int n)
 	if (ain->functions[fno].return_type.data != AIN_VOID)
 		ret = stack_pop().i;
 	return ret;
-}
-
-/* Enemy numbers live in a long list of ifs in Ｃ敵登録, with no table to look in. So load
- * this one on enemy slot 1, as a fight would, and see if it got a name. Slot 1 is only
- * used during a battle. */
-static int monster_exists(int no)
-{
-	int slot = 1;
-	int args[2] = { slot, no };
-	int named;
-
-	call_ints("Ｃ初期化", &slot, 1);
-	call_ints("Ｃ敵登録", args, 2);
-	named = rq_query_chara_named(slot);
-	call_ints("Ｃ初期化", &slot, 1);
-	return named;
 }
 
 static struct page *party_array(void)
@@ -141,56 +126,30 @@ int rq_lua_party_set(lua_State *L)
 	return 0;
 }
 
-/* Blocks until the fight and the screens after it end, like the commands of rq.scene. */
-int rq_lua_battle_start(lua_State *L)
+/* rq.battle.start runs in lua/basics.lua since 2.36.0, over rq.ain.call. These two are its
+ * internal calls, in the loader's private table (never given to a mod): the fight marked as
+ * started (rq.party.set refuses during it; a restart inside it forgets it), and whether a fight
+ * runs now. */
+static int l_fight_mark(lua_State *L)
 {
-	struct page *pta;
-	int args[RANKS + 1];
-	int i, has_enemy = 0, has_ally = 0, re, bar0, map0;
+	g_in_start = lua_toboolean(L, 1);
+	return 0;
+}
 
-	luaL_checktype(L, 1, LUA_TTABLE);
-	lua_getfield(L, 1, "enemies");
-	luaL_checktype(L, -1, LUA_TTABLE);
-	read_ranks(L, lua_gettop(L), args + 1, "rq.battle.start");
-	lua_pop(L, 1);
-	lua_getfield(L, 1, "exp");
-	args[0] = (int)luaL_optinteger(L, -1, 0);
-	lua_pop(L, 1);
-	if (in_battle())
-		return luaL_error(L, "rq.battle.start: a battle is already running");
-	for (i = 1; i <= RANKS; i++) {
-		if (!args[i])
-			continue;
-		if (args[i] < 0 || !monster_exists(args[i]))
-			return luaL_error(L, "rq.battle.start: no monster number %d", args[i]);
-		has_enemy = 1;
-	}
-	if (!has_enemy)
-		return luaL_error(L, "rq.battle.start: no enemies");
-	pta = party_array();
-	for (i = 1; pta && i <= RANKS && i < pta->nr_vars; i++) {
-		if (pta->values[i].i)
-			has_ally = 1;
-	}
-	/* An empty party never gets a turn and the fight never ends. */
-	if (!has_ally)
-		return luaL_error(L, "rq.battle.start: the party is empty");
-	bar0 = call_ints("システムバー_モード", NULL, 0);
-	map0 = call_ints("システムバー_マップ番号", NULL, 0);
-	g_in_start = 1;
-	re = call_ints("特定戦闘処理", args, RANKS + 1);
-	g_in_start = 0;
-	/* On a quest's map the game puts its screen back after a fight. Anywhere else (the town,
-	 * the Party screen, Quests, the castle) the fight's black layer stayed over the screen and
-	 * its footer was gone: both are put back here (2.22.1). */
-	if (bar0 >= 0 && call_ints("システムバー_モード", NULL, 0) != bar0) {
-		int none[3] = { INT_MIN, INT_MIN, INT_MIN };
-		int bar[3] = { bar0, map0, 1 };
-		call_ints("全画面色", none, 3);
-		call_ints("システムバー_作成", bar, 3);
-	}
-	lua_pushstring(L, re == 1 ? "won" : re == 2 ? "lost" : "other");
+static int l_in_battle(lua_State *L)
+{
+	lua_pushboolean(L, in_battle());
 	return 1;
+}
+
+void rq_state_private(lua_State *L, int priv)
+{
+	lua_pushcfunction(L, l_fight_mark);
+	lua_setfield(L, priv, "fight_mark");
+	lua_pushcfunction(L, l_in_battle);
+	lua_setfield(L, priv, "in_battle");
+	lua_pushcfunction(L, rq_lua_battle_on_start_first);
+	lua_setfield(L, priv, "on_start_first");
 }
 
 int rq_lua_random_seed(lua_State *L)

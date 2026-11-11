@@ -4150,7 +4150,9 @@ function battle.on_select_key(fn) end
 ---Calls `fn` once per fight, at the end of `Ｔ戦闘前初期化`.
 ---
 ---Every start-of-fight effect of the game has already run (skills such as Cough, an ambush, poison
----tea), so `rq.chara.get` and `set` on the lists see the real state.
+---tea), so `rq.chara.get` and `set` on the lists see the real state. The enemies were built before
+---it: change how they are built with `rq.monster.on_create`. In a fight of `rq.battle.start`, its
+---`escape` is written before the first callback.
 ---
 ---Since: 0.5.0
 ---Changed: 0.23.0 Returns a remover.
@@ -4199,6 +4201,7 @@ function battle.on_end(fn) end
 ---Calls `fn` once per fight that pays, after the game has summed the gold and EXP and before the result screen shows them.
 ---
 ---What the callbacks leave is what the result screen shows, what the party gets and the gold paid.
+---In a fight of `rq.battle.start` with `gold`, `ctx.gold` holds that gold when the first callback runs.
 ---Callbacks run in load order, each one reading what the ones before wrote. A fight the enemies ran
 ---from pays as a won one does (`ctx.result` 4); a fight lost pays nothing and calls nothing.
 ---
@@ -4857,31 +4860,86 @@ function battle.actor() end
 ---@return boolean usable true when the skill can be chosen.
 function battle.skill_usable(actor, skill_no) end
 
----Opens a fight with the current party, using the game's scripted fight.
+---What `rq.battle.start` takes. Only `enemies` is needed.
+---@class rq.FightOpts
+---@field enemies integer[] Up to five monster numbers (`rq.ids.monster`) in rank order, 0 for an empty rank.
+---@field exp? integer Experience for the win. Default 0.
+---@field boss? boolean The game's boss fight: fight rank 2, no escape, 999 actions, no ambush, no capture, the fight lost when no ally can act, the boss music (53, or the boss's own) and the `boss` moment of `rq.music.on_play`. Since 2.36.0.
+---@field strong? boolean Needs `boss`. The game's stronger boss (`◆敵強化率` 130): a "+" on the name and ×1.3 in world 1; HP ×2 and ×1.3 in worlds 2 and 3. Since 2.36.0.
+---@field double_hp? boolean Needs `boss`. Each enemy's HP twice (four times in world 3), after `rq.monster.on_create`. With `strong`, both apply. Since 2.36.0.
+---@field names? table<integer, string> A name per rank, 1 to 5, shown in the fight in place of the monster's; `""` keeps the monster's. Since 2.36.0.
+---@field background? integer|string A background for this fight: a number or a name from `rq.battle.backgrounds`. The map's own is put back after. Since 2.36.0.
+---@field music? integer|string The fight's music: a game track (`rq.ids.music`) or a file in the calling mod's folder. It plays over the game's choice and over `rq.music.on_play`'s callbacks, which still see the game's track. Since 2.36.0.
+---@field escape? integer The escape chance, 0 to 100, in a boss fight too. It is written after the game's own and before every `rq.battle.on_start` callback. Since 2.36.0.
+---@field gold? integer The gold the fight pays, 0 or more: `rq.battle.on_reward`'s `ctx.gold` before the mods' callbacks, which may still change it. Default: the game's. Since 2.36.0.
+
+---How a fight from `rq.battle.start` ended, its second value.
+---@class rq.FightResult
+---@field code integer The game's end (`rq.battle.on_end`'s `result`): 1 won, 2 lost, 3 a draw (the enemies gone with no ally standing), 4 the actions ran out and the enemies left, 5 the party fled (Escape), 6 fled by skill 217.
+---@field how "won"|"lost"|"draw"|"time"|"fled"|"other" The end in a word.
+---@field exp integer The fight's EXP the result screen showed, after every `rq.battle.on_reward` callback; 0 when the fight paid nothing.
+---@field gold integer The gold paid, after every `rq.battle.on_reward` callback; 0 when the fight paid nothing.
+---@field kills integer The enemies defeated.
+---@field fallen integer[] The allies' roster slots at 0 HP at the end.
+
+---Opens a fight with the current party, using the game's scripted fight or its boss fight.
 ---
 ---It blocks until the fight and its result screens end, as `rq.scene` commands do, while
----`rq.on_frame` keeps running; call it from a coroutine if the same mod plays the fight. It counts as
----a fight of the current quest.
+---`rq.on_frame` keeps running; call it from a job (`rq.spawn`) or a coroutine if the same mod plays
+---the fight. It counts as a fight of the current quest.
 ---
 ---It may start from any screen with a footer: a quest's map, the town, Rance Castle, the Party
 ---screen, Quests. While it runs, `rq.ui.get` says `battle`; after it, the screen it started from is
 ---drawn again with its footer.
 ---
----Raises an error for no enemies, an unknown monster, an empty party, or during a fight.
+---A won fight and one whose actions ran out pay (`rq.battle.on_reward`); a lost or fled one pays
+---nothing. The enemies are built as in any fight: `rq.monster.edit` and `rq.monster.on_create`
+---apply.
+---
+---Raises an error for an unknown option or a value of the wrong kind, no enemies, an unknown
+---monster, `strong` or `double_hp` without `boss`, an unknown background or track, a music file
+---that is missing or outside the mod's folder, an empty party, or during a fight.
 ---
 ---Since: 0.22.0
 ---Changed: 2.22.1 Away from a quest's map, the screen under the fight came back black and without
 ---its footer, and `rq.ui.get` named that screen during the fight, not `battle`.
+---Changed: 2.36.0 The options `boss`, `strong`, `double_hp`, `names`, `background`, `music`,
+---`escape` and `gold`, and the second value. An unknown option raises an error (it was ignored).
 ---
 ---```lua
----coroutine.wrap(function()
----  local result = rq.battle.start({ enemies = { 0, boss_no, 0 } })
----  rq.log("fight:", result)
----end)()
+---rq.spawn(function()
+---  local r, info = rq.battle.start({
+---    enemies = { 0, rq.ids.monster.COCKROACH, 0 }, exp = 500,
+---    boss = true, strong = true, names = { [2] = "The Shadow" },
+---    background = "bgA_00_douk", music = "music/shadow.ogg", gold = 1000,
+---  })
+---  rq.log(r, info.how, info.exp, info.gold, #info.fallen)
+---end)
 ---```
----@param opts {enemies: integer[], exp?: integer} `enemies`: up to five monster numbers (`rq.ids.monster`) in rank order, 0 for an empty rank. `exp`: experience for the win. Default 0.
----@return "won"|"lost"|"other" result How the fight ended.
+---@param opts rq.FightOpts The fight.
+---@return "won"|"lost"|"other" result How the fight ended: "other" for a draw, the actions run out or a flight.
+---@return rq.FightResult info The end in detail and what the fight paid. Since 2.36.0.
 function battle.start(opts) end
+
+---One of the game's fight backgrounds.
+---@class rq.FightBackground
+---@field no integer Its number, for `rq.battle.start`'s `background`.
+---@field name string Its name, the picture's data name (`bgA_00_douk`).
+
+---Lists the game's fight backgrounds, in the game's order.
+---
+---Each map sets the background of its fights when it loads, by the map's kind;
+---`rq.battle.start`'s `background` chooses one for its own fight.
+---
+---Raises an error before the game runs.
+---
+---Since: 2.36.0
+---
+---```lua
+---for _, b in ipairs(rq.battle.backgrounds()) do rq.log(b.no, b.name) end
+---```
+---@return rq.FightBackground[] list The backgrounds.
+function battle.backgrounds() end
 
 ---Decides every accuracy check, of allies and enemies, until `force_hit(nil)`.
 ---
@@ -6289,6 +6347,230 @@ function game.add_charisma(n) end
 ---@return integer max The points the rank now needs.
 function game.set_charisma(rank, points) end
 
+---Returns the game's mode: Classic or TADA.
+---
+---TADA mode is the choice at the support menu (`◆２倍モード`). It doubles a fight's EXP and gold
+---and a familiar's growth; Custom TADA Mode changes those numbers.
+---
+---There is no easy mode to report. Its flags (`◆ｅａｓｙモード`) are a leftover of the first Rance
+---Quest: Magnum never sets them, and the quest menu clears them each time it opens.
+---
+---Since: 2.36.0
+---
+---```lua
+---if rq.game.mode() == "tada" then rq.log("TADA mode") end
+---```
+---@return "classic"|"tada"|nil mode nil before a save is loaded.
+function game.mode() end
+
+---Sets the game's mode, as the choice at the support menu does. It stays in the save.
+---
+---Raises an error for another text, or before a save is loaded.
+---
+---Since: 2.36.0
+---
+---```lua
+---rq.game.set_mode("classic")
+---```
+---@param mode "classic"|"tada" The mode.
+function game.set_mode(mode) end
+
+---The game's list of monsters: read a monster's data, change it each time the game builds it, and
+---change each enemy a fight builds.
+---
+---The game builds an enemy from its list each time a fight opens (`Ｃ敵登録`), then applies the
+---world's rules: in worlds 2 and 3 more HP, attack, defense and magic, a tier (×2 to ×7) and a
+---marked name; race 60 stronger; a boss fight's `strong` ×1.3. `get` and `edit` work on the list's
+---numbers, before those rules; `on_create` sees what was built, after them.
+---
+---Since: 2.36.0
+---
+---```lua
+---rq.monster.edit(rq.ids.monster.COCKROACH, { name = "Big Cockroach", hp = 200 })
+---```
+---@class rq.monster
+local monster = {}
+
+---A skill in a monster's list (`rq.Monster.skills`).
+---@class rq.MonsterSkill
+---@field slot integer Its position, 1 to 5.
+---@field id integer The skill number (`rq.skill.get`).
+---@field text string The text the fight shows when the monster uses it.
+---@field motion integer The motion it plays.
+---@field chance integer How often the monster chooses it, as the game weighs it.
+
+---A monster's data, as `rq.monster.get` returns it. The names are `rq.chara.get`'s.
+---@class rq.Monster
+---@field no integer The monster number (`rq.ids.monster`).
+---@field name string The name.
+---@field model integer The 3D model.
+---@field boss boolean The monster is a boss.
+---@field race integer The race (`rq.ids.race`).
+---@field type integer The type value (`rq.ids.chara_type`).
+---@field level integer The level.
+---@field hp integer HP.
+---@field spd integer Speed.
+---@field atk integer Attack.
+---@field def integer Defense.
+---@field mag integer Magic.
+---@field mdef integer Magic defense.
+---@field hit integer Accuracy.
+---@field eva integer Evasion.
+---@field crit integer Critical rate.
+---@field impact integer Impact rate.
+---@field resist integer Resistance.
+---@field weak_element integer The weak element (`rq.ids.element`).
+---@field fire_res integer Fire resistance.
+---@field ice_res integer Ice resistance.
+---@field thunder_res integer Thunder resistance.
+---@field light_res integer Light resistance.
+---@field dark_res integer Dark resistance.
+---@field skills rq.MonsterSkill[] Up to five, in the game's order; the empty positions are left out.
+---@field lines {wait?: string, attack?: string, big?: string, support?: string} The lines the fight shows: waiting, attacking, a big move, supporting. A kind the monster has not is nil.
+
+---A skill's fields in `rq.MonsterEdit.skills`: the ones given replace the list's.
+---@class rq.MonsterSkillEdit
+---@field id? integer The skill number.
+---@field text? string The text the fight shows.
+---@field motion? integer The motion.
+---@field chance? integer How often the monster chooses it.
+
+---What `rq.monster.edit` changes. Every field is optional; the numbers are whole and 0 or more.
+---@class rq.MonsterEdit
+---@field name? string The name, not empty.
+---@field model? integer The 3D model.
+---@field boss? boolean The monster is a boss.
+---@field race? integer The race.
+---@field type? integer The type value.
+---@field level? integer The level.
+---@field hp? integer HP.
+---@field spd? integer Speed.
+---@field atk? integer Attack.
+---@field def? integer Defense.
+---@field mag? integer Magic.
+---@field mdef? integer Magic defense.
+---@field hit? integer Accuracy.
+---@field eva? integer Evasion.
+---@field crit? integer Critical rate.
+---@field impact? integer Impact rate.
+---@field resist? integer Resistance.
+---@field weak_element? integer The weak element.
+---@field fire_res? integer Fire resistance.
+---@field ice_res? integer Ice resistance.
+---@field thunder_res? integer Thunder resistance.
+---@field light_res? integer Light resistance.
+---@field dark_res? integer Dark resistance.
+---@field skills? table<integer, rq.MonsterSkillEdit|false> By position, 1 to 5: a table changes the fields it gives; `false` empties the position.
+---@field lines? {wait?: string|false, attack?: string|false, big?: string|false, support?: string|false} By kind: a text replaces the line; `false` removes it.
+
+---What `rq.monster.on_create` callbacks get. Fields marked writable change the enemy in its slot.
+---@class rq.MonsterCreateCtx
+---@field iic integer The slot: 1 to 5 for an enemy, 10 for the familiar.
+---@field no integer The monster number.
+---@field rank integer The fight rank the enemy stands in, 1 to 5; 0 for the familiar.
+---@field familiar boolean The familiar of the party's held item, not an enemy.
+---@field world integer The world, 1 to 3.
+---@field boss boolean The monster is a boss (its own flag, not the fight's).
+---@field fight_rank integer The fight's kind (`◆戦闘ランク`): 0 a scripted fight, 1 an enemy on the map, 2 a boss fight.
+---@field group integer The fight group (`◆戦闘グループ`).
+---@field strength integer The game's strength rate (`◆敵強化率`): 130 in a boss fight with `strong`, else 0.
+---@field base rq.Monster The monster's data before the world's rules, as `rq.monster.get` gives it (a copy).
+---@field name string Writable. The name, not empty.
+---@field level integer Writable. The level.
+---@field hp integer Writable. The most HP; the current HP is set to it.
+---@field spd integer Writable. Speed.
+---@field atk integer Writable. Attack.
+---@field def integer Writable. Defense.
+---@field mag integer Writable. Magic.
+---@field mdef integer Writable. Magic defense.
+---@field hit integer Writable. Accuracy.
+---@field eva integer Writable. Evasion.
+---@field crit integer Writable. Critical rate.
+---@field impact integer Writable. Impact rate.
+---@field resist integer Writable. Resistance.
+---@field weak_element integer Writable. The weak element.
+---@field fire_res integer Writable. Fire resistance.
+---@field ice_res integer Writable. Ice resistance.
+---@field thunder_res integer Writable. Thunder resistance.
+---@field light_res integer Writable. Light resistance.
+---@field dark_res integer Writable. Dark resistance.
+
+---Returns a monster's data from the game's list.
+---
+---The numbers are the list's, with every mod's `rq.monster.edit` applied, before the world's rules
+---and the fight's. Monsters 491 to 495 give what the current custom name builds (Kaito (True),
+---Prototype #1 and the others a scene names).
+---
+---It builds the monster in a slot the game never uses (9) and empties it after; it draws no random
+---number for the world's tiers. It works anywhere a save is loaded, in a fight too.
+---
+---Raises an error for a number that is not whole and 1 or more, or before the game runs.
+---
+---Since: 2.36.0
+---
+---```lua
+---local m = rq.monster.get(rq.ids.monster.COCKROACH)
+---rq.log(m.name, m.hp, m.atk, #m.skills)
+---```
+---@param no integer The monster number (`rq.ids.monster`).
+---@return rq.Monster|nil data nil for a number the game's list does not have.
+function monster.get(no) end
+
+---Changes a monster each time the game builds it: in fights, as a familiar, in the game's name
+---lookups and in `rq.monster.get`.
+---
+---The patch replaces the list's numbers before the game applies the world's rules, so the world's
+---tiers, race 60 and a boss fight's `strong` scale the new numbers as they scale the game's. The
+---level and the lines are written after the build.
+---
+---Each mod keeps one patch per monster: calling again replaces that mod's patch, and `nil` removes
+---it. The patches apply in load order, a later mod's field over an earlier one's. A change applies
+---from the next build; an enemy already in a fight keeps its numbers.
+---
+---Raises an error for an unknown monster, an unknown field, a value of the wrong kind, or a skill
+---position outside 1 to 5.
+---
+---Since: 2.36.0
+---
+---```lua
+---rq.monster.edit(rq.ids.monster.COCKROACH, {
+---  name = "Big Cockroach", hp = 200,
+---  skills = { [1] = { chance = 50 }, [2] = false },
+---  lines = { attack = "Skitter!" },
+---})
+---```
+---@param no integer The monster number (`rq.ids.monster`).
+---@param patch rq.MonsterEdit|nil The fields to change; nil removes this mod's patch.
+function monster.edit(no, patch) end
+
+---Calls `fn` after the game builds each enemy of a fight and the party's familiar, before the fight
+---opens.
+---
+---It runs for the enemies of every fight (ranks 1 to 5, from `ＰＴＢ登録`) and for the familiar of
+---the held item (`familiar` true). Not for `rq.monster.get` nor the game's name lookups.
+---
+---The writable fields hold the built numbers, after the world's rules. Callbacks run in load order,
+---each reading what the ones before wrote; what they leave is written to the slot once after the
+---last one. A number is rounded down and kept from 0. After it the game still runs its own steps:
+---a boss fight's `double_hp`, `rq.battle.start`'s `names`, the familiar's growth and speed cap.
+---
+---An error in a callback is logged once for each new error text; what it wrote before the error
+---stays.
+---
+---Since: 2.36.0
+---
+---```lua
+------ Bosses a fifth stronger
+---rq.monster.on_create(function(ctx)
+---  if ctx.familiar or ctx.fight_rank ~= 2 then return end
+---  ctx.hp = ctx.hp * 1.2
+---  ctx.atk = ctx.atk * 1.2
+---end)
+---```
+---@param fn fun(ctx: rq.MonsterCreateCtx) Reads and changes the enemy.
+---@return fun() remove Removes this callback.
+function monster.on_create(fn) end
+
 ---Random fights on a quest's map.
 ---
 ---On a map, each step fills the encounter bar; when it is full, each further step has a 1 in 10
@@ -6468,7 +6750,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.35.0"
+rq.version = "2.36.0"
 
 rq.units = units
 rq.items = items
@@ -9673,5 +9955,6 @@ rq.ids = ids
 rq.gamebutton = gamebutton
 rq.statuspage = statuspage
 rq.game = game
+rq.monster = monster
 rq.encounters = encounters
 rq.savedata = savedata

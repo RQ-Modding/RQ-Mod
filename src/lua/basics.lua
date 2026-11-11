@@ -11,6 +11,9 @@
 -- And the party (loader 2.35.0, notes/plans/plan-creator-comfort.md):
 --   rq.party.roster, state, set_state, heal          where each character is, the game's heals
 --   rq.chara.heal                                    one character's heal
+-- And the mode and a mod's fights (loader 2.36.0, notes/plans/plan-monsters-modes.md):
+--   rq.game.mode, set_mode                           Classic or TADA (◆２倍モード)
+--   rq.battle.start, backgrounds                     a fight of a mod's, the boss's rules and more
 --
 -- Built only on public calls: rq.ain.call, global, set_global, method and hook.
 --   所持金_設定 / 所持金＋ / 所持金－      the money, clamped to 0..999,999,999 (C_変数)
@@ -25,7 +28,14 @@
 --   Ｃ登録状態 / Ｃ状態変化 / Ｃ体力 / Ｃ体力最大   where a character is, the status, the HP
 --   Ｃ補給／体力(iic, 条件) / Ｃ補給／スキル(iic, 条件)   the game's heals ("半分": up to half)
 --   戦闘データ_作成 / 戦闘データ_削除      the gold bags rolled (after on_start) and cleared
-local rq = ...
+--   特定戦闘処理(exp, m1..m5)              the scripted fight: 1 won, 2 lost, 9 any other end
+--   ボス戦闘処理(exp, m1..m5, 条件)        the boss fight; 条件 "強化" (◆敵強化率 130), "２倍体力"
+--   ＰＴＢ登録(exp, m1..m5)                builds the enemies; ◆名前変更フラグ / ◆名前変更[1..5] after
+--   ◆戦闘背景番号, g_sBattleBackInfo.m_asList[i].m_nNo / m_szName    the fight's background
+--   システムバー_モード / _マップ番号 / _作成, 全画面色   the screen put back after a fight
+-- rq.battle.start's internal calls (fight_mark, in_battle) and the monster and music checks come
+-- in the loader's private table, the chunk's second argument.
+local rq, priv = ...
 local call, hook, g, set = rq.ain.call, rq.ain.hook, rq.ain.global, rq.ain.set_global
 
 local function int(v)
@@ -162,6 +172,32 @@ function game.set_charisma(rank, points)
   if points ~= nil then set("◆名声", points) end
   show_bar()
   return game.charisma()
+end
+
+-- ---- rq.game.mode: Classic or TADA (loader 2.36.0) ----
+--
+-- ◆２倍モード: 0 Classic, 1 TADA, chosen at the support menu (関数／クエスト／基本.jaf). The easy
+-- mode (◆ｅａｓｙモード) is a leftover of the first Rance Quest that no code of Magnum's turns on;
+-- on, Ｔクエストメニュー前 forces world 1 and deletes six quests each time the quest menu opens.
+
+local MODES = { classic = 0, tada = 1 }
+
+local function save_loaded()
+  return rq.world and rq.world.current and rq.world.current() ~= nil
+end
+
+function game.mode()
+  if not save_loaded() then return nil end
+  local ok, v = pcall(g, "◆２倍モード")
+  if not ok then return nil end
+  return v == 1 and "tada" or "classic"
+end
+
+function game.set_mode(mode)
+  if MODES[mode] == nil then error("rq.game.set_mode: the mode is \"classic\" or \"tada\"", 2) end
+  need_game("rq.game.set_mode")
+  if not save_loaded() then error("rq.game.set_mode: no save is loaded", 2) end
+  set("◆２倍モード", MODES[mode])
 end
 
 -- ---- rq.encounters: random fights on a quest's map ----
@@ -418,6 +454,7 @@ local LUCKY = "幸福きゃん" -- the fight that gives the reserve nothing
 local reward_list, add_reward = handlers()
 local reward_hooked = false
 local summing = nil -- { held = {iic...}, lucky } while the sum runs and a callback waits
+local fight_watch = nil -- rq.battle.start's fight: { gold = seed or nil, exp, paid, kills }
 
 -- A number rounded down and kept to 0..INT_MAX; nil for anything else.
 local function count(v)
@@ -572,7 +609,7 @@ local function hook_reward()
   hook("Ｔ戦闘後の取得経験値算出", {
     before = function()
       summing = nil
-      if #reward_list == 0 then return end
+      if #reward_list == 0 and not fight_watch then return end
       local ok, ev = pcall(g, "◇戦闘イベント名")
       summing = { held = {}, lucky = ok and ev == LUCKY }
     end,
@@ -584,8 +621,16 @@ local function hook_reward()
       local ok, err = pcall(function()
         local ctx, state, game, slots = reward_ctx(h, held)
         share = reserve_rule(game.allies, held.lucky) -- the game's, if anything below fails
+        local watch = fight_watch
+        if watch and watch.gold then rawset(ctx, "gold", watch.gold) end
         for _, x in ipairs({ table.unpack(reward_list) }) do run(x, "rq.battle.on_reward", ctx) end
         local values = write_back(ctx, state, game, slots)
+        if watch then
+          watch.paid = true
+          watch.exp = state.exp
+          watch.gold_paid = count(rawget(ctx, "gold")) or game.gold
+          watch.kills = ctx.kills
+        end
         if state.reserve ~= nil then share = state.reserve else share = reserve_rule(values, held.lucky) end
       end)
       if not ok then logf("rq.battle.on_reward: %s", tostring(err)) end
@@ -804,4 +849,246 @@ function chara.heal(iic, opts)
   need_game("rq.chara.heal")
   if not chara.number(iic) then error(string.format("rq.chara.heal: no character at %d", iic), 2) end
   return heal_one(iic, opts)
+end
+
+-- ---- rq.battle.start (loader 0.22.0; in Lua with the boss and the rest since 2.36.0) ----
+--
+-- The scripted fight (特定戦闘処理) or the boss fight (ボス戦闘処理), called with rq.ain.call: it
+-- blocks until the fight and its result screens end, while rq.on_frame keeps running. The C side
+-- keeps only the mark (priv.fight_mark: rq.party.set refuses, a restart inside forgets it).
+
+local NONE = -2147483648
+local TITLE_ERROR = "rq: the game went to the title" -- modloader_unwind.c
+local OPTS = { enemies = true, exp = true, boss = true, strong = true, double_hp = true, names = true,
+  background = true, music = true, escape = true, gold = true }
+local HOW = { [1] = "won", [2] = "lost", [3] = "draw", [4] = "time", [5] = "fled", [6] = "fled" }
+
+local start_hooked = false
+local ptb_after = nil -- run once after ＰＴＢ登録 in rq.battle.start's fight (double HP with strong)
+
+local function hook_start()
+  if start_hooked then return end
+  start_hooked = true
+  hook("ＰＴＢ登録", { after = function()
+    local f = ptb_after
+    ptb_after = nil
+    if f then
+      local ok, err = pcall(f)
+      if not ok then logf("rq.battle.start: %s", tostring(err)) end
+    end
+  end })
+end
+
+-- The game's "２倍体力" (ボス戦闘処理): each enemy's HP twice, four times in world 3.
+local function double_hp()
+  local w3 = gint("◆ワールド") == 3
+  for slot = 1, 5 do
+    local max = call("Ｃ体力最大", slot, -1)
+    if max ~= 0 then
+      call("Ｃ体力最大", slot, max * (w3 and 4 or 2))
+    end
+    local hp = call("Ｃ体力", slot, -1)
+    if hp ~= 0 then
+      call("Ｃ体力", slot, hp * (w3 and 4 or 2))
+    end
+  end
+end
+
+-- The background: a number in the game's list, or its name.
+local function background_no(v)
+  if int(v) then
+    local ok, name = pcall(call, "戦闘背景_データ名", v)
+    if v >= 0 and ok and type(name) == "string" and name ~= "" then return v end
+    error("rq.battle.start: no background " .. v, 3)
+  end
+  if type(v) == "string" and v ~= "" then
+    local ok, no = pcall(call, "戦闘背景_番号", v)
+    if ok and int(no) and no > 0 then return no end
+    error("rq.battle.start: no background named " .. v, 3)
+  end
+  error("rq.battle.start: background must be a number or a name", 3)
+end
+
+-- The fight's own callbacks, registered once for every rq.battle.start: on_end records the result,
+-- the fallen and the kills; the escape chance is written before every mod's on_start callback
+-- (priv.on_start_first), after the game's own (Ｔ戦闘前初期化 sets 20, 0 for a boss).
+local watch_hooked = false
+local function hook_watch()
+  if watch_hooked then return end
+  watch_hooked = true
+  priv.on_start_first(function()
+    local w = fight_watch
+    if w and w.escape then set("◆逃げる確率", w.escape) end
+  end)
+  battle.on_end(function(ctx)
+    local w = fight_watch
+    if not w then return end
+    w.code = ctx.result
+    local fallen, killed = {}, 0
+    for _, iic in ipairs(ctx.allies or {}) do
+      local ok, hp = pcall(call, "Ｃ体力", iic, -1)
+      if ok and hp == 0 then fallen[#fallen + 1] = iic end
+    end
+    for _, iic in ipairs(ctx.enemies or {}) do
+      local ok, hp = pcall(call, "Ｃ体力", iic, -1)
+      if ok and hp == 0 then killed = killed + 1 end
+    end
+    w.fallen, w.killed = fallen, killed
+  end)
+end
+
+local function check_bool(opts, k)
+  local v = opts[k]
+  if v ~= nil and type(v) ~= "boolean" then error("rq.battle.start: " .. k .. " must be true or false", 3) end
+  return v == true
+end
+
+local function read_opts(opts)
+  if type(opts) ~= "table" then error("rq.battle.start: expected a table of options", 3) end
+  for k in pairs(opts) do
+    if not OPTS[k] then error("rq.battle.start: no option " .. tostring(k), 3) end
+  end
+  local en = opts.enemies
+  if type(en) ~= "table" then error("rq.battle.start: enemies must be a list of monster numbers", 3) end
+  if #en > 5 then error("rq.battle.start: at most 5 ranks", 3) end
+  local o = { m = {} }
+  for i = 1, 5 do
+    local v = en[i]
+    if v == nil or v == false then v = 0 end
+    if not int(v) then error(string.format("rq.battle.start: rank %d is not a monster number", i), 3) end
+    o.m[i] = v
+  end
+  o.exp = opts.exp == nil and 0 or opts.exp
+  if not int(o.exp) then error("rq.battle.start: exp must be a whole number", 3) end
+  o.boss = check_bool(opts, "boss")
+  o.strong = check_bool(opts, "strong")
+  o.double_hp = check_bool(opts, "double_hp")
+  if (o.strong or o.double_hp) and not o.boss then
+    error("rq.battle.start: " .. (o.strong and "strong" or "double_hp") .. " needs boss = true", 3)
+  end
+  if opts.names ~= nil then
+    if type(opts.names) ~= "table" then error("rq.battle.start: names must be a table of texts by rank", 3) end
+    o.names = {}
+    for k, v in pairs(opts.names) do
+      if not int(k) or k < 1 or k > 5 then error("rq.battle.start: names: a rank from 1 to 5, not " .. tostring(k), 3) end
+      if type(v) ~= "string" then error(string.format("rq.battle.start: names[%d] must be a text", k), 3) end
+      o.names[k] = v
+    end
+  end
+  if opts.escape ~= nil then
+    if not int(opts.escape) or opts.escape < 0 or opts.escape > 100 then
+      error("rq.battle.start: escape must be a whole number from 0 to 100", 3)
+    end
+    o.escape = opts.escape
+  end
+  if opts.gold ~= nil then
+    if not int(opts.gold) or opts.gold < 0 then error("rq.battle.start: gold must be a whole number, 0 or more", 3) end
+    o.gold = opts.gold
+  end
+  return o
+end
+
+function battle.start(opts)
+  need_game("rq.battle.start")
+  local o = read_opts(opts)
+  if priv.in_battle() then error("rq.battle.start: a battle is already running", 2) end
+  local has_enemy = false
+  for i = 1, 5 do
+    local v = o.m[i]
+    if v ~= 0 then
+      if v < 0 or not priv.monster_exists(v) then error("rq.battle.start: no monster number " .. v, 2) end
+      has_enemy = true
+    end
+  end
+  if not has_enemy then error("rq.battle.start: no enemies", 2) end
+  local has_ally = false
+  for _, iic in ipairs(rq.party.get()) do
+    if iic ~= 0 then has_ally = true end
+  end
+  -- An empty party never gets a turn and the fight never ends.
+  if not has_ally then error("rq.battle.start: the party is empty", 2) end
+  local bg
+  if opts.background ~= nil then bg = background_no(opts.background) end
+  local music
+  if opts.music ~= nil then
+    if not int(opts.music) and type(opts.music) ~= "string" then
+      error("rq.battle.start: music must be a track number or a path", 2)
+    end
+    local ok, spec = pcall(priv.fight_music_check, opts.music)
+    if not ok then error("rq.battle.start: music: " .. tostring(spec), 2) end
+    music = spec
+  end
+
+  -- What the fight did, from on_end and the rewards.
+  local watch = { gold = o.gold, escape = o.escape, paid = false, exp = 0, gold_paid = 0, kills = 0 }
+  hook_watch()
+  hook_reward()
+  hook_start()
+  if o.strong and o.double_hp then ptb_after = double_hp end
+  if o.names then
+    set("◆名前変更フラグ", 1)
+    for i = 1, 5 do set("◆名前変更", i, o.names[i] or "") end
+  end
+  local bg0 = gint("◆戦闘背景番号")
+  if bg then set("◆戦闘背景番号", bg) end
+  if music then priv.fight_music(music) end
+
+  local okb, bar0 = pcall(call, "システムバー_モード")
+  local okm, map0 = pcall(call, "システムバー_マップ番号")
+  local m = o.m
+  priv.fight_mark(true)
+  fight_watch = watch
+  local ok, re
+  if o.boss then
+    local cond = o.strong and "強化" or o.double_hp and "２倍体力" or ""
+    ok, re = pcall(call, "ボス戦闘処理", o.exp, m[1], m[2], m[3], m[4], m[5], cond)
+  else
+    ok, re = pcall(call, "特定戦闘処理", o.exp, m[1], m[2], m[3], m[4], m[5])
+  end
+  fight_watch = nil
+  priv.fight_mark(false)
+  ptb_after = nil
+  if music then priv.fight_music(nil) end
+  -- The title (rq: the game went to the title) unwinds through here: no call into the game, and
+  -- the error goes on as it came, so the loader's unwind finds it.
+  if not ok and tostring(re):find(TITLE_ERROR, 1, true) then error(re, 0) end
+  if bg then set("◆戦闘背景番号", bg0) end
+  if o.names then set("◆名前変更フラグ", 0) end
+
+  -- On a quest's map the game puts its screen back after a fight. Anywhere else (the town, the
+  -- Party screen, Quests, the castle) the fight's black layer stayed over the screen and its
+  -- footer was gone: both are put back here (2.22.1).
+  if okb and int(bar0) and bar0 >= 0 then
+    local okn, now = pcall(call, "システムバー_モード")
+    if okn and now ~= bar0 then
+      pcall(call, "全画面色", NONE, NONE, NONE)
+      pcall(call, "システムバー_作成", bar0, okm and map0 or 0, 1)
+    end
+  end
+  if not ok then error(re, 0) end
+
+  local first = re == 1 and "won" or re == 2 and "lost" or "other"
+  local info = {
+    code = watch.code or 0,
+    how = HOW[watch.code] or "other",
+    exp = watch.paid and watch.exp or 0,
+    gold = watch.paid and watch.gold_paid or 0,
+    kills = watch.paid and watch.kills or (watch.killed or 0),
+    fallen = watch.fallen or {},
+  }
+  return first, info
+end
+
+-- The game's list of fight backgrounds (g_sBattleBackInfo.m_asList), in its order.
+function battle.backgrounds()
+  need_game("rq.battle.backgrounds")
+  local out = {}
+  local ok, n = pcall(rq.ain.global_len, "g_sBattleBackInfo", "m_asList")
+  if not ok or not int(n) then return out end
+  for i = 0, n - 1 do
+    local ok1, no = pcall(g, "g_sBattleBackInfo", "m_asList", i, "m_nNo")
+    local ok2, name = pcall(g, "g_sBattleBackInfo", "m_asList", i, "m_szName")
+    if ok1 and ok2 and int(no) then out[#out + 1] = { no = no, name = name } end
+  end
+  return out
 end

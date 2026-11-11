@@ -148,6 +148,8 @@ int rq_scene_syscall(int code);
 void rq_scene_on_return(int fno);
 void rq_scene_open(struct lua_State *L, int rq_index);
 void rq_battle_lua_open(struct lua_State *L, int rq_index);
+/* The loader's private table, shared by its own Lua parts (2.36.0); never given to a mod. */
+void rq_private_push(struct lua_State *L);
 /* rq.music (modloader_music.c, lua/music.lua, loader 2.4.0). */
 struct channel;
 struct channel *rq_music_open(int id, int no);
@@ -157,6 +159,7 @@ void rq_uikit_open(struct lua_State *L, int rq_index);
 /* rq.ids: the game's numbers by name (modloader_ids.c, lua/ids.lua). */
 void rq_ids_open(struct lua_State *L, int rq_index);
 int rq_lua_battle_on_start(struct lua_State *L);
+int rq_lua_battle_on_start_first(struct lua_State *L);
 int rq_lua_battle_on_end(struct lua_State *L);
 int rq_lua_battle_on_down(struct lua_State *L);
 int rq_lua_battle_on_support(struct lua_State *L);
@@ -513,7 +516,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.35.0"
+#define RQ_VERSION "2.36.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -545,7 +548,8 @@ int rq_query_chara_named(int id);
 int rq_query_unit_recruited(int id);
 int rq_lua_party_get(struct lua_State *L);
 int rq_lua_party_set(struct lua_State *L);
-int rq_lua_battle_start(struct lua_State *L);
+/* The internal calls of rq.battle.start (lua/basics.lua), set in the private table at priv. */
+void rq_state_private(struct lua_State *L, int priv);
 int rq_lua_random_seed(struct lua_State *L);
 int rq_lua_random_fix(struct lua_State *L);
 /* hll/Math.c: every roll of the game and the loader. A negative value stops fixing. */

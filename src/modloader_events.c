@@ -761,6 +761,25 @@ int rq_lua_battle_on_start(lua_State *L)
 	return add_cb(L, g_start_cb, &g_nstart);
 }
 
+/* priv.on_start_first (rq.battle.start's escape chance): a callback put before every other
+ * on_start callback, so each mod's on_start sees what the fight's options wrote. */
+int rq_lua_battle_on_start_first(lua_State *L)
+{
+	int ref;
+
+	luaL_checktype(L, 1, LUA_TFUNCTION);
+	if (!ain || !rq_events_install(ain))
+		return luaL_error(L, "battle events install failed (see logs/rqmod.log)");
+	if (g_nstart >= CB_MAX)
+		return luaL_error(L, "too many battle callbacks registered");
+	lua_pushvalue(L, 1);
+	ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	memmove(g_start_cb + 1, g_start_cb, (size_t)g_nstart * sizeof g_start_cb[0]);
+	g_start_cb[0] = ref;
+	g_nstart++;
+	return 0;
+}
+
 int rq_lua_battle_on_end(lua_State *L)
 {
 	return add_cb(L, g_end_cb, &g_nend);

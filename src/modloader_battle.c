@@ -2128,6 +2128,22 @@ extern const char rq_basics_lua[];
 extern const unsigned rq_basics_lua_len;
 extern const char rq_timers_lua[];
 extern const unsigned rq_timers_lua_len;
+extern const char rq_monster_lua[];
+extern const unsigned rq_monster_lua_len;
+
+/* The loader's private table (2.36.0): calls its own Lua parts share with each other and with
+ * the C side, given to them as the chunk's second argument and never to a mod. */
+static int g_private = LUA_NOREF;
+
+void rq_private_push(lua_State *L)
+{
+	if (g_private == LUA_NOREF) {
+		lua_newtable(L);
+		rq_state_private(L, lua_gettop(L));
+		g_private = luaL_ref(L, LUA_REGISTRYINDEX);
+	}
+	lua_rawgeti(L, LUA_REGISTRYINDEX, g_private);
+}
 
 static void run_embedded(lua_State *L, int rq_index, const char *code, unsigned len, const char *name)
 {
@@ -2137,7 +2153,8 @@ static void run_embedded(lua_State *L, int rq_index, const char *code, unsigned 
 		return;
 	}
 	lua_pushvalue(L, rq_index);
-	if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+	rq_private_push(L);
+	if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
 		rq_log("%s: %s", name + 1, lua_tostring(L, -1));
 		lua_pop(L, 1);
 	}
@@ -2164,8 +2181,12 @@ void rq_battle_lua_open(lua_State *L, int rq_index)
 	/* rq.dungeon.on_area, areas and the area's fields on on_map and info (lua/dungeon.lua,
 	 * loader 2.24.0): which dungeon and which area. After scene, whose on_map is removable. */
 	run_embedded(L, rq_index, rq_dungeon_lua, rq_dungeon_lua_len, "=dungeon");
+	/* rq.monster (lua/monster.lua, loader 2.36.0): a monster's data, edits and on_create. Before
+	 * basics, whose rq.battle.start asks it whether a monster exists. */
+	run_embedded(L, rq_index, rq_monster_lua, rq_monster_lua_len, "=monster");
 	/* rq.game, rq.encounters, rq.chara.add_exp, level_up and on_level_up (lua/basics.lua, loader
-	 * 2.33.0): gold, charisma, random fights and levels, as the game does them. */
+	 * 2.33.0): gold, charisma, random fights and levels, as the game does them; rq.game.mode and
+	 * rq.battle.start (2.36.0). */
 	run_embedded(L, rq_index, rq_basics_lua, rq_basics_lua_len, "=basics");
 	/* rq.after, every, spawn, wait and wait_until (lua/timers.lua, loader 2.33.0). */
 	run_embedded(L, rq_index, rq_timers_lua, rq_timers_lua_len, "=timers");

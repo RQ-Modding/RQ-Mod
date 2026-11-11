@@ -1661,7 +1661,6 @@ static void open_rq(lua_State *L)
 	set_installing(L, "in_ally_select", rq_lua_battle_in_ally_select, AI_BATTLE);
 	set_installing(L, "actor", rq_lua_battle_actor, AI_BATTLE);
 	set_installing(L, "skill_usable", rq_lua_battle_skill_usable, AI_BATTLE);
-	set_cfn(L, "start", rq_lua_battle_start);
 	set_cfn(L, "set_face", rq_lua_battle_set_face);
 	set_cfn(L, "get_face", rq_lua_battle_get_face);
 	set_cfn(L, "on_hp", rq_lua_battle_on_hp);
