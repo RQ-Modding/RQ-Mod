@@ -2645,9 +2645,10 @@ function chara.edit(who, patch) end
 ---@field class integer The class (see `rq.CharaFields.class`).
 ---@field sex integer The sex.
 ---@field level integer The level.
----@field level_max integer The highest level.
+---@field level_max integer The highest level, the talent limit (`ＣＬＶ最大`). It is kept in the save, and items and events raise it; `rq.chara.set(iic, { level_max = n })` changes it for good. The game ignores it for a character with `uncapped`.
+---@field uncapped boolean The game sets no level cap for this character (Rance, Reset Kalar and Dark Rance). Since 2.33.0.
 ---@field exp integer Experience.
----@field exp_max integer Experience for the next level.
+---@field exp_max integer Experience for the next level. The game's recalculation sets it from the level; below the highest level the character has reached, it is at most 4980, so lost levels come back quickly.
 ---@field rebirths integer Times reborn.
 ---@field hp integer HP.
 ---@field hp_max integer Most HP.
@@ -2781,6 +2782,79 @@ function chara.on_create(fn) end
 ---@param fn fun(ctx: rq.ForgetCtx): integer|nil Returns the points to give back.
 ---@return fun() remove Removes this callback.
 function chara.on_forget(fn) end
+
+---Gives a character EXP, as a fight's result does, and the levels it fills.
+---
+---The EXP is added, then the character goes up one level each time the bar is full, with the game's
+---own level-up (`キャラ_レベルアップ`): the stats grow, skill points come, the bar's EXP is used,
+---and what is left carries over to the next level. EXP over the last level's bar is cut to that bar.
+---A character at the highest level (`level_max` in `rq.chara.get`; none for a character with
+---`uncapped`) gets nothing, as in the game, and so does Athena 2.0 (character 27), whom the game
+---keeps at level 1. A character at 0 HP gets the EXP but no level, since the game's level-up wants
+---HP: the bar stays full (EXP over it is cut) and the level comes with the next EXP once the
+---character has HP. `rq.chara.on_level_up` runs for each level, with `free` false.
+---
+---Raises an error for a slot with no character, for an amount that is not a whole number of 0 or
+---more, and at the top level of a mod.
+---
+---Since: 2.33.0
+---
+---```lua
+---local iic = rq.party.get()[1]
+---local gained = rq.chara.add_exp(iic, 500)
+---rq.log("levels gained: " .. gained)
+---```
+---@param iic integer The character's roster slot.
+---@param n integer The EXP to add, 0 or more.
+---@return integer gained The levels gained; 0 at the cap.
+---@see rq.chara.level_up
+function chara.add_exp(iic, n) end
+
+---Raises a character's level for free, as the game's story and training do.
+---
+---Uses the game's free level-up (`レベルアップ処理`): the stats grow and the EXP goes back to 0 for
+---the new level. It stops at `level_max`, also for a character with `uncapped`, as the game's own
+---does, and Athena 2.0 (character 27) stays at level 1. `rq.chara.on_level_up` runs for each level,
+---with `free` true.
+---
+---Raises an error for a slot with no character, for a count that is not a whole number of 1 or
+---more, and at the top level of a mod.
+---
+---Since: 2.33.0
+---
+---```lua
+---rq.chara.level_up(iic, 5)  -- five levels, or fewer at the cap
+---```
+---@param iic integer The character's roster slot.
+---@param n? integer The levels to add, 1 or more. Default 1.
+---@return integer gained The levels gained; fewer than `n` at the cap.
+---@see rq.chara.add_exp
+function chara.level_up(iic, n) end
+
+---What `rq.chara.on_level_up` callbacks get.
+---@class rq.LevelUpCtx
+---@field iic integer The character's roster slot.
+---@field level integer The new level.
+---@field from integer The level before.
+---@field free boolean true for a level from the game's other level-up, which sets the EXP back to 0 (the story, training, the reserve's share of a fight, `rq.chara.level_up`); false for one that keeps the EXP left over (the party in a fight's result, `rq.chara.add_exp`).
+---@field battle boolean true inside a fight's result, for the party and the reserve alike.
+
+---Calls `fn` after a character goes up a level, whatever gave it.
+---
+---It runs for the game's level-ups (a fight's result, the story, training, the reserve's share) and
+---for `rq.chara.add_exp` and `level_up`, once per level. The game shows its own level-up on the
+---result screen; this only tells a mod. An error is logged once for each new error text.
+---
+---Since: 2.33.0
+---
+---```lua
+---rq.chara.on_level_up(function(ctx)
+---  if ctx.level % 10 == 0 then rq.chara.add_skill_points(ctx.iic, 1) end
+---end)
+---```
+---@param fn fun(ctx: rq.LevelUpCtx) Runs after each level.
+---@return fun() remove Removes this callback.
+function chara.on_level_up(fn) end
 
 ---How an image is fitted to its size: "stretch" fills it, "contain" keeps the proportions and pads
 ---with transparency, "cover" keeps the proportions and crops the middle, "none" keeps the file's size.
@@ -5836,6 +5910,204 @@ function ids.find_all(kind, text) end
 ---@return string|nil name The name, or nil when the base game has none for that number.
 function ids.name(kind, no) end
 
+---The player's money and charisma, as the system bar shows them.
+---
+---Every call that changes a value redraws the system bar. Not at the top level of a mod: the game is
+---not running yet.
+---
+---Since: 2.33.0
+---
+---```lua
+------ Money and charisma for every level a character gains
+---rq.chara.on_level_up(function(ctx)
+---  rq.game.add_gold(ctx.level * 100)
+---  rq.game.add_charisma(5)
+---end)
+---```
+---@class rq.game
+local game = {}
+
+---Returns the player's money.
+---
+---Since: 2.33.0
+---@return integer gold 0 to 999,999,999.
+function game.gold() end
+
+---Sets the player's money.
+---
+---The game keeps it between 0 and 999,999,999; a value outside is cut to that range.
+---
+---Since: 2.33.0
+---@param n integer The money, a whole number.
+---@return integer gold The money now.
+function game.set_gold(n) end
+
+---Adds to the player's money, or takes from it.
+---
+---The result stays between 0 and 999,999,999, as the game's own shop keeps it.
+---
+---Since: 2.33.0
+---
+---```lua
+---if rq.game.gold() >= 500 then rq.game.add_gold(-500) end
+---```
+---@param n integer The amount; negative takes away.
+---@return integer gold The money now.
+function game.add_gold(n) end
+
+---Returns the charisma rank and its points, as the system bar shows them.
+---
+---The game calls it fame (`名声`). The points fill toward `max`; at `max` the rank goes up after the
+---next quest's result.
+---
+---Since: 2.33.0
+---@return integer rank The rank.
+---@return integer points The points in this rank.
+---@return integer max The points the rank needs to go up.
+function game.charisma() end
+
+---Adds charisma points, or takes them away.
+---
+---Points added go up one rank at most, as the result screen does: when they fill the bar, the rank
+---rises once and the rest is kept for the next one. Points taken never go below 0 and never lower
+---the rank.
+---
+---Since: 2.33.0
+---
+---```lua
+---local rank = rq.game.add_charisma(100)
+---rq.log("rank now " .. rank)
+---```
+---@param n integer The points; negative takes away.
+---@return integer rank The rank now.
+---@return integer points The points now.
+---@return integer max The points the rank now needs.
+function game.add_charisma(n) end
+
+---Sets the charisma rank, and its points when given.
+---
+---The points the rank needs (`max`) follow from the rank, as the game sets them at a world transfer.
+---
+---Since: 2.33.0
+---@param rank integer The rank, 0 or more.
+---@param points? integer The points, 0 or more. Default: keep them.
+---@return integer rank The rank now.
+---@return integer points The points now.
+---@return integer max The points the rank now needs.
+function game.set_charisma(rank, points) end
+
+---Random fights on a quest's map.
+---
+---On a map, each step fills the encounter bar; when it is full, each further step has a 1 in 10
+---chance of a fight with one of the area's groups. `steps` is how many steps fill the bar: the game
+---picks it again after each fight and each area change (from 10 to 60, by the area and the party).
+---An area with no groups has no bar and no random fights. An enemy standing on the map is a fight
+---too, and `rq.encounters.on_encounter` sees it with `placed` true.
+---
+---Since: 2.33.0
+---
+---```lua
+------ Twice as many steps between fights
+---rq.encounters.on_steps(function(ctx) return ctx.steps * 2 end)
+---```
+---@class rq.encounters
+local encounters = {}
+
+---What `rq.encounters.info` returns.
+---@class rq.EncounterInfo
+---@field groups integer[] The area's enemy groups, by the game's group number, up to 5; empty when the area has none.
+---@field steps integer The steps that fill the bar.
+---@field walked integer The steps walked toward it, 0 to `steps`.
+---@field on boolean Random fights can happen here: the area has groups and no mod holds them off.
+---@field held string[] The ids of the mods that hold random fights off (`rq.encounters.hold`), sorted.
+
+---Returns the random fights of the area the party is in.
+---
+---Since: 2.33.0
+---
+---```lua
+---local e = rq.encounters.info()
+---if e and e.on then rq.hud.text(10, 10, ("%d / %d"):format(e.walked, e.steps)) end
+---```
+---@return rq.EncounterInfo|nil info nil away from a quest's map.
+function encounters.info() end
+
+---Holds random fights off for this mod, or lets them come back.
+---
+---While any mod holds them, no random fight starts, the encounter bar is hidden and the steps walked
+---do not fill it: it keeps its place for when fights come back. Each mod has its own hold, so one mod's `false` does not end another's. An enemy standing on
+---the map still fights. It may be called at the top level of a mod, and lasts until the game closes:
+---a load or the title does not end it.
+---
+---Since: 2.33.0
+---
+---```lua
+---rq.encounters.hold(true)   -- a peaceful walk
+---rq.encounters.hold(false)  -- fights again
+---```
+---@param on boolean true to hold random fights off.
+function encounters.hold(on) end
+
+---Sets the steps that fill the encounter bar, from now to the next fight or area change.
+---
+---The game picks the steps again after each fight and each area change: to keep a value, return it
+---from `rq.encounters.on_steps` instead.
+---
+---Raises an error for a value that is not a whole number from 1 to 999, and at the top level of a
+---mod.
+---
+---Since: 2.33.0
+---@param n integer The steps, 1 to 999.
+function encounters.set_steps(n) end
+
+---What `rq.encounters.on_steps` callbacks get.
+---@class rq.StepsCtx
+---@field steps integer The steps the game picked, or what an earlier callback returned.
+---@field area_change boolean true when the party changed area, false after a fight and when a quest starts.
+
+---Calls `fn` each time the game picks the steps that fill the encounter bar.
+---
+---A number returned becomes the steps (rounded down, kept from 1 to 999), and the next callback sees
+---it in `ctx.steps`. nil keeps them. An error is logged once for each new error text.
+---
+---Since: 2.33.0
+---
+---```lua
+---rq.encounters.on_steps(function(ctx)
+---  if ctx.area_change then return ctx.steps + 20 end
+---end)
+---```
+---@param fn fun(ctx: rq.StepsCtx): integer|nil Returns the steps, or nil.
+---@return fun() remove Removes this callback.
+function encounters.on_steps(fn) end
+
+---What `rq.encounters.on_encounter` callbacks get.
+---@class rq.EncounterCtx
+---@field placed boolean true for an enemy standing on the map, false for a random fight.
+---@field groups integer[] The area's enemy groups, by the game's group number.
+
+---Calls `fn` when a fight from the map is about to start, and can cancel it.
+---
+---If any callback returns false, no fight starts and the party walks on, as when the player ignores
+---the group of adventurers the game offers. For a random fight the bar starts again from 0, and the
+---steps that fill it stay as they were: the game picks them again only after a fight. Every callback
+---runs, even after one returned false. An error is logged once for each new error text.
+---
+---Since: 2.33.0
+---
+---```lua
+------ Every other random fight never starts
+---local skip = false
+---rq.encounters.on_encounter(function(ctx)
+---  if ctx.placed then return end
+---  skip = not skip
+---  if skip then return false end
+---end)
+---```
+---@param fn fun(ctx: rq.EncounterCtx): boolean|nil Returns false to cancel the fight.
+---@return fun() remove Removes this callback.
+function encounters.on_encounter(fn) end
+
 ---The global table every mod uses to reach the game.
 ---
 ---The engine builds `rq` before any mod runs. Mods load before the game starts, so at the top level
@@ -5894,13 +6166,15 @@ function ids.name(kind, no) end
 ---@field ids rq.ids
 ---@field gamebutton rq.gamebutton
 ---@field statuspage rq.statuspage
+---@field game rq.game
+---@field encounters rq.encounters
 rq = {}
 
 ---The loader version.
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.32.0"
+rq.version = "2.33.0"
 
 rq.units = units
 rq.items = items
@@ -5954,10 +6228,12 @@ function rq.on_reset(fn) end
 
 ---Returns the time since the game started, in real milliseconds.
 ---
----It keeps counting at real speed whatever `rq.speed` is set to.
+---It keeps counting at real speed whatever `rq.speed` is set to. For something that runs later or
+---every so often, `rq.after` and `rq.every` count on it.
 ---
 ---Since: 0.20.0
 ---@return integer ms Milliseconds since the game started.
+---@see rq.after
 function rq.time_ms() end
 
 ---Returns a stack trace, of the current code or of a coroutine.
@@ -5969,6 +6245,111 @@ function rq.time_ms() end
 ---@param msg? string A message put before the trace.
 ---@return string trace The stack trace.
 function rq.traceback(co, msg) end
+
+---Calls `fn` once, `ms` milliseconds of real time from now.
+---
+---It runs from the loader's own `rq.on_frame`, at the first update after the time has passed, so it
+---may run a little late but never early. The time is real: `rq.speed` does not change it, and it goes
+---on after a load or the title (`rq.on_reset` can remove it). An error in `fn` is logged once for each
+---new error text.
+---
+---Since: 2.33.0
+---
+---```lua
+---rq.after(3000, function() rq.log("three seconds later") end)
+---```
+---@param ms number Milliseconds, 0 or more; 0 runs it at the next update.
+---@param fn fun() Runs once.
+---@return fun() remove Cancels it, if it has not run yet.
+---@see rq.every
+function rq.after(ms, fn) end
+
+---Calls `fn` every `ms` milliseconds of real time, until it returns false or is removed.
+---
+---The first call comes `ms` from now. When updates are slower than `ms`, it runs once per update and
+---does not catch up on the calls it missed. The time is real, as in `rq.after`. An error in `fn` is
+---logged once for each new error text, and the timer goes on.
+---
+---Since: 2.33.0
+---
+---```lua
+---local n = 0
+---rq.every(1000, function()
+---  n = n + 1
+---  rq.log("tick " .. n)
+---  if n == 5 then return false end  -- stops after five
+---end)
+---```
+---@param ms number Milliseconds, above 0.
+---@param fn fun(): boolean|nil Returns false to stop.
+---@return fun() remove Stops it.
+---@see rq.after
+function rq.every(ms, fn) end
+
+---What `rq.spawn` returns, to follow or stop the job.
+---@class rq.SpawnHandle
+---@field done boolean true once the job has ended, by returning, by an error or by `cancel`.
+---@field ok? boolean Once done: true when the function returned, false on an error or a cancel.
+---@field value? any Once done and ok: the first value the function returned.
+---@field values? table Once done and ok: every value it returned, with `n` their count.
+---@field error? any Once done and not ok: the error, or "cancelled".
+---@field cancel fun() Stops the job at its next wait; it never runs again. Does nothing once it is done.
+
+---Runs `fn` as a job that can wait, with `rq.wait` and `rq.wait_until`.
+---
+---The job starts at once and runs until its first wait; the loader then goes on with it on later
+---updates, from its own `rq.on_frame`. A job may also call the game's waiting calls, such as
+---`rq.ui.confirm` or `rq.battle.start`. An error ends the job and is logged with its stack trace.
+---
+---Since: 2.33.0
+---
+---```lua
+---rq.spawn(function()
+---  rq.log("get ready")
+---  rq.wait(2000)
+---  local found = rq.wait_until(function() return rq.encounters.info() ~= nil end, 60000)
+---  if found then rq.log("on a map") end
+---end)
+---```
+---@param fn fun(...): ... The job.
+---@param ... any Arguments for `fn`.
+---@return rq.SpawnHandle job The job, to follow or cancel.
+function rq.spawn(fn, ...) end
+
+---Waits `ms` milliseconds of real time, inside a job from `rq.spawn`.
+---
+---It waits at least one update, also for 0. The game goes on meanwhile, and so does the mod's
+---other code.
+---
+---Raises an error outside a job from `rq.spawn`: at the top level of a mod, in `rq.on_frame`, in a
+---callback, or in a coroutine the mod made itself.
+---
+---Since: 2.33.0
+---@param ms number Milliseconds, 0 or more.
+---@see rq.spawn
+function rq.wait(ms) end
+
+---Waits until `cond` returns a true value, inside a job from `rq.spawn`.
+---
+---`cond` is called at once, then once per update. With `limit`, it gives up after that many
+---milliseconds of real time.
+---
+---Raises an error outside a job from `rq.spawn`: at the top level of a mod, in `rq.on_frame`, in a
+---callback, or in a coroutine the mod made itself.
+---
+---Since: 2.33.0
+---
+---```lua
+---local s = rq.wait_until(function()
+---  local s = rq.ui.get()
+---  return s and s.screen == "hub" and s
+---end)
+---```
+---@param cond fun(): any Checked once per update.
+---@param limit? number Milliseconds to wait at most. Default: no limit.
+---@return any value What `cond` returned, or nil when the limit came first.
+---@see rq.spawn
+function rq.wait_until(cond, limit) end
 
 rq.ain = ain
 rq.dungeon = dungeon
@@ -8788,3 +9169,5 @@ rq.item = item
 rq.ids = ids
 rq.gamebutton = gamebutton
 rq.statuspage = statuspage
+rq.game = game
+rq.encounters = encounters

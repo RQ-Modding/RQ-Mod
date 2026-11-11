@@ -1257,6 +1257,17 @@ int rq_lua_chara_get(lua_State *L)
 		lua_pushstring(L, t->id);
 		lua_setfield(L, -2, "id");
 	}
+	/* 2.33.0: the game's own rule for the characters with no level cap (Rance, Reset Kalar,
+	 * Dark Rance), by character number. */
+	{
+		static int f_uncapped = -2;
+		if (f_uncapped == -2)
+			f_uncapped = ain ? find_fn(ain, "キャラ_レベル上限なし") : -1;
+		if (f_uncapped >= 0 && mread(p, "番号", &v)) {
+			lua_pushboolean(L, ci(f_uncapped, 1, v) != 0);
+			lua_setfield(L, -2, "uncapped");
+		}
+	}
 	return 1;
 }
 

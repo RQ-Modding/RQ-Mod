@@ -2124,6 +2124,10 @@ extern const char rq_gamedata_lua[];
 extern const unsigned rq_gamedata_lua_len;
 extern const char rq_dungeon_lua[];
 extern const unsigned rq_dungeon_lua_len;
+extern const char rq_basics_lua[];
+extern const unsigned rq_basics_lua_len;
+extern const char rq_timers_lua[];
+extern const unsigned rq_timers_lua_len;
 
 static void run_embedded(lua_State *L, int rq_index, const char *code, unsigned len, const char *name)
 {
@@ -2160,6 +2164,11 @@ void rq_battle_lua_open(lua_State *L, int rq_index)
 	/* rq.dungeon.on_area, areas and the area's fields on on_map and info (lua/dungeon.lua,
 	 * loader 2.24.0): which dungeon and which area. After scene, whose on_map is removable. */
 	run_embedded(L, rq_index, rq_dungeon_lua, rq_dungeon_lua_len, "=dungeon");
+	/* rq.game, rq.encounters, rq.chara.add_exp, level_up and on_level_up (lua/basics.lua, loader
+	 * 2.33.0): gold, charisma, random fights and levels, as the game does them. */
+	run_embedded(L, rq_index, rq_basics_lua, rq_basics_lua_len, "=basics");
+	/* rq.after, every, spawn, wait and wait_until (lua/timers.lua, loader 2.33.0). */
+	run_embedded(L, rq_index, rq_timers_lua, rq_timers_lua_len, "=timers");
 }
 
 #endif /* RQ_MODLOADER */
