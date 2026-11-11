@@ -6,7 +6,9 @@
 -- in コンフィグ共通_作成 once a page exists). Clicking it makes コンフィグ共通_処理 return 9;
 -- the tab's run() then returns 7 with the Mods flag on, and Other 2 (T_ConfigEtc2) is made on
 -- a blank page with no checkboxes, so the game keeps its own tabs, buttons, keys and sounds.
-local rq, set_tab, set_mods = ...
+-- rq.config.settings (2.35.0) builds a page from a list of rows and keeps its values in the
+-- mod's store; as_mod (modloader_roster.c) files those store calls under the mod.
+local rq, set_tab, set_mods, as_mod = ...
 local ui = rq.uikit
 local hook = rq.ain.hook
 
@@ -292,6 +294,334 @@ function config.show(id)
     end
   end
   return false
+end
+
+-- ---- rq.config.settings (2.35.0): a page built from a list of rows ----
+-- The values live in the mod's own store (rq.store.global, rq.store or rq.savedata), under each
+-- row's key, so a mod that drew its page by hand keeps its players' settings when it switches.
+-- The page is drawn here, where no mod is on the stack, so every store call goes through as_mod.
+
+local KINDS = { checkbox = true, stepper = true, slider = true, choice = true, input = true,
+  label = true, space = true }
+local STORES = {
+  global = function() return rq.store.global end,
+  profile = function() return rq.store end,
+  save = function() return rq.savedata end,
+}
+local NOTE = { dim = true, size = 15 }
+
+local function fail(what, level)
+  error("rq.config.settings: " .. what, (level or 1) + 1)
+end
+
+local function whole(v)
+  if math.type(v) == "integer" then return v end
+  if math.type(v) == "float" and v == math.floor(v) and v >= -2^53 and v <= 2^53 then return math.tointeger(v) end
+end
+
+-- The stored value made right for the row, or nil when it is not one the row can take.
+local function fit(row, v)
+  local k = row.kind
+  if k == "checkbox" then
+    if type(v) == "boolean" then return v end
+  elseif k == "stepper" then
+    v = whole(v)
+    if v and v >= row.min and v <= row.max then return v end
+  elseif k == "slider" then
+    if type(v) == "number" and v == v and v >= row.min and v <= row.max then return v end
+  elseif k == "choice" then
+    for i = 1, #row.options do
+      if row.values then
+        if row.values[i] == v then return v end
+      elseif whole(v) == i then
+        return i
+      end
+    end
+  elseif k == "input" then
+    if type(v) == "string" and #v <= row.max and not v:find("\0", 1, true) then return v end
+  end
+end
+
+local function describe(row)
+  local k = row.kind
+  if k == "checkbox" then return "true or false" end
+  if k == "stepper" then return "a whole number from " .. row.min .. " to " .. row.max end
+  if k == "slider" then return "a number from " .. row.min .. " to " .. row.max end
+  if k == "choice" then
+    if row.values then return "one of the row's values" end
+    return "a whole number from 1 to " .. #row.options
+  end
+  return "a text of at most " .. row.max .. " bytes"
+end
+
+local function check_rows(rows)
+  if type(rows) ~= "table" or #rows == 0 then fail("rows is a list of rows", 3) end
+  local out, by_key = {}, {}
+  for i, r in ipairs(rows) do
+    local at = "row " .. i
+    if type(r) ~= "table" then fail(at .. " is not a table", 3) end
+    local kind = r.kind
+    if not KINDS[kind] then
+      fail(at .. ": kind is checkbox, stepper, slider, choice, input, label or space", 3)
+    end
+    local row = { kind = kind, label = r.label, tip = r.tip, note = r.note, disabled = r.disabled,
+      w = r.w, id = r.id }
+    if r.label ~= nil and type(r.label) ~= "string" then fail(at .. ": label is a string", 3) end
+    if r.disabled ~= nil and type(r.disabled) ~= "boolean" and type(r.disabled) ~= "function" then
+      fail(at .. ": disabled is true, false or a function", 3)
+    end
+    if r.note ~= nil and type(r.note) ~= "string" and type(r.note) ~= "table" then
+      fail(at .. ": note is a text or a list of texts", 3)
+    end
+    if r.w ~= nil and math.type(r.w) ~= "integer" then fail(at .. ": w is a whole number of pixels", 3) end
+    if kind == "label" then
+      if type(r.text) ~= "string" then fail(at .. ": a label row needs text", 3) end
+      row.text, row.dim, row.size, row.color = r.text, r.dim, r.size, r.color
+    elseif kind == "space" then
+      row.h = r.h or 8
+      if math.type(row.h) ~= "integer" then fail(at .. ": h is a whole number of pixels", 3) end
+    else
+      if type(r.key) ~= "string" or r.key == "" then fail(at .. ": a " .. kind .. " row needs a key", 3) end
+      if by_key[r.key] then fail(at .. ": the key " .. r.key .. " is used twice", 3) end
+      row.key = r.key
+      if kind == "stepper" then
+        row.min, row.max = whole(r.min or 0), whole(r.max or 999999)
+        row.step, row.big = r.step, r.big
+        if not row.min or not row.max or row.max < row.min then
+          fail(at .. ": min and max are whole numbers, max not below min", 3)
+        end
+        row.default = r.default == nil and row.min or r.default
+      elseif kind == "slider" then
+        row.min, row.max, row.step = r.min or 0, r.max or 1, r.step
+        row.low, row.high = r.low, r.high
+        if type(row.min) ~= "number" or type(row.max) ~= "number" or row.max < row.min then
+          fail(at .. ": min and max are numbers, max not below min", 3)
+        end
+        if row.step ~= nil and (type(row.step) ~= "number" or row.step <= 0) then
+          fail(at .. ": step is a number above 0", 3)
+        end
+        row.default = r.default == nil and row.min or r.default
+      elseif kind == "choice" then
+        if type(r.options) ~= "table" or #r.options == 0 then fail(at .. ": options is a list of texts", 3) end
+        for j, o in ipairs(r.options) do
+          if type(o) ~= "string" then fail(at .. ": option " .. j .. " is not a text", 3) end
+        end
+        if r.values ~= nil and (type(r.values) ~= "table" or #r.values ~= #r.options) then
+          fail(at .. ": values has one value for each option", 3)
+        end
+        row.options, row.values, row.dir, row.gap, row.tips = r.options, r.values, r.dir or "row", r.gap, r.tips
+        row.default = r.default
+        if row.default == nil then row.default = row.values and row.values[1] or 1 end
+      elseif kind == "input" then
+        row.max = r.max or 40
+        if math.type(row.max) ~= "integer" or row.max < 1 or row.max > 255 then
+          fail(at .. ": max is a whole number from 1 to 255", 3)
+        end
+        row.placeholder = r.placeholder
+        row.default = r.default == nil and "" or r.default
+      else
+        -- Not `r.default == nil and false or r.default`: with false in the middle that gives nil.
+        row.default = r.default
+        if row.default == nil then row.default = false end
+      end
+      local d = fit(row, row.default)
+      if d == nil then fail(at .. ": the default of " .. row.key .. " is not " .. describe(row), 3) end
+      row.default = d
+      by_key[row.key] = row
+    end
+    out[i] = row
+  end
+  return out, by_key
+end
+
+local function mod_name(id)
+  local ok, list = pcall(rq.saves.current_mods)
+  if ok and type(list) == "table" then
+    for _, m in ipairs(list) do
+      if m.id == id and type(m.name) == "string" and m.name ~= "" then return m.name end
+    end
+  end
+  return id
+end
+
+local function row_disabled(row, blocked)
+  if blocked then return true end
+  local d = row.disabled
+  if type(d) == "function" then
+    local ok, r = pcall(d)
+    return ok and r and true or false
+  end
+  return d and true or false
+end
+
+local function notes(row)
+  local n = row.note
+  if type(n) == "string" then
+    ui.label(n, NOTE)
+  elseif type(n) == "table" then
+    for _, line in ipairs(n) do ui.label(tostring(line), NOTE) end
+  end
+end
+
+---rq.config.settings{ id, title, keep, rows, reset, label_w, draw, on_open, on_close }: a page
+---from a list of rows, and an object with get, set, on_change and reset. 2.35.0.
+function config.settings(t)
+  if type(t) ~= "table" then fail("expected a table with rows", 2) end
+  local mod = rq.mod and rq.mod.id and rq.mod.id()
+  if not mod then fail("call it from a mod's code", 2) end
+  local keep = t.keep or "global"
+  if not STORES[keep] then fail('keep is "global", "profile" or "save"', 2) end
+  if t.draw ~= nil and type(t.draw) ~= "function" then fail("draw is a function(ui, box)", 2) end
+  if t.title ~= nil and type(t.title) ~= "string" then fail("title is a string", 2) end
+  if t.label_w ~= nil and math.type(t.label_w) ~= "integer" then fail("label_w is a whole number of pixels", 2) end
+  local rows, by_key = check_rows(t.rows)
+  local listeners = {}
+  local label_w = t.label_w
+
+  local function store_get(key)
+    return as_mod(mod, function() return STORES[keep]().get(key) end)
+  end
+  local function store_set(key, v)
+    as_mod(mod, function() STORES[keep]().set(key, v) end)
+  end
+  local function row_of(key, level)
+    local row = type(key) == "string" and by_key[key]
+    if not row then fail("no row has the key " .. tostring(key), level + 1) end
+    return row
+  end
+  local function value(row)
+    local v = fit(row, store_get(row.key))
+    if v == nil then return row.default end
+    return v
+  end
+  local function changed(key, new, old)
+    for _, l in ipairs(listeners) do
+      if l.fn then
+        local ok, err = pcall(l.fn, key, new, old)
+        if not ok then rq.log("config settings " .. mod .. ": on_change: " .. tostring(err)) end
+      end
+    end
+  end
+  local function write(row, v)
+    local old = value(row)
+    store_set(row.key, v)
+    if old ~= v then changed(row.key, v, old) end
+  end
+
+  local s = {}
+  function s.get(key)
+    return value(row_of(key, 2))
+  end
+  function s.set(key, v)
+    local row = row_of(key, 2)
+    local ok = fit(row, v)
+    if ok == nil then fail(key .. " is " .. describe(row), 2) end
+    write(row, ok)
+  end
+  function s.on_change(fn)
+    if type(fn) ~= "function" then fail("on_change takes a function", 2) end
+    local l = { fn = fn }
+    listeners[#listeners + 1] = l
+    return function()
+      l.fn = nil
+      for i, x in ipairs(listeners) do
+        if x == l then
+          table.remove(listeners, i)
+          break
+        end
+      end
+    end
+  end
+  function s.reset()
+    for _, row in ipairs(rows) do
+      if row.key then
+        local old = value(row)
+        store_set(row.key, nil)
+        if old ~= row.default then changed(row.key, row.default, old) end
+      end
+    end
+  end
+
+  local function draw_row(row, blocked)
+    local kind = row.kind
+    if kind == "label" then
+      ui.label(row.text, { dim = row.dim, size = row.size, color = row.color })
+      return
+    elseif kind == "space" then
+      ui.space(0, row.h)
+      return
+    end
+    local dis = row_disabled(row, blocked)
+    local id = row.id ~= nil and row.id or row.key
+    local v = value(row)
+    if kind == "checkbox" then
+      local nv, c = ui.checkbox(v, row.label, { id = id, disabled = dis, tip = row.tip, w = row.w })
+      if c and not dis then write(row, nv) end
+    else
+      ui.row({ gap = 12, align = "center", h = 34 }, function()
+        if row.label then ui.label(row.label, { w = label_w, dim = dis }) end
+        local nv, c
+        if kind == "stepper" then
+          nv, c = ui.stepper(v, { id = id, min = row.min, max = row.max, step = row.step, big = row.big,
+            w = row.w, disabled = dis, tip = row.tip })
+        elseif kind == "slider" then
+          nv, c = ui.slider(v, { id = id, min = row.min, max = row.max, step = row.step, low = row.low,
+            high = row.high, label = row.label, w = row.w, disabled = dis, tip = row.tip })
+        elseif kind == "choice" then
+          local index = v
+          if row.values then
+            for i, x in ipairs(row.values) do
+              if x == v then index = i end
+            end
+          end
+          local i
+          i, c = ui.choice(row.options, index, { id = id, dir = row.dir, gap = row.gap, disabled = dis,
+            tips = row.tips })
+          if c and i then nv = row.values and row.values[i] or i end
+        else
+          nv, c = ui.input(v, { id = id, max = row.max, w = row.w, placeholder = row.placeholder,
+            disabled = dis, tip = row.tip })
+        end
+        if c and not dis then
+          local ok = fit(row, nv)
+          if ok ~= nil then write(row, ok) end
+        end
+      end)
+    end
+    notes(row)
+  end
+
+  local page_id = t.id ~= nil and tostring(t.id) or mod
+  config.page({
+    id = page_id,
+    title = t.title or mod_name(mod),
+    on_open = t.on_open,
+    on_close = t.on_close,
+    draw = function(_, box)
+      if not label_w then
+        label_w = 0
+        for _, row in ipairs(rows) do
+          if row.label and row.kind ~= "checkbox" then
+            label_w = math.max(label_w, rq.hud.text_width(row.label, ui.theme.label) + 16)
+          end
+        end
+        label_w = math.min(math.max(label_w, 120), 420)
+      end
+      local blocked = keep == "save" and rq.world.current() == nil
+      if blocked then ui.label("Load a save to change these.", { dim = true }) end
+      for _, row in ipairs(rows) do draw_row(row, blocked) end
+      if t.reset ~= false then
+        ui.space(0, 4)
+        if ui.button("Reset", { id = "reset", disabled = blocked,
+            tip = "Puts every setting on this page back to its default." }) then
+          s.reset()
+        end
+      end
+      if t.draw then t.draw(ui, box) end
+    end,
+  })
+  s.id = page_id
+  return s
 end
 
 return config

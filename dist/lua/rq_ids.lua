@@ -933,6 +933,16 @@
 ---@field OPENING_MAGNUM integer 107: Opening/Magnum
 ---@field NEW_FRIEND_THEME integer 108: New Friend Theme
 
+---Party states by name: where a character is (`登録状態`), as `rq.party.state` and `rq.chara.get(iic).state` give it and `rq.party.roster` takes it. The game names none; these names are ours, after its functions `キャラ_スタメン` to `キャラ_２軍`.
+---
+---A key that is not here raises an error; `rq.ids.find` looks a name up.
+---@class rq.IdsPartyState
+---@field NONE integer 0: None (not recruited)
+---@field PARTY integer 1: Party (one of the five ranks (rq.party.get))
+---@field RESERVE integer 2: Reserve (the first army, free to join the party)
+---@field USED integer 3: Used (the first army, switched out in this quest: not placed again until the quest ends)
+---@field SECOND integer 4: Second (the second army)
+
 ---Quests by name: quest numbers, as in `rq.quests()` and `rq.quests.start`.
 ---
 ---A key that is not here raises an error; `rq.ids.find` looks a name up.

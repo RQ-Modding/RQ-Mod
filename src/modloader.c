@@ -1002,88 +1002,69 @@ static int l_loot_install(lua_State *L)
 	return 1;
 }
 
-static int l_chest_install(lua_State *L)
+/* The installs that only place hooks (2.35.0). With no callback the game runs as before, so each
+ * call that needs one makes it the first time it is called, and the rq.*.install calls are no
+ * longer needed (they stay, and make it too). The log names the first mod that asked and how.
+ * rq.loot.install, rq.skilllist.install and rq.battle.install_states turn on something the
+ * player sees, so they stay a mod's own choice. */
+enum { AI_CHEST, AI_ORB, AI_SKILL, AI_CHARA, AI_COUNTER, AI_SHOP, AI_BATTLE, AI_MARKS, AI_N };
+
+static const struct {
+	const char *name;
+	int (*fn)(struct ain *);
+} k_installs[AI_N] = {
+	{ "chest.install", rq_chest_install },
+	{ "orb.install", rq_orb_install },
+	{ "skill.install", rq_skill_install },
+	{ "chara.install", rq_chara_install },
+	{ "counter.install", rq_counter_install },
+	{ "shop.install", rq_shop_install },
+	{ "battle.install", rq_battle_install },
+	{ "battle.install_flame", rq_battle_marks_install },
+};
+static unsigned char g_installed[AI_N];
+
+/* Makes install i, or raises its error. `call` is what asked: "install" or a call's name. */
+static void need_install(lua_State *L, int i, const char *call)
 {
-	int ok;
+	if (g_installed[i])
+		return;
 	if (!g_ain)
-		return luaL_error(L, "AIN not loaded");
-	ok = rq_chest_install(g_ain);
-	if (!ok)
-		return luaL_error(L, "chest.install failed (see logs/rqmod.log)");
+		luaL_error(L, "AIN not loaded");
+	if (!k_installs[i].fn(g_ain))
+		luaL_error(L, "%s failed (see logs/rqmod.log)", k_installs[i].name);
+	g_installed[i] = 1;
+	rq_log("%s: first asked for by %s (%s)", k_installs[i].name, lua_mod_tag(L), call);
+}
+
+/* A call that needs install i: upvalues are i, the call itself and its name. */
+static int l_installing(lua_State *L)
+{
+	need_install(L, (int)lua_tointeger(L, lua_upvalueindex(1)), lua_tostring(L, lua_upvalueindex(3)));
+	return lua_tocfunction(L, lua_upvalueindex(2))(L);
+}
+
+static void set_installing(lua_State *L, const char *name, lua_CFunction fn, int i)
+{
+	lua_pushinteger(L, i);
+	lua_pushcfunction(L, fn);
+	lua_pushstring(L, name);
+	lua_pushcclosure(L, l_installing, 3);
+	lua_setfield(L, -2, name);
+}
+
+static int l_install(lua_State *L)
+{
+	need_install(L, (int)lua_tointeger(L, lua_upvalueindex(1)), "install");
 	lua_pushboolean(L, 1);
 	return 1;
 }
 
-static int l_orb_install(lua_State *L)
+static void set_install(lua_State *L, const char *name, int i)
 {
-	int ok;
-	if (!g_ain)
-		return luaL_error(L, "AIN not loaded");
-	ok = rq_orb_install(g_ain);
-	if (!ok)
-		return luaL_error(L, "orb.install failed (see logs/rqmod.log)");
-	lua_pushboolean(L, 1);
-	return 1;
-}
-
-static int l_chara_install(lua_State *L)
-{
-	int ok;
-	if (!g_ain)
-		return luaL_error(L, "AIN not loaded");
-	ok = rq_chara_install(g_ain);
-	if (!ok)
-		return luaL_error(L, "chara.install failed (see logs/rqmod.log)");
-	lua_pushboolean(L, 1);
-	return 1;
-}
-
-static int l_skill_install(lua_State *L)
-{
-	int ok;
-	if (!g_ain)
-		return luaL_error(L, "AIN not loaded");
-	ok = rq_skill_install(g_ain);
-	if (!ok)
-		return luaL_error(L, "skill.install failed (see logs/rqmod.log)");
-	lua_pushboolean(L, 1);
-	return 1;
-}
-
-static int l_counter_install(lua_State *L)
-{
-	int ok;
-	if (!g_ain)
-		return luaL_error(L, "AIN not loaded");
-	ok = rq_counter_install(g_ain);
-	if (!ok)
-		return luaL_error(L, "counter.install failed (see logs/rqmod.log)");
-	lua_pushboolean(L, 1);
-	return 1;
-}
-
-static int l_battle_install(lua_State *L)
-{
-	int ok;
-	if (!g_ain)
-		return luaL_error(L, "AIN not loaded");
-	ok = rq_battle_install(g_ain);
-	if (!ok)
-		return luaL_error(L, "battle.install failed (see logs/rqmod.log)");
-	lua_pushboolean(L, 1);
-	return 1;
-}
-
-static int l_shop_install(lua_State *L)
-{
-	int ok;
-	if (!g_ain)
-		return luaL_error(L, "AIN not loaded");
-	ok = rq_shop_install(g_ain);
-	if (!ok)
-		return luaL_error(L, "shop.install failed (see logs/rqmod.log)");
-	lua_pushboolean(L, 1);
-	return 1;
+	lua_pushinteger(L, i);
+	lua_pushcclosure(L, l_install, 1);
+	lua_setfield(L, -2, name);
 }
 
 static int l_saves_install(lua_State *L)
@@ -1358,7 +1339,10 @@ static int game_call(lua_State *L)
 	if (!heap || !heap_size || !heap[0].page)
 		return luaL_error(L, "rq.%s: the game is not running yet. Call it from rq.on_frame or a callback, not at the top level of a mod",
 				lua_tostring(L, lua_upvalueindex(2)));
-	return lua_tocfunction(L, lua_upvalueindex(1))(L);
+	lua_pushvalue(L, lua_upvalueindex(1));
+	lua_insert(L, 1);
+	lua_call(L, lua_gettop(L) - 1, LUA_MULTRET);
+	return lua_gettop(L);
 }
 
 static void guard_game_calls(lua_State *L)
@@ -1527,33 +1511,33 @@ static void open_rq(lua_State *L)
 	lua_setfield(L, -2, "loot");
 
 	lua_newtable(L);
-	set_cfn(L, "install", l_chest_install);
-	set_cfn(L, "on_attempt", rq_lua_chest_on_attempt);
-	set_cfn(L, "on_result", rq_lua_chest_on_result);
+	set_install(L, "install", AI_CHEST);
+	set_installing(L, "on_attempt", rq_lua_chest_on_attempt, AI_CHEST);
+	set_installing(L, "on_result", rq_lua_chest_on_result, AI_CHEST);
 	set_cfn(L, "get", rq_lua_chest_get);
 	set_cfn(L, "set", rq_lua_chest_set);
 	lua_setfield(L, -2, "chest");
 
 	lua_newtable(L);
-	set_cfn(L, "install", l_orb_install);
-	set_cfn(L, "on_heal", rq_lua_orb_on_heal);
-	set_cfn(L, "roster", rq_lua_orb_roster);
-	set_cfn(L, "get_state", rq_lua_orb_get_state);
-	set_cfn(L, "set_state", rq_lua_orb_set_state);
-	set_cfn(L, "set_status", rq_lua_orb_set_status);
-	set_cfn(L, "get_hp", rq_lua_orb_get_hp);
-	set_cfn(L, "get_max_hp", rq_lua_orb_get_max_hp);
-	set_cfn(L, "set_hp", rq_lua_orb_set_hp);
-	set_cfn(L, "full_heal", rq_lua_orb_full_heal);
+	set_install(L, "install", AI_ORB);
+	set_installing(L, "on_heal", rq_lua_orb_on_heal, AI_ORB);
+	set_installing(L, "roster", rq_lua_orb_roster, AI_ORB);
+	set_installing(L, "get_state", rq_lua_orb_get_state, AI_ORB);
+	set_installing(L, "set_state", rq_lua_orb_set_state, AI_ORB);
+	set_installing(L, "set_status", rq_lua_orb_set_status, AI_ORB);
+	set_installing(L, "get_hp", rq_lua_orb_get_hp, AI_ORB);
+	set_installing(L, "get_max_hp", rq_lua_orb_get_max_hp, AI_ORB);
+	set_installing(L, "set_hp", rq_lua_orb_set_hp, AI_ORB);
+	set_installing(L, "full_heal", rq_lua_orb_full_heal, AI_ORB);
 	lua_setfield(L, -2, "orb");
 
 	lua_newtable(L);
-	set_cfn(L, "install", l_skill_install);
-	set_cfn(L, "on_describe", rq_lua_skill_on_describe);
-	set_cfn(L, "get", rq_lua_skill_get);
-	set_cfn(L, "define", rq_lua_skill_define);
-	set_cfn(L, "patch", rq_lua_skill_patch);
-	set_cfn(L, "sort_as", rq_lua_skill_sort_as);
+	set_install(L, "install", AI_SKILL);
+	set_installing(L, "on_describe", rq_lua_skill_on_describe, AI_SKILL);
+	set_installing(L, "get", rq_lua_skill_get, AI_SKILL);
+	set_installing(L, "define", rq_lua_skill_define, AI_SKILL);
+	set_installing(L, "patch", rq_lua_skill_patch, AI_SKILL);
+	set_installing(L, "sort_as", rq_lua_skill_sort_as, AI_SKILL);
 	lua_setfield(L, -2, "skill");
 
 	lua_newtable(L);
@@ -1562,22 +1546,22 @@ static void open_rq(lua_State *L)
 	lua_setfield(L, -2, "agent");
 
 	lua_newtable(L);
-	set_cfn(L, "install", l_chara_install);
-	set_cfn(L, "grant", rq_lua_chara_grant);
-	set_cfn(L, "rank", rq_lua_chara_rank);
-	set_cfn(L, "slots", rq_lua_chara_slots);
-	set_cfn(L, "set_slot", rq_lua_chara_set_slot);
-	set_cfn(L, "set_flavor", rq_lua_chara_set_flavor);
-	set_cfn(L, "weapon_detail", rq_lua_chara_weapon_detail);
-	set_cfn(L, "apply_mod", rq_lua_chara_apply_mod);
-	set_cfn(L, "on_recalc", rq_lua_chara_on_recalc);
-	set_cfn(L, "on_offer", rq_lua_chara_on_offer);
-	set_cfn(L, "offers", rq_lua_chara_offers);
-	set_cfn(L, "set_offer", rq_lua_chara_set_offer);
-	set_cfn(L, "max_uses", rq_lua_chara_max_uses);
-	set_cfn(L, "set_uses", rq_lua_chara_set_uses);
-	set_cfn(L, "set_bar", rq_lua_chara_set_bar);
-	set_cfn(L, "clear_slot", rq_lua_chara_clear_slot);
+	set_install(L, "install", AI_CHARA);
+	set_installing(L, "grant", rq_lua_chara_grant, AI_CHARA);
+	set_installing(L, "rank", rq_lua_chara_rank, AI_CHARA);
+	set_installing(L, "slots", rq_lua_chara_slots, AI_CHARA);
+	set_installing(L, "set_slot", rq_lua_chara_set_slot, AI_CHARA);
+	set_installing(L, "set_flavor", rq_lua_chara_set_flavor, AI_CHARA);
+	set_installing(L, "weapon_detail", rq_lua_chara_weapon_detail, AI_CHARA);
+	set_installing(L, "apply_mod", rq_lua_chara_apply_mod, AI_CHARA);
+	set_installing(L, "on_recalc", rq_lua_chara_on_recalc, AI_CHARA);
+	set_installing(L, "on_offer", rq_lua_chara_on_offer, AI_CHARA);
+	set_installing(L, "offers", rq_lua_chara_offers, AI_CHARA);
+	set_installing(L, "set_offer", rq_lua_chara_set_offer, AI_CHARA);
+	set_installing(L, "max_uses", rq_lua_chara_max_uses, AI_CHARA);
+	set_installing(L, "set_uses", rq_lua_chara_set_uses, AI_CHARA);
+	set_installing(L, "set_bar", rq_lua_chara_set_bar, AI_CHARA);
+	set_installing(L, "clear_slot", rq_lua_chara_clear_slot, AI_CHARA);
 	set_cfn(L, "define", rq_lua_chara_define);
 	set_cfn(L, "recruit", rq_lua_chara_recruit);
 	set_cfn(L, "find", rq_lua_chara_find);
@@ -1636,47 +1620,47 @@ static void open_rq(lua_State *L)
 	lua_setfield(L, -2, "store");
 
 	lua_newtable(L);
-	set_cfn(L, "install", l_chara_install);
-	set_cfn(L, "on_physical", rq_lua_combat_on_physical);
-	set_cfn(L, "on_accuracy", rq_lua_combat_on_accuracy);
-	set_cfn(L, "on_crit", rq_lua_combat_on_crit);
+	set_install(L, "install", AI_CHARA);
+	set_installing(L, "on_physical", rq_lua_combat_on_physical, AI_CHARA);
+	set_installing(L, "on_accuracy", rq_lua_combat_on_accuracy, AI_CHARA);
+	set_installing(L, "on_crit", rq_lua_combat_on_crit, AI_CHARA);
 	lua_setfield(L, -2, "combat");
 
 	lua_newtable(L);
-	set_cfn(L, "install", l_counter_install);
-	set_cfn(L, "on_guard_counter", rq_lua_counter_on_guard_counter);
+	set_install(L, "install", AI_COUNTER);
+	set_installing(L, "on_guard_counter", rq_lua_counter_on_guard_counter, AI_COUNTER);
 	lua_setfield(L, -2, "counter");
 
 	lua_newtable(L);
-	set_cfn(L, "install", l_shop_install);
-	set_cfn(L, "on_stock", rq_lua_shop_on_stock);
-	set_cfn(L, "in_stock", rq_lua_shop_in_stock);
-	set_cfn(L, "stock", rq_lua_shop_stock);
+	set_install(L, "install", AI_SHOP);
+	set_installing(L, "on_stock", rq_lua_shop_on_stock, AI_SHOP);
+	set_installing(L, "in_stock", rq_lua_shop_in_stock, AI_SHOP);
+	set_installing(L, "stock", rq_lua_shop_stock, AI_SHOP);
 	set_cfn(L, "on_buy", rq_lua_shop_on_buy);
 	lua_setfield(L, -2, "shop");
 
 	lua_newtable(L);
-	set_cfn(L, "install", l_battle_install);
-	set_cfn(L, "on_select_key", rq_lua_battle_on_select_key);
+	set_install(L, "install", AI_BATTLE);
+	set_installing(L, "on_select_key", rq_lua_battle_on_select_key, AI_BATTLE);
 	set_cfn(L, "on_start", rq_lua_battle_on_start);
 	set_cfn(L, "on_end", rq_lua_battle_on_end);
 	set_cfn(L, "on_down", rq_lua_battle_on_down);
 	set_cfn(L, "on_support", rq_lua_battle_on_support);
 	set_cfn(L, "on_switch", rq_lua_battle_on_switch);
-	set_cfn(L, "install_flame", rq_lua_battle_install_flame);
-	set_cfn(L, "set_flame", rq_lua_battle_set_flame);
+	set_install(L, "install_flame", AI_MARKS);
+	set_installing(L, "set_flame", rq_lua_battle_set_flame, AI_MARKS);
 	set_cfn(L, "set_buff", rq_lua_battle_set_buff);
 	set_cfn(L, "set_rank_buff", rq_lua_battle_set_rank_buff);
-	set_cfn(L, "set_mark", rq_lua_battle_set_mark);
+	set_installing(L, "set_mark", rq_lua_battle_set_mark, AI_MARKS);
 	set_cfn(L, "install_states", rq_lua_battle_install_states);
 	set_cfn(L, "states", rq_lua_battle_states);
 	set_cfn(L, "set_state", rq_lua_battle_set_state);
 	set_cfn(L, "buffs", rq_lua_battle_buffs);
 	set_cfn(L, "get_drop", rq_lua_battle_get_drop);
 	set_cfn(L, "set_drop", rq_lua_battle_set_drop);
-	set_cfn(L, "in_ally_select", rq_lua_battle_in_ally_select);
-	set_cfn(L, "actor", rq_lua_battle_actor);
-	set_cfn(L, "skill_usable", rq_lua_battle_skill_usable);
+	set_installing(L, "in_ally_select", rq_lua_battle_in_ally_select, AI_BATTLE);
+	set_installing(L, "actor", rq_lua_battle_actor, AI_BATTLE);
+	set_installing(L, "skill_usable", rq_lua_battle_skill_usable, AI_BATTLE);
 	set_cfn(L, "start", rq_lua_battle_start);
 	set_cfn(L, "set_face", rq_lua_battle_set_face);
 	set_cfn(L, "get_face", rq_lua_battle_get_face);
@@ -2499,7 +2483,10 @@ void rq_mods_init(struct ain *ain)
 	n = load_mods(g_L);
 	rq_log("Loaded %d Lua mod(s). Ready.", n);
 	/* Vanilla buffs must all show with or without a mod asking for it. */
-	rq_battle_marks_install(ain);
+	if (rq_battle_marks_install(ain) && !g_installed[AI_MARKS]) {
+		g_installed[AI_MARKS] = 1;
+		rq_log("battle.install_flame: placed by the engine after the mods loaded");
+	}
 	/* Pipe comes up after the mod list is finished, so `mods` is complete. */
 	rq_mods_agent_start();
 }

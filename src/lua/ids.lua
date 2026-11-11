@@ -905,6 +905,13 @@ local DATA = {
     107, "OPENING_MAGNUM", "Opening/Magnum",
     108, "NEW_FRIEND_THEME", "New Friend Theme",
   },
+  party_state = {
+    0, "NONE", "None",
+    1, "PARTY", "Party",
+    2, "RESERVE", "Reserve",
+    3, "USED", "Used",
+    4, "SECOND", "Second",
+  },
   quest = {
     10, "DEBUG_VARIOUS_COMMANDS", "Debug (Various commands)",
     11, "FAVOR_SURVEY", "Favor: Survey",
@@ -1663,7 +1670,7 @@ local ALIAS = {
   },
 }
 
-local KINDS = "chara, chara_type, class, element, item, item_kind, map_kind, monster, music, quest, race, skill, state, target"
+local KINDS = "chara, chara_type, class, element, item, item_kind, map_kind, monster, music, party_state, quest, race, skill, state, target"
 
 -- How find and find_all compare: lower case, é as e, nothing but letters and digits.
 local function fold(s)

@@ -419,10 +419,35 @@ static struct tpl *tpl_by_no(int no)
 	return NULL;
 }
 
+/* The loader's own Lua that keeps values for a mod (rq.config.settings, 2.35.0) runs from its own
+ * frames, where no mod is on the stack; as_mod sets the mod those calls are filed under. */
+static char g_as_mod[128];
+
 static const char *mod_of(lua_State *L)
 {
-	const char *m = rq_lua_caller_mod(L);
+	const char *m;
+	if (g_as_mod[0])
+		return g_as_mod;
+	m = rq_lua_caller_mod(L);
 	return m && m[0] ? m : "_";
+}
+
+/* as_mod(id, fn, ...): fn(...) with rq.store, rq.store.global and rq.savedata keyed by mod id.
+ * Given only to the loader's own Lua parts, never to a mod. */
+int rq_lua_as_mod(lua_State *L)
+{
+	char saved[sizeof g_as_mod];
+	const char *id = luaL_checkstring(L, 1);
+	int status;
+
+	luaL_checktype(L, 2, LUA_TFUNCTION);
+	memcpy(saved, g_as_mod, sizeof saved);
+	snprintf(g_as_mod, sizeof g_as_mod, "%s", id);
+	status = lua_pcall(L, lua_gettop(L) - 2, LUA_MULTRET, 0);
+	memcpy(g_as_mod, saved, sizeof saved);
+	if (status != LUA_OK)
+		return lua_error(L);
+	return lua_gettop(L) - 1;
 }
 
 /* Number or text id at stack index idx. */
@@ -1462,14 +1487,20 @@ int rq_lua_store_get(lua_State *L)
 		lua_pushvalue(L, 2);
 		return 1;
 	}
-	if (cJSON_IsBool(v))
+	if (cJSON_IsBool(v)) {
 		lua_pushboolean(L, cJSON_IsTrue(v));
-	else if (cJSON_IsNumber(v))
-		lua_pushnumber(L, v->valuedouble);
-	else if (cJSON_IsString(v))
+	} else if (cJSON_IsNumber(v)) {
+		/* A whole number comes back an integer (2.35.0; it came back a float, 3.0). */
+		double d = v->valuedouble;
+		if (d <= 9007199254740992.0 && d >= -9007199254740992.0 && d == (double)(long long)d)
+			lua_pushinteger(L, (lua_Integer)d);
+		else
+			lua_pushnumber(L, d);
+	} else if (cJSON_IsString(v)) {
 		lua_pushstring(L, v->valuestring);
-	else
+	} else {
 		lua_pushvalue(L, 2);
+	}
 	return 1;
 }
 

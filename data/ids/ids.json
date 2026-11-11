@@ -5371,6 +5371,43 @@
    ]
   },
   {
+   "kind": "party_state",
+   "title": "Party states",
+   "what": "where a character is (`登録状態`), as `rq.party.state` and `rq.chara.get(iic).state` give it and `rq.party.roster` takes it. The game names none; these names are ours, after its functions `キャラ_スタメン` to `キャラ_２軍`",
+   "entries": [
+    {
+     "no": 0,
+     "name": "None",
+     "detail": "not recruited",
+     "key": "NONE"
+    },
+    {
+     "no": 1,
+     "name": "Party",
+     "detail": "one of the five ranks (rq.party.get)",
+     "key": "PARTY"
+    },
+    {
+     "no": 2,
+     "name": "Reserve",
+     "detail": "the first army, free to join the party",
+     "key": "RESERVE"
+    },
+    {
+     "no": 3,
+     "name": "Used",
+     "detail": "the first army, switched out in this quest: not placed again until the quest ends",
+     "key": "USED"
+    },
+    {
+     "no": 4,
+     "name": "Second",
+     "detail": "the second army",
+     "key": "SECOND"
+    }
+   ]
+  },
+  {
    "kind": "quest",
    "title": "Quests",
    "what": "quest numbers, as in `rq.quests()` and `rq.quests.start`",

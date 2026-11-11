@@ -1406,6 +1406,9 @@ function loot.on_pick(fn) end
 ---It skips the game's roll at opening and sets the map's chest flags. Red chests keep the game's
 ---chance and still explode on a fail, which loses the item. It opens no screen.
 ---
+---It changes when the game rolls, so it stays a mod's own choice: `rq.loot.list`, which needs it,
+---does not make it.
+---
 ---Since: 0.2.0
 ---@return boolean ok true when the patch is in place.
 function loot.install() end
@@ -1426,7 +1429,7 @@ function loot.install() end
 
 ---Lists the items waiting for the player: the Magnum's (when it holds one), then the locked chests'.
 ---
----Needs `rq.loot.install`.
+---Needs `rq.loot.install`; before it the list is empty.
 ---
 ---Since: 0.2.0
 ---@return rq.LootItem[] items The items.
@@ -1457,7 +1460,6 @@ function loot.list() end
 ---Since: 0.2.0
 ---
 ---```lua
----rq.chest.install()
 ---rq.chest.on_attempt(function(info)
 ---  return math.min(100, info.base_pct + (rq.chest.get("pity") or 0))
 ---end)
@@ -1471,9 +1473,11 @@ local chest = {}
 
 ---Patches the red chest's roll.
 ---
----Calling it again, or after `rq.loot.install`, does nothing more.
+---Not needed since 2.35.0: each call that needs it places it the first time, and raises this
+---call's error there when it cannot. Calling it still does no harm.
 ---
 ---Since: 0.2.0
+---Changed: 2.35.0 Not needed: `on_attempt` and `on_result` make it.
 ---@return boolean ok true when the patch is in place.
 function chest.install() end
 
@@ -1481,22 +1485,24 @@ function chest.install() end
 ---
 ---Each callback sees the percent the one before left in `info.pct`; nil keeps it. With no callback the
 ---chance is `info.base_pct`, not 100. The chance is written to `成功確率` and to the "(N% chance to
----disarm)" line before that choice shows. Up to 16 callbacks.
+---disarm)" line before that choice shows. Up to 16 callbacks. The first call patches the roll.
 ---
 ---Since: 0.2.0
 ---Changed: 0.14.0 Every mod's callback runs; added `info.pct`.
 ---Changed: 0.23.0 Returns a remover.
+---Changed: 2.35.0 Patches the roll itself; before, it needed `rq.chest.install`.
 ---@param fn fun(info: rq.ChestInfo): integer|rq.ChestAttemptResult|nil Returns the percent.
 ---@return fun() remove Removes this callback.
 function chest.on_attempt(fn) end
 
 ---Calls `fn` after a red chest rolled.
 ---
----Up to 16 callbacks.
+---Up to 16 callbacks. The first call patches the roll.
 ---
 ---Since: 0.2.0
 ---Changed: 0.14.0 Every mod's callback runs.
 ---Changed: 0.23.0 Returns a remover.
+---Changed: 2.35.0 Patches the roll itself; before, it needed `rq.chest.install`.
 ---@param fn fun(info: rq.ChestInfo) Gets the chest and the roll.
 ---@return fun() remove Removes this callback.
 function chest.on_result(fn) end
@@ -1517,10 +1523,10 @@ function chest.get(key) end
 ---@param val integer The number.
 function chest.set(key, val) end
 
----A roster member, from `rq.orb.roster`.
+---A roster member, from `rq.orb.roster`. `rq.party.roster` gives the same with `hp_max` and `status`.
 ---@class rq.OrbMember
 ---@field iic integer The roster slot.
----@field state integer Where the character is (`登録状態`): 1 party, 2 reserve, 3 spent.
+---@field state integer Where the character is (`登録状態`, `rq.ids.party_state`): 1 in the party, 2 the first army, 3 used in this quest, 4 the second army.
 ---@field hp integer HP.
 ---@field max_hp integer Most HP.
 
@@ -1530,10 +1536,16 @@ function chest.set(key, val) end
 ---`on_heal`. The rest of the spring (Carolie, the flash, clearing the cell) stays the game's. The calls
 ---that write raise an error for a slot with no character.
 ---
+---The other calls are older names for what `rq.party` and `rq.chara` do anywhere: `roster`,
+---`get_state` and `set_state` are `rq.party.roster`, `state` and `set_state`; `full_heal` is
+---`rq.chara.heal`; the HP and the status are `rq.chara.get` and `rq.chara.set`'s `hp`, `hp_max` and
+---`status`. They stay. Since 2.35.0 each call places the spring's patch the first time; before, a
+---call made without `rq.orb.install` read 0 and wrote nothing.
+---
 ---Since: 0.2.0
+---Changed: 2.35.0 No `install` needed.
 ---
 ---```lua
----rq.orb.install()
 ---rq.orb.on_heal(function()
 ---  for _, m in ipairs(rq.orb.roster()) do
 ---    if m.state == 1 or m.state == 2 then
@@ -1550,7 +1562,11 @@ local orb = {}
 
 ---Patches the spring's party heal so it calls `on_heal`.
 ---
+---Not needed since 2.35.0: each call that needs it places it the first time, and raises this
+---call's error there when it cannot. Calling it still does no harm.
+---
 ---Since: 0.2.0
+---Changed: 2.35.0 Not needed: every `rq.orb` call makes it.
 ---@return boolean ok true when the patch is in place.
 function orb.install() end
 
@@ -1573,49 +1589,50 @@ function orb.on_heal(fn) end
 ---@return rq.OrbMember[] members The members.
 function orb.roster(state) end
 
----Returns where a character is (`登録状態`).
+---Returns where a character is (`登録状態`). The same as `rq.party.state`.
 ---
 ---Since: 0.2.0
 ---@param iic integer The roster slot.
----@return integer state 1 party, 2 reserve, 3 spent.
+---@return integer state 1 in the party, 2 the first army, 3 used in this quest, 4 the second army (`rq.ids.party_state`).
 function orb.get_state(iic) end
 
----Sets where a character is (`登録状態`).
+---Sets where a character is (`登録状態`), with no check. `rq.party.set_state` checks the move.
 ---
 ---Since: 0.2.0
 ---@param iic integer The roster slot.
----@param state integer 1 party, 2 reserve, 3 spent.
+---@param state integer 1 in the party, 2 the first army, 3 used in this quest, 4 the second army (`rq.ids.party_state`).
 function orb.set_state(iic, state) end
 
----Sets a character's status (`状態変化`).
+---Sets a character's status (`状態変化`). The same as `rq.chara.set(iic, { status = n })`.
 ---
 ---Since: 0.2.0
 ---@param iic integer The roster slot.
----@param status integer The status: 0 none, 1 poison, 3 downed.
+---@param status integer The status: 0 none, 1 poison, 2 stun, 3 downed (`rq.ids.state`).
 function orb.set_status(iic, status) end
 
----Returns a character's HP.
+---Returns a character's HP. The same as `rq.chara.get(iic).hp`.
 ---
 ---Since: 0.2.0
 ---@param iic integer The roster slot.
 ---@return integer hp HP.
 function orb.get_hp(iic) end
 
----Returns a character's most HP.
+---Returns a character's most HP. The same as `rq.chara.get(iic).hp_max`.
 ---
 ---Since: 0.2.0
 ---@param iic integer The roster slot.
 ---@return integer max Most HP.
 function orb.get_max_hp(iic) end
 
----Sets a character's HP.
+---Sets a character's HP. The same as `rq.chara.set(iic, { hp = n })`.
 ---
 ---Since: 0.2.0
 ---@param iic integer The roster slot.
 ---@param hp integer HP.
 function orb.set_hp(iic, hp) end
 
----Fills a character's HP (`Ｃ補給／体力`).
+---Fills a character's HP (`Ｃ補給／体力`), also a downed character's. `rq.chara.heal` leaves the downed
+---as they are, as the game's party heals do.
 ---
 ---Since: 0.2.0
 ---@param iic integer The roster slot.
@@ -1640,27 +1657,35 @@ function orb.full_heal(iic) end
 ---stable number from 700 to 999. Strings are UTF-8 in Lua. The calls that write raise an error for a
 ---number outside 1 to 1000. Up to 128 `define` and `patch` calls in all.
 ---
+---Since 2.35.0 each call places the hooks it needs the first time (`rq.skill.install`): before, a
+---`define` or `patch` without it was never applied, and `get` gave empty names.
+---
 ---Since: 0.2.0
+---Changed: 2.35.0 No `install` needed.
 ---@class rq.skill
 local skill = {}
 
 ---Wraps `スキル_説明文１`, the hover text on the status and fight screens, so `on_describe` can rewrite
----it.
+---it, and the game's skill list at boot, so `define` and `patch` are applied.
+---
+---Not needed since 2.35.0: each call that needs it places it the first time, and raises this
+---call's error there when it cannot. Calling it still does no harm.
 ---
 ---Since: 0.2.0
+---Changed: 2.35.0 Not needed: every `rq.skill` call makes it.
 ---@return boolean ok true when the patch is in place.
 function skill.install() end
 
 ---Calls `fn` for a skill's hover text, to rewrite it.
 ---
----Each callback gets the text the one before left. Needs `rq.skill.install`. Up to 16 callbacks.
+---Each callback gets the text the one before left. Up to 16 callbacks.
 ---
 ---Since: 0.2.0
 ---Changed: 0.14.0 Every mod's callback runs.
 ---Changed: 0.23.0 Returns a remover.
+---Changed: 2.35.0 Wraps the hover text itself; before, it needed `rq.skill.install`.
 ---
 ---```lua
----rq.skill.install()
 ---rq.skill.on_describe(function(no, text)
 ---  local s = rq.skill.get(no)
 ---  return text .. " (x" .. s.bairitsu .. ")"
@@ -1810,7 +1835,8 @@ local skilllist = {}
 ---Turns the paged list on, and with `buttons` adds Previous Page and Next Page.
 ---
 ---Calling it again does nothing more, except that a call with `buttons` adds the two buttons when an
----earlier call left them out.
+---earlier call left them out. It changes the list the player sees, so it stays a mod's own choice:
+---the calls that need it raise an error before it.
 ---
 ---Raises an error for `opts` that is not a table, or when `スキルポン`'s stop at 54 is not found.
 ---
@@ -2255,7 +2281,8 @@ function agent.widgets(list) end
 ---
 ---**Skills and the buy list.** `grant`, `rank`, `slots`, `set_slot`, `set_flavor`, `weapon_detail`,
 ---`apply_mod`, `on_recalc`, `on_offer`, `offers`, `set_offer`, `set_uses`, `set_bar`, `clear_slot` and
----`max_uses` need `rq.chara.install` first.
+---`max_uses` place the hooks they need the first time (`rq.chara.install`). Before 2.35.0 they needed
+---it first, and without it read 0 and wrote nothing.
 ---
 ---**Roster.** `define` registers a template; the character exists, and joins the player's roster,
 ---only when `recruit` runs, so a mod can give it from a quest or an event. `recruit` also works for
@@ -2263,8 +2290,12 @@ function agent.widgets(list) end
 ---number every time, so saves stay valid. The roster has 181 slots (20 to 200). The roster calls
 ---install what they need on first use.
 ---
+---**HP and heals.** `get` and `set` read and write `hp`, `hp_max` and `status`; `heal` is the
+---game's own heal. Where a character is (the party, the reserve) is `rq.party`'s.
+---
 ---Since: 0.2.0
 ---Changed: 0.4.0 Added the roster calls.
+---Changed: 2.35.0 No `install` needed; added `heal`.
 ---
 ---```lua
 ----- Create now, provide later
@@ -2285,15 +2316,15 @@ local chara = {}
 ---
 ---It hooks the end of `Ｃ再計算` (the recalculation, after the game's own spear rewrite) and of
 ---`Ｔ購入スキル登録` (the buy list), and the combat sites `rq.combat` uses. Calling it again, or after
----`rq.combat.install`, does nothing more. Call it at the top of `init.lua`.
+---`rq.combat.install`, does nothing more.
+---
+---Not needed since 2.35.0: each call that needs it places it the first time, and raises this
+---call's error there when it cannot. Calling it still does no harm.
 ---
 ---Raises an error when the AIN is not loaded or a hook cannot be placed (the reason is in the log).
 ---
 ---Since: 0.2.0
----
----```lua
----rq.chara.install()
----```
+---Changed: 2.35.0 Not needed: the calls that need it make it.
 ---@return boolean ok Always true; a failure raises an error.
 function chara.install() end
 
@@ -2368,11 +2399,12 @@ function chara.apply_mod(iic, kind, amount, scale) end
 
 ---Calls `fn` after the game recalculates a character (`Ｃ再計算`).
 ---
----Needs `rq.chara.install`. Up to 16 callbacks in all.
+---Up to 16 callbacks in all.
 ---
 ---Since: 0.2.0
 ---Changed: 0.14.0 Every mod's callback runs (before, the last one won).
 ---Changed: 0.23.0 Returns a remover.
+---Changed: 2.35.0 Places its hook itself; before, it needed `rq.chara.install`.
 ---
 ---```lua
 ---rq.chara.on_recalc(function(iic)
@@ -2386,7 +2418,7 @@ function chara.on_recalc(fn) end
 ---Calls `fn` after the game filled a character's skill buy list, to add rows.
 ---
 ---`fn` returns nil, one `rq.Offer`, or a list of them. Each row goes through the game's own level
----check (`スキルレベル制限表示`). Needs `rq.chara.install`. Up to 16 callbacks in all.
+---check (`スキルレベル制限表示`). Up to 16 callbacks in all. Since 2.35.0 it places its hook itself.
 ---
 ---Since: 0.2.0
 ---Changed: 0.13.0 Every mod's callback runs (before, the last one won); a list adds several rows; added `points`.
@@ -2686,7 +2718,7 @@ function chara.edit(who, patch) end
 ---@field short string The short name.
 ---@field face_name string The face CG text.
 ---@field no integer The character number.
----@field state integer Where the character is (`登録状態`): 1 party, 2 reserve, 4 second string.
+---@field state integer Where the character is (`登録状態`, `rq.ids.party_state`): 0 not recruited, 1 in the party, 2 the first army, 3 the first army used in this quest (switched out: not placed again until it ends), 4 the second army. `rq.party.set_state` moves a character between 2, 3 and 4.
 ---@field guest integer Non-zero for a guest.
 ---@field locked integer Non-zero when the character cannot be removed.
 ---@field face integer The face CG number.
@@ -2727,7 +2759,7 @@ function chara.edit(who, patch) end
 ---@field model integer The 3D model.
 ---@field boss integer Non-zero for a boss.
 ---@field weakness_known boolean The player knows the weakness.
----@field status integer Battle state: the status change, 1 poison, 0 none. Since 0.5.0.
+---@field status integer The status change (`状態変化`, `rq.ids.state`): 0 none, 1 poison, 2 stun, 3 downed. It lasts past a fight: the game's heals leave a downed character as it is. Since 0.5.0.
 ---@field guard integer Battle state: guard rate. Since 0.5.0.
 ---@field stealth integer Battle state: stealth rate. Since 0.5.0.
 ---@field berserk integer Battle state: berserk. Since 0.5.0.
@@ -2790,6 +2822,24 @@ function chara.skill_points(iic) end
 ---@param delta integer Points to add; negative takes away.
 ---@return integer total The new total, never below 0.
 function chara.add_skill_points(iic, delta) end
+
+---Heals one character as the game does: HP to the most, and with `skills` the skill uses too.
+---
+---A downed character is left as it is, as in the game's party heals; set its `status` to 0 with
+---`rq.chara.set` first to raise it.
+---
+---Raises an error for a slot with no character, or for `all` (that is `rq.party.heal`'s).
+---
+---Since: 2.35.0
+---
+---```lua
+---if rq.chara.heal(iic, { skills = true }) then rq.log("healed") end
+---```
+---@param iic integer The roster slot.
+---@param opts? {skills?: boolean, half?: boolean} `skills` fills the skill uses; `half` heals up to half the most HP.
+---@return boolean healed false for a downed character.
+---@see rq.party.heal
+function chara.heal(iic, opts) end
 
 ---Removes a skill from a character (`ＣＳ削除`).
 ---
@@ -3556,11 +3606,13 @@ function item.count(no, opts) end
 ---It lives in `rqmod-store.json` in the active save folder, so it follows the `rq.saves` profile, not
 ---the game's save: the file is written on every `set` and `delete`, so after a quit without saving
 ---or a load it is ahead of the save. Keep progress that must match the save (counts, unlocks,
----"already given") in `rq.savedata`, and settings in `rq.store.global`. Values are numbers (read back
----as floats), strings and booleans. Each mod sees only its own keys.
+---"already given") in `rq.savedata`, and settings in `rq.store.global`. Values are numbers, strings
+---and booleans; a whole number comes back an integer. Each mod sees only its own keys. A Config page of
+---settings (`rq.config.settings`) keeps its values here or in `rq.store.global` for the mod.
 ---
 ---Since: 0.4.0
 ---Changed: 2.34.0 The reference says it follows the profile; `rq.savedata` follows the save.
+---Changed: 2.35.0 A whole number comes back an integer (it came back a float: 3.0).
 ---
 ---```lua
 ---if not rq.store.get("alice_joined", false) then
@@ -3572,7 +3624,11 @@ local store = {}
 
 ---Reads a key.
 ---
+---A whole number comes back an integer, as it was set (`math.type` "integer"), up to 2^53.
+---
 ---Since: 0.4.0
+---Changed: 2.35.0 A whole number comes back an integer; it came back a float (3.0), so a check
+---with `math.type(v) == "integer"` failed on every value read back.
 ---@param key string The key.
 ---@param default? any What to return when the key is not set.
 ---@return number|string|boolean|nil value The value, or `default`.
@@ -3715,7 +3771,7 @@ function savedata.keys() end
 ---Physical attacks keep the game's own path: defense, variance, cap, then the usual multipliers. Lua
 ---can replace the attack before defense, scale the final damage, add to the hit chance at the same
 ---place as the game's own -5 and -10 for some skills, and force or deny a critical. The callbacks
----need `rq.combat.install` (or `rq.chara.install`), and hold up to 16 each.
+---hold up to 16 each, and the first one places the hooks (`rq.combat.install`, needed before 2.35.0).
 ---
 ---They also run when the game works out the battle forecast, so the forecast shows what they
 ---change; `ctx.forecast` is then true (since 2.26.0), and a callback that counts hits or rolls dice
@@ -3724,7 +3780,6 @@ function savedata.keys() end
 ---Since: 0.2.0
 ---
 ---```lua
----rq.combat.install()
 ---rq.combat.on_physical(function(ctx)
 ---  if ctx.race == 8 then return nil, 50 end  -- half damage to a hanny
 ---end)
@@ -3736,9 +3791,13 @@ local combat = {}
 ---
 ---It is the same call as `rq.chara.install`; calling either again does nothing more.
 ---
+---Not needed since 2.35.0: each call that needs it places it the first time, and raises this
+---call's error there when it cannot. Calling it still does no harm.
+---
 ---Raises an error when the AIN is not loaded or a hook cannot be placed.
 ---
 ---Since: 0.2.0
+---Changed: 2.35.0 Not needed: the callbacks make it.
 ---@return boolean ok Always true; a failure raises an error.
 function combat.install() end
 
@@ -3837,13 +3896,12 @@ function combat.on_magic(fn) end
 ---Lets the Counter skill (259) work after Ally Guard.
 ---
 ---The game sets the Counter rate to 0 inside `ダメージ後計算` when Ally Guard redirected the hit
----(`FA[77]`). `rq.counter.install` patches only that place; the other effects of `FA[77]` and the
----other Counter checks stay as the game has them. Lua decides with `on_guard_counter`.
+---(`FA[77]`). The first `on_guard_counter` patches only that place; the other effects of `FA[77]` and
+---the other Counter checks stay as the game has them. Lua decides with `on_guard_counter`.
 ---
 ---Since: 0.2.0
 ---
 ---```lua
----rq.counter.install()
 ---rq.counter.on_guard_counter(function(ctx)
 ---  return ctx.guarded == true
 ---end)
@@ -3853,34 +3911,39 @@ local counter = {}
 
 ---Installs the patch `on_guard_counter` needs.
 ---
+---Not needed since 2.35.0: each call that needs it places it the first time, and raises this
+---call's error there when it cannot. Calling it still does no harm.
+---
 ---Raises an error when the AIN is not loaded or the patch cannot be placed.
 ---
 ---Since: 0.2.0
+---Changed: 2.35.0 Not needed: `on_guard_counter` makes it.
 ---@return boolean ok Always true; a failure raises an error.
 function counter.install() end
 
 ---Calls `fn` when the game would clear the Counter rate after Ally Guard.
 ---
 ---One callback returning true keeps the rate. With no callback, the game's rule stays. Up to 16
----callbacks in all.
+---callbacks in all. The first call places the patch.
 ---
 ---Since: 0.2.0
 ---Changed: 0.14.0 Every mod's callback runs, and one true keeps the rate (before, the last one won).
 ---Changed: 0.23.0 Returns a remover.
+---Changed: 2.35.0 Places the patch itself; before, it needed `rq.counter.install`.
 ---@param fn fun(ctx: rq.CounterGuardCtx): boolean|nil Returns true to keep the Counter rate.
 ---@return fun() remove Removes this callback.
 function counter.on_guard_counter(fn) end
 
 ---Adds stock to Frostbuy, the item shop, and reports purchases.
 ---
----The game refills the shop's stock in `Ｔアイテム屋` every time the shop opens. `rq.shop.install` wraps
----the end of that function so `on_stock` callbacks run right after the game's own refill. Without a
----hook the shop keeps only the game's stock. The calls take an item number or a text id.
+---The game refills the shop's stock in `Ｔアイテム屋` every time the shop opens. The first `on_stock`,
+---`in_stock` or `stock` wraps the end of that function so `on_stock` callbacks run right after the
+---game's own refill. The calls take an item number or a text id.
 ---
 ---Since: 0.2.0
+---Changed: 2.35.0 No `install` needed.
 ---
 ---```lua
----rq.shop.install()
 ---rq.shop.on_stock(function()
 ---  if not rq.shop.in_stock(306) then rq.shop.stock(306) end -- Skill Again
 ---end)
@@ -3890,20 +3953,23 @@ local shop = {}
 
 ---Wraps the end of `Ｔアイテム屋` so `on_stock` callbacks run and `stock` works.
 ---
----Calling it again is harmless.
+---Not needed since 2.35.0: each call that needs it places it the first time, and raises this
+---call's error there when it cannot. Calling it still does no harm.
 ---
 ---Since: 0.2.0
----@return boolean ok true when the hook is in place; false when a game function is missing (see the log).
+---Changed: 2.35.0 Not needed: `on_stock`, `in_stock` and `stock` make it.
+---@return boolean ok true when the hook is in place; a failure raises an error.
 function shop.install() end
 
 ---Registers a function that runs after the game refills the shop's stock.
 ---
----It runs on every shop open, once `rq.shop.install` was called; before that it never runs. Up to 16
----callbacks. An error in a callback is written to the log and the others still run.
+---It runs on every shop open. Up to 16 callbacks. An error in a callback is written to the log and the
+---others still run.
 ---
 ---Since: 0.2.0
 ---Changed: 0.9.0 Keeps every mod's callback (before, the last one replaced the others).
 ---Changed: 0.23.0 Returns a remover.
+---Changed: 2.35.0 Wraps the shop itself; before `rq.shop.install` it never ran.
 ---@param fn fun() Adds stock, usually with `rq.shop.stock`.
 ---@return fun() remove Removes this callback.
 ---@see rq.shop.stock
@@ -3941,18 +4007,19 @@ function shop.on_buy(fn) end
 ---
 ---Since: 0.2.0
 ---Changed: 0.9.0 Accepts a text id.
+---Changed: 2.35.0 Answers without `rq.shop.install`; before it, it always said false.
 ---@param no integer|string An item number or text id.
 ---@return boolean stocked true when the shop already sells it.
 function shop.in_stock(no) end
 
 ---Puts one item on sale, through the game's `Ｔアイテム屋／入荷品`.
 ---
----Raises an error before `rq.shop.install`, for an unknown item, or for a value that is not a number
----or a text id.
+---Raises an error for an unknown item, or for a value that is not a number or a text id.
 ---
 ---Since: 0.2.0
 ---Changed: 0.9.0 Accepts a text id.
 ---Changed: 0.26.0 An unknown item raises an error instead of closing the game.
+---Changed: 2.35.0 No `rq.shop.install` needed; it raised an error before it.
 ---@param no integer|string An item number or text id.
 ---@return integer ii The new instance, or 0 when the shop already had the item or the game refused it.
 function shop.stock(no) end
@@ -3998,9 +4065,8 @@ function shop.set_donations(count, goal) end
 ---Hooks into fights: events, ally skill select, marks and buffs on the cards, faces, states, drops,
 ---and scripted fights.
 ---
----Each event (`on_*`) installs its hook on first use; most hold up to 16 callbacks. The ally skill
----select calls need `rq.battle.install`, `set_flame` and `set_mark` need `rq.battle.install_flame`,
----and `set_state` needs `rq.battle.install_states`.
+---Each call places the hooks it needs the first time; most events hold up to 16 callbacks. Only
+---`set_state` needs a call first, `rq.battle.install_states`, since it changes the game's rules.
 ---
 ---A card goes by battle number: 1 to 5 are the ally ranks, 11 to 15 the enemy ranks. Characters are
 ---roster slots (`iic`); enemy slots are below 20.
@@ -4034,23 +4100,27 @@ local battle = {}
 ---completes the select like a click on that skill: the key is swallowed (Space does not also
 ---Cancel), and the skill runs on the actor itself.
 ---
+---Not needed since 2.35.0: each call that needs it places it the first time, and raises this
+---call's error there when it cannot. Calling it still does no harm.
+---
 ---Raises an error when the AIN is not loaded or a hook cannot be placed.
 ---
 ---Since: 0.2.0
+---Changed: 2.35.0 Not needed: `on_select_key`, `in_ally_select`, `actor` and `skill_usable` make it.
 ---@return boolean ok Always true; a failure raises an error.
 function battle.install() end
 
 ---Calls `fn` for each key pressed while an ally chooses a skill.
 ---
 ---Return a skill number (or `{ skill = n }`) to choose that skill, or nil to let the game handle the
----key. Callbacks run in load order until one names a skill. Needs `rq.battle.install`.
+---key. Callbacks run in load order until one names a skill.
 ---
 ---Since: 0.2.0
 ---Changed: 0.14.0 Every mod's callback runs until one names a skill (before, the last one won).
 ---Changed: 0.23.0 Returns a remover.
+---Changed: 2.35.0 Places its hooks itself; before, it needed `rq.battle.install`.
 ---
 ---```lua
----rq.battle.install()
 ---rq.battle.on_select_key(function(ctx)
 ---  if ctx.key ~= 32 then return nil end
 ---  local a = rq.battle.actor()
@@ -4439,11 +4509,15 @@ function battle.on_forecast(fn) end
 ---Installs the hooks the flame, the buffs and the marks need.
 ---
 ---It hooks the ally status refresh so `set_flame` sticks, and installs the fight start and end
----events, which clear the flames and buffs. Call it once at the top of `init.lua`.
+---events, which clear the flames and buffs. The engine also makes it once the mods have loaded.
+---
+---Not needed since 2.35.0: each call that needs it places it the first time, and raises this
+---call's error there when it cannot. Calling it still does no harm.
 ---
 ---Raises an error when a hook cannot be placed.
 ---
 ---Since: 0.12.0
+---Changed: 2.35.0 Not needed: `set_flame` and `set_mark` make it.
 ---@return boolean ok Always true; a failure raises an error.
 function battle.install_flame() end
 
@@ -4454,7 +4528,8 @@ function battle.install_flame() end
 ---at a time, so the flame takes turns with Protect, Berserk, Stealth and Barrier. Attack and defense
 ---arrows are separate: `rq.chara.set(iic, { atk_buff = 1 })`.
 ---
----Raises an error before `rq.battle.install_flame`.
+---The first call places the hooks (`rq.battle.install_flame`); before 2.35.0 a call before them
+---raised an error.
 ---
 ---Since: 0.12.0
 ---Changed: 0.29.0 The flame follows the character in a switch.
@@ -4553,7 +4628,7 @@ function battle.set_rank_buff(rank, key, def) end
 ---which wins over the one for every card, and replaces it whole: an empty table `{}` for one
 ---character shows the game's own mark there while the other cards show a mod's icon. A hidden or
 ---moved mark keeps its place in the game's stack. Up to 64 defs for characters and cards together.
----Needs `rq.battle.install_flame`.
+---The first call places the hooks (`rq.battle.install_flame`, needed before 2.35.0).
 ---
 ---Raises an error for a bad `who`, a card number that is not 1 to 5 or 11 to 15, a number that is
 ---no CG, an unknown anim, or a 65th def.
@@ -4572,6 +4647,9 @@ function battle.set_rank_buff(rank, key, def) end
 function battle.set_mark(mark, def, who) end
 
 ---Lets poison and stun be on one character at once, and ▲ and ▼ of one stat, until the game closes.
+---
+---It changes the game's rules, so it stays a mod's own choice: `set_state`, which needs it, raises an
+---error before it.
 ---
 ---Without it the game's own rule stays, where a new state replaces the old. With it: poison does its
 ---damage on the turn a character only recovers from stun; ▲ and ▼ both apply and cancel out;
@@ -4750,7 +4828,8 @@ function battle.on_hp(fn) end
 
 ---Returns whether an ally is choosing a skill.
 ---
----It is true while `T_BattleSelect@select` is waiting. Needs `rq.battle.install`.
+---It is true while `T_BattleSelect@select` is waiting. The first call places the hooks
+---(`rq.battle.install`): a select that was already open then is not seen.
 ---
 ---Since: 0.2.0
 ---@return boolean selecting true during ally skill select.
@@ -4758,7 +4837,8 @@ function battle.in_ally_select() end
 
 ---Returns the ally choosing a skill.
 ---
----Needs `rq.battle.install`.
+---The first call places the hooks (`rq.battle.install`): a select that was already open then is not
+---seen.
 ---
 ---Since: 0.2.0
 ---@return rq.BattleActor|nil actor The acting ally, or nil outside skill select.
@@ -6039,10 +6119,11 @@ function statuspage.on_close(fn) end
 ---@field map_kind rq.IdsMapKind Map kinds by name; each key is in the docs' Map kinds table (Game data). Since 2.24.0.
 ---@field monster rq.IdsMonster Monsters by name; each key is in the docs' Monsters table (Game data). Since 1.16.0.
 ---@field music rq.IdsMusic Music tracks by name; each key is in the docs' Music table (Game data). Since 2.4.0.
+---@field party_state rq.IdsPartyState Where a character is (`登録状態`) by name: NONE, PARTY, RESERVE, USED, SECOND; each key is in the docs' Party states table (Game data). Since 2.35.0.
 ---@field quest rq.IdsQuest Quests by name; each key is in the docs' Quests table (Game data).
 ---@field race rq.IdsRace Races by name; each key is in the docs' Races table (Game data). Since 1.16.0.
 ---@field skill rq.IdsSkill Skills by name; each key is in the docs' Skills table (Game data).
----@field state rq.IdsState States by name; each key is in the docs' States table (Game data).
+---@field state rq.IdsState Status changes (`状態変化`) by name: NONE, POISON, STUN, DOWNED; each key is in the docs' States table (Game data).
 ---@field target rq.IdsTarget Skill targets by name; each key is in the docs' Skill targets table (Game data). Since 1.16.0.
 local ids = {}
 
@@ -6387,7 +6468,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.34.0"
+rq.version = "2.35.0"
 
 rq.units = units
 rq.items = items
@@ -6587,9 +6668,11 @@ rq.agent = agent
 ---Reads and changes who is in the party.
 ---
 ---The party has five ranks. Each holds a character id (the `id` of an entry in `rq.units()`) or 0
----when it is empty.
+---when it is empty. `roster`, `state` and `set_state` read and move the other characters (the first
+---and second armies), and `heal` is the game's heal.
 ---
 ---Since: 0.22.0
+---Changed: 2.35.0 Added `roster`, `state`, `set_state` and `heal`.
 ---@class rq.party
 local party = {}
 
@@ -6622,6 +6705,76 @@ function party.get() end
 ---@param ranks (integer|false)[] Up to five character ids in rank order; 0 or false leaves a rank empty.
 ---@see rq.party.get
 function party.set(ranks) end
+
+---A recruited character, from `rq.party.roster`.
+---
+---Since: 2.35.0
+---@class rq.PartyMember
+---@field iic integer The roster slot.
+---@field state integer Where the character is (`rq.ids.party_state`): 1 in the party, 2 the first army, 3 used in this quest, 4 the second army.
+---@field hp integer HP.
+---@field hp_max integer Most HP.
+---@field status integer The status change (`rq.ids.state`): 0 none, 1 poison, 2 stun, 3 downed.
+
+---Returns every recruited character, or those in one place.
+---
+---It reads the roster's slots in order. The party's ranks are `rq.party.get`.
+---
+---Since: 2.35.0
+---
+---```lua
+---for _, m in ipairs(rq.party.roster(rq.ids.party_state.RESERVE)) do
+---  if m.status == rq.ids.state.DOWNED then rq.log(rq.chara.get(m.iic).name, "is down") end
+---end
+---```
+---@param state? integer Only characters in this place, 0 to 4 (`rq.ids.party_state`).
+---@return rq.PartyMember[] members The characters.
+function party.roster(state) end
+
+---Returns where a character is (`登録状態`).
+---
+---Since: 2.35.0
+---@param iic integer The roster slot.
+---@return integer state 0 not recruited (also a slot with no character), 1 in the party, 2 the first army, 3 used in this quest, 4 the second army (`rq.ids.party_state`).
+function party.state(iic) end
+
+---Moves a character between the first army (2), used in this quest (3) and the second army (4).
+---
+---A character marked used is not placed again until the quest ends, when the game puts it back in
+---the first army; 2 gives it back now. Into and out of the party is `rq.party.set`; leaving is
+---`rq.chara.dismiss`. A screen already open does not redraw until it opens again.
+---
+---Raises an error for a slot with no character, one not recruited, a character in the party, or a
+---state other than 2, 3 and 4.
+---
+---Since: 2.35.0
+---
+---```lua
+---rq.party.set_state(iic, rq.ids.party_state.SECOND)
+---```
+---@param iic integer The roster slot.
+---@param state integer 2, 3 or 4 (`rq.ids.party_state`).
+---@return boolean ok true.
+function party.set_state(iic, state) end
+
+---Heals the party as the game does: HP to the most, and with `skills` the skill uses too.
+---
+---A downed character is left as it is, as the game's party heals do (`ＰＴＡ体力回復`): set its
+---`status` to 0 with `rq.chara.set` first to raise it. `all` heals every recruited character, not
+---only the five ranks. Each heal is the game's own (`Ｃ補給／体力`, `Ｃ補給／スキル`).
+---
+---Raises an error for options that are not true or false.
+---
+---Since: 2.35.0
+---
+---```lua
+---rq.party.heal({ skills = true })      -- as a spring
+---rq.party.heal({ half = true })        -- up to half the HP
+---```
+---@param opts? {skills?: boolean, half?: boolean, all?: boolean} `skills` fills the skill uses; `half` heals up to half the most HP (one above it is left as it is); `all` heals the whole roster.
+---@return integer count How many characters were healed.
+---@see rq.chara.heal
+function party.heal(opts) end
 
 rq.party = party
 
@@ -8728,7 +8881,11 @@ function uikit.item_picker(opts) end
 ---`rq.store.global` when they hold for every profile, or in `rq.store` for one save. Check that
 ---`rq.config` is there, so the mod still runs on an older loader.
 ---
+---For a page of settings, `rq.config.settings` builds it from a list of rows and keeps the values;
+---`page` with a `draw` of its own is for a page that is more than settings.
+---
 ---Since: 1.8.0
+---Changed: 2.35.0 Added `settings`.
 ---
 ---```lua
 ---if rq.config then
@@ -8775,6 +8932,137 @@ function config.pages() end
 ---@param id string The page's id.
 ---@return boolean found false when no page has that id.
 function config.show(id) end
+
+---One row of a settings page, for `rq.config.settings`.
+---
+---`kind` picks the widget: "checkbox" (true or false), "stepper" (a whole number, `rq.uikit.stepper`),
+---"slider" (a number, `rq.uikit.slider`), "choice" (one of `options`, `rq.uikit.choice`) and "input"
+---(a text, `rq.uikit.input`) keep a value under `key`; "label" (a line of text) and "space" (a gap)
+---keep none. Each value's row checks it: a stored value it cannot take, as a number past `max` after
+---the mod lowered it, reads as the default.
+---
+---Since: 2.35.0
+---@class rq.SettingsRow
+---@field kind "checkbox"|"stepper"|"slider"|"choice"|"input"|"label"|"space" The widget.
+---@field key? string Where the value is kept in the store; each value row needs one, and no two rows share one. A mod that had a page of its own keeps its players' settings by naming the keys it used.
+---@field label? string The text beside the widget. The labels of a page line up in one column.
+---@field default? boolean|integer|number|string The value before the player changes it. Default false, `min`, the first option (or the first of `values`), or "".
+---@field note? string|string[] Dim lines under the row, at size 15.
+---@field tip? string|rq.UiTip The game's comment window over the widget while the mouse is on it.
+---@field disabled? boolean|fun(): boolean Greys the row out; a function is asked on every update, as one row that follows another.
+---@field id? string The widget's id in `rqmod-ctl ui` and `rq.ui.get`. Default `key`.
+---@field w? integer The widget's width in pixels: a checkbox's bar, a stepper's box, a slider's track, an input's box.
+---@field min? number A stepper's or a slider's lowest value. Default 0.
+---@field max? number A stepper's or a slider's highest value (default 999999 and 1), or an input's longest text in bytes, 1 to 255 (default 40).
+---@field step? number What a stepper's - and + add, or a slider's step.
+---@field big? integer A stepper's step with Shift held. Default `step` x 10.
+---@field low? string A slider's text at its low end.
+---@field high? string A slider's text at its high end.
+---@field options? string[] A choice's texts.
+---@field values? any[] A choice's values, one for each option; without them a choice keeps the option's number, 1 and up.
+---@field dir? "row"|"col" A choice's options side by side (default) or one under another.
+---@field gap? integer A choice's gap between options, in pixels.
+---@field tips? (string|rq.UiTip)[] A choice's tip for each option.
+---@field placeholder? string An input's dim text while it is empty.
+---@field text? string A label row's text.
+---@field dim? boolean A label row in the dim color.
+---@field size? number A label row's text size.
+---@field color? {r: integer, g: integer, b: integer} A label row's text color.
+---@field h? integer A space row's height in pixels. Default 8.
+
+---What `rq.config.settings` takes.
+---
+---Since: 2.35.0
+---@class rq.SettingsOpts
+---@field rows rq.SettingsRow[] The rows, top to bottom.
+---@field id? string The page's id (`rq.config.show`). Default the mod's id.
+---@field title? string The page's row in the list and its heading. Default the mod's name.
+---@field keep? "global"|"profile"|"save" Where the values are kept: "global" (default) in `rq.store.global`, the same for every profile; "profile" in `rq.store`, the profile's; "save" in `rq.savedata`, the save's, and the page asks to load a save first while none is loaded.
+---@field reset? boolean false leaves out the Reset button, which puts every row back to its default.
+---@field label_w? integer The width of the labels' column in pixels. Default the widest label, 120 to 420.
+---@field draw? fun(ui: rq.uikit, box: {x: integer, y: integer, w: integer, h: integer}) Draws more after the rows and the Reset button, as a page's own `draw` does.
+---@field on_open? fun() The page came on screen.
+---@field on_close? fun() It went away.
+
+---A settings page's values, from `rq.config.settings`.
+---
+---Its calls read and write the store the page keeps its values in, under the mod that made the page,
+---so a value the mod reads is the one the page shows.
+---
+---Since: 2.35.0
+---@class rq.Settings
+---@field id string The page's id.
+local Settings = {}
+
+---Returns a row's value: the stored one when the row can take it, else the row's default.
+---
+---Raises an error for a key no row has.
+---
+---Since: 2.35.0
+---@param key string The row's key.
+---@return boolean|integer|number|string value The value.
+function Settings.get(key) end
+
+---Changes a row's value, as the page would. The page shows it, and `on_change` callbacks run when it
+---changed.
+---
+---Raises an error for a key no row has, or a value the row cannot take (a stepper's number outside
+---`min` and `max`, a choice's value it does not list).
+---
+---Since: 2.35.0
+---@param key string The row's key.
+---@param value boolean|integer|number|string The new value.
+function Settings.set(key, value) end
+
+---Calls `fn` when a value changes: on the page, by `set` or by Reset.
+---
+---An error in `fn` is written to the log and the other callbacks still run.
+---
+---Since: 2.35.0
+---@param fn fun(key: string, value: any, old: any) Gets the row's key, the new value and the one before.
+---@return fun() remove Removes this callback.
+function Settings.on_change(fn) end
+
+---Puts every row back to its default: the keys are taken out of the store. `on_change` callbacks run
+---for the values that change.
+---
+---Since: 2.35.0
+function Settings.reset() end
+
+---Adds a page of settings to the Mods tab, built from a list of rows.
+---
+---Each row is a widget with its label, and the loader keeps its value: in `rq.store.global` (default),
+---`rq.store` or `rq.savedata`, under the row's `key`, for the mod. A Reset button closes the page.
+---The page needs no `draw`; `draw` adds more after the rows. The object it returns reads and writes
+---the values, and tells when one changes.
+---
+---The page is `rq.config.page`'s, with the same id rules: calling it again with the same id replaces
+---the page, and its object keeps working on the same keys.
+---
+---Raises an error for a row that is not one of the kinds, a value row with no key or a key used
+---twice, a default the row cannot take, or a `keep` that is not one of the three; and when called
+---from no mod's code.
+---
+---Since: 2.35.0
+---
+---```lua
+---local settings = rq.config.settings({
+---  title = "My Mod",
+---  rows = {
+---    { kind = "checkbox", key = "on", label = "Turn it on", default = true },
+---    { kind = "stepper", key = "count", label = "Count", min = 1, max = 99, default = 10,
+---      note = "How many each time." },
+---    { kind = "choice", key = "speed", label = "Speed", options = { "Slow", "Fast" },
+---      values = { 0.5, 2 }, disabled = function() return not settings.get("on") end },
+---  },
+---})
+---settings.on_change(function(key, value) rq.log(key, "is now", value) end)
+---if settings.get("on") then rq.log("count:", settings.get("count")) end
+---```
+---@param opts rq.SettingsOpts The page and its rows.
+---@return rq.Settings settings The values.
+---@see rq.config.page
+function config.settings(opts) end
 
 ---Options for `rq.sprite.new` and `Sprite:set`.
 ---

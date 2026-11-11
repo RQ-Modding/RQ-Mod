@@ -38,6 +38,7 @@ KINDS = [
     ("map_kind", None, "Map kinds", "map kinds (`◆ＭＡＰ基礎型`): the look of a quest's area, as in `rq.dungeon.on_area`'s `ctx.kind`. The game names none; these names are ours, after the picture the game gives each kind"),
     ("monster", "monster.tsv", "Monsters", "monster numbers, as `rq.battle.start` takes them and `rq.battle.snap()` gives them (`enemies[i].no`)"),
     ("music", "music.tsv", "Music", "music track numbers, as `rq.music.replace` and `rq.music.play` take them and `rq.music.current()` gives them"),
+    ("party_state", None, "Party states", "where a character is (`登録状態`), as `rq.party.state` and `rq.chara.get(iic).state` give it and `rq.party.roster` takes it. The game names none; these names are ours, after its functions `キャラ_スタメン` to `キャラ_２軍`"),
     ("quest", "quest.tsv", "Quests", "quest numbers, as in `rq.quests()` and `rq.quests.start`"),
     ("race", "race.tsv", "Races", "races (`種族`), as in `rq.chara.get(iic).race` and the damage hooks' `ctx.race`"),
     ("skill", "skill.tsv", "Skills", "skill numbers, as in `rq.skill.get`"),
@@ -58,6 +59,14 @@ FIXED = {
               (6, "Ranger"), (7, "Brawler"), (8, "Civilian")],
     # modloader_states.c: 状態変化
     "state": [(0, "None"), (1, "Poison"), (2, "Stun"), (3, "Downed")],
+    # C_キャラ.jaf: 登録状態, where a character is (キャラ_スタメン, _１軍, _１軍使用済み, _２軍)
+    "party_state": [
+        (0, "None", "not recruited"),
+        (1, "Party", "one of the five ranks (rq.party.get)"),
+        (2, "Reserve", "the first army, free to join the party"),
+        (3, "Used", "the first army, switched out in this quest: not placed again until the quest ends"),
+        (4, "Second", "the second army"),
+    ],
     # ＭＡＰ基礎型登録 (ＴＡＤＡ/関数／.jaf): the kinds the quests' scripts set, named by their look
     # (each kind's CG, gＭ 5610 to 5795; plans/plan-dungeon-areas.md in the workspace); detail: places.
     "map_kind": [

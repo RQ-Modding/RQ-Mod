@@ -8,6 +8,9 @@
 -- And a fight's rewards (loader 2.34.0, notes/plans/plan-rewards-savedata.md):
 --   rq.battle.on_reward                              the gold and EXP, before the result screen
 --   rq.battle.bags, set_bag                          the enemies' gold bags
+-- And the party (loader 2.35.0, notes/plans/plan-creator-comfort.md):
+--   rq.party.roster, state, set_state, heal          where each character is, the game's heals
+--   rq.chara.heal                                    one character's heal
 --
 -- Built only on public calls: rq.ain.call, global, set_global, method and hook.
 --   所持金_設定 / 所持金＋ / 所持金－      the money, clamped to 0..999,999,999 (C_変数)
@@ -19,6 +22,8 @@
 --   レベルアップ処理(iic)                  a free level: EXP back to 0 (story, training, the reserve)
 --   Ｔ戦闘後の取得経験値算出(結果)         a fight's gold and EXP (results 1 and 4); gives the reserve
 --                                         its share (Ｃ経験値追加) and returns the enemies defeated
+--   Ｃ登録状態 / Ｃ状態変化 / Ｃ体力 / Ｃ体力最大   where a character is, the status, the HP
+--   Ｃ補給／体力(iic, 条件) / Ｃ補給／スキル(iic, 条件)   the game's heals ("半分": up to half)
 --   戦闘データ_作成 / 戦闘データ_削除      the gold bags rolled (after on_start) and cleared
 local rq = ...
 local call, hook, g, set = rq.ain.call, rq.ain.hook, rq.ain.global, rq.ain.set_global
@@ -685,4 +690,118 @@ function battle.set_bag(iic, carries)
   if v == BAG_PICKED or fallen(iic) then return false end
   set("g_anMonsterGold", i, carries and BAG_CARRIED or BAG_NONE)
   return true
+end
+
+-- ---- rq.party: where each character is, and the game's heals (2.35.0) ----
+-- 登録状態 (where a character is): 0 not recruited, 1 one of the five ranks, 2 the first army,
+-- 3 the first army used in this quest (switched out: not placed again until the quest ends),
+-- 4 the second army (C_キャラ.jaf, キャラ_スタメン to キャラ_２軍). 状態変化: 3 is downed, and the
+-- game's party heals (ＰＴＡ体力回復, ＰＴＡスキル回復) skip it.
+
+local party = rq.party
+local DOWNED = 3
+
+local function slot_count()
+  local ok, n = pcall(call, "キャラ_数")
+  if ok and int(n) and n >= 20 then return n end
+  return 200
+end
+
+local function cint(name, iic)
+  local ok, v = pcall(call, name, iic, -1)
+  if ok and int(v) then return v end
+  return 0
+end
+
+local function check_state(state, name, what)
+  if not int(state) or state < 0 or state > 4 then
+    error(string.format("%s: %s is a whole number from 0 to 4 (rq.ids.party_state)", name, what), 3)
+  end
+end
+
+local function heal_opts(opts, name)
+  if opts == nil then return {} end
+  if type(opts) ~= "table" then error(name .. ": opts is a table", 3) end
+  for _, k in ipairs({ "skills", "half", "all" }) do
+    if opts[k] ~= nil and type(opts[k]) ~= "boolean" then error(name .. ": " .. k .. " is true or false", 3) end
+  end
+  return opts
+end
+
+-- The game's heal of one character: HP to the most, or up to half; the skill uses too. A downed
+-- character is left as it is. Returns true when healed.
+local function heal_one(iic, opts)
+  if cint("Ｃ状態変化", iic) == DOWNED then return false end
+  call("Ｃ補給／体力", iic, opts.half and "半分" or "")
+  if opts.skills then call("Ｃ補給／スキル", iic, "") end
+  return true
+end
+
+---rq.party.roster(state?): { iic, state, hp, hp_max, status } for each recruited character. 2.35.0.
+function party.roster(state)
+  if state ~= nil then check_state(state, "rq.party.roster", "state") end
+  need_game("rq.party.roster")
+  local out = {}
+  for iic = 20, slot_count() do
+    local st = cint("Ｃ登録状態", iic)
+    if st ~= 0 and (state == nil or st == state) then
+      out[#out + 1] = { iic = iic, state = st, hp = cint("Ｃ体力", iic), hp_max = cint("Ｃ体力最大", iic),
+        status = cint("Ｃ状態変化", iic) }
+    end
+  end
+  return out
+end
+
+---rq.party.state(iic): where a character is, 0 to 4; 0 for a slot with no character. 2.35.0.
+function party.state(iic)
+  if not int(iic) then error("rq.party.state: expected a roster slot", 2) end
+  need_game("rq.party.state")
+  if not chara.number(iic) then return 0 end
+  return cint("Ｃ登録状態", iic)
+end
+
+---rq.party.set_state(iic, state): moves a character between the first army (2), used (3) and
+---the second army (4). 2.35.0.
+function party.set_state(iic, state)
+  if not int(iic) then error("rq.party.set_state: expected a roster slot", 2) end
+  check_state(state, "rq.party.set_state", "state")
+  need_game("rq.party.set_state")
+  if not chara.number(iic) then error(string.format("rq.party.set_state: no character at %d", iic), 2) end
+  local now = cint("Ｃ登録状態", iic)
+  if now == 0 then error(string.format("rq.party.set_state: %d is not recruited (rq.chara.recruit)", iic), 2) end
+  if now == 1 or state == 1 then
+    error("rq.party.set_state: the five ranks change with rq.party.set", 2)
+  end
+  if state == 0 then error("rq.party.set_state: a character leaves with rq.chara.dismiss", 2) end
+  call("Ｃ登録状態", iic, state)
+  return true
+end
+
+---rq.party.heal(opts?): the five ranks' HP to the most, the downed left as they are; skills,
+---half, all (every recruited character). Returns how many were healed. 2.35.0.
+function party.heal(opts)
+  opts = heal_opts(opts, "rq.party.heal")
+  need_game("rq.party.heal")
+  local n = 0
+  if opts.all then
+    for iic = 20, slot_count() do
+      if cint("Ｃ登録状態", iic) ~= 0 and heal_one(iic, opts) then n = n + 1 end
+    end
+  else
+    for _, iic in ipairs(party.get()) do
+      if iic ~= 0 and heal_one(iic, opts) then n = n + 1 end
+    end
+  end
+  return n
+end
+
+---rq.chara.heal(iic, opts?): one character's HP to the most (half: up to half), skills: the
+---skill uses too; a downed character is left as it is (false). 2.35.0.
+function chara.heal(iic, opts)
+  if not int(iic) then error("rq.chara.heal: expected a roster slot", 2) end
+  opts = heal_opts(opts, "rq.chara.heal")
+  if opts.all ~= nil then error("rq.chara.heal: all is rq.party.heal's", 2) end
+  need_game("rq.chara.heal")
+  if not chara.number(iic) then error(string.format("rq.chara.heal: no character at %d", iic), 2) end
+  return heal_one(iic, opts)
 end

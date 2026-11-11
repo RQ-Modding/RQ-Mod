@@ -138,7 +138,7 @@ static int l_mods(lua_State *L)
 	return 0;
 }
 
-/* Runs config.lua with rq, rq.uikit and the two calls above; sets rq.config. */
+/* Runs config.lua with rq, the two calls above and as_mod (modloader_roster.c); sets rq.config. */
 void rq_config_open(lua_State *L, int rq_index)
 {
 	if (luaL_loadbuffer(L, rq_config_lua, rq_config_lua_len, "=config") != LUA_OK) {
@@ -149,7 +149,8 @@ void rq_config_open(lua_State *L, int rq_index)
 	lua_pushvalue(L, rq_index);
 	lua_pushcfunction(L, l_tab);
 	lua_pushcfunction(L, l_mods);
-	if (lua_pcall(L, 3, 1, 0) != LUA_OK) {
+	lua_pushcfunction(L, rq_lua_as_mod);
+	if (lua_pcall(L, 4, 1, 0) != LUA_OK) {
 		rq_log("config: %s", lua_tostring(L, -1));
 		lua_pop(L, 1);
 		return;
