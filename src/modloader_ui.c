@@ -303,6 +303,10 @@ static struct unit_row g_units[UNIT_MAX];
 static int g_nunits;
 static int g_has_units;
 static struct party_state g_pstate;
+/* The Party screen's 2nd Army box (g_sPartyStore), while it is open (2.31.0). */
+static struct unit_row g_store[UNIT_MAX];
+static int g_nstore, g_has_store;
+static struct { int ok, top_index, list_count, shown; } g_sstate;
 static struct status_dump g_status;
 static struct quest_row g_quests[QUEST_MAX];
 static int g_nquests;
@@ -978,12 +982,12 @@ static void add_info_json(cJSON *root)
 	cJSON_AddBoolToObject(o, "triviaNew", g_info.trivia_new ? 1 : 0);
 }
 
-static void add_units_json(cJSON *root)
+static void add_unit_rows_json(cJSON *root, const char *key, const struct unit_row *rows, int n)
 {
-	cJSON *arr = cJSON_AddArrayToObject(root, "units");
+	cJSON *arr = cJSON_AddArrayToObject(root, key);
 	int i;
-	for (i = 0; i < g_nunits; i++) {
-		struct unit_row *r = &g_units[i];
+	for (i = 0; i < n; i++) {
+		const struct unit_row *r = &rows[i];
 		cJSON *o = cJSON_CreateObject();
 		cJSON_AddNumberToObject(o, "index", r->index);
 		cJSON_AddNumberToObject(o, "chara", r->chara);
@@ -999,6 +1003,14 @@ static void add_units_json(cJSON *root)
 		cJSON_AddBoolToObject(o, "visible", r->visible ? 1 : 0);
 		cJSON_AddItemToArray(arr, o);
 	}
+}
+
+static void add_store_state_json(cJSON *root)
+{
+	cJSON *o = cJSON_AddObjectToObject(root, "storeState");
+	cJSON_AddNumberToObject(o, "topIndex", g_sstate.top_index);
+	cJSON_AddNumberToObject(o, "listCount", g_sstate.list_count);
+	cJSON_AddNumberToObject(o, "shown", g_sstate.shown);
 }
 
 static void add_party_state_json(cJSON *root)
@@ -1233,9 +1245,13 @@ static void build_json(char *dst, int dstsz)
 	if (g_has_party)
 		add_party_json(root);
 	if (g_has_units)
-		add_units_json(root);
+		add_unit_rows_json(root, "units", g_units, g_nunits);
 	if (g_pstate.ok)
 		add_party_state_json(root);
+	if (g_has_store)
+		add_unit_rows_json(root, "storeUnits", g_store, g_nstore);
+	if (g_sstate.ok)
+		add_store_state_json(root);
 	if (g_qstate.ok)
 		add_quest_json(root);
 	if (g_dstate.ok)
@@ -1364,7 +1380,7 @@ static int sn_volume, sn_debug, sn_tabview, sn_tabbtn, sn_exit;
 static int sn_cb, sn_cbwrap, sn_hslider, sn_vslider, sn_text, sn_btnsp;
 static int sn_cfgmsg, sn_cfgsnd, sn_cfgwin, sn_cfg3d, sn_cfgcfm, sn_cfgetc, sn_cfgetc2;
 static int sn_town, sn_sysbar, sn_sysmenu, sn_mini, sn_sysinfo, sn_pstatus;
-static int sn_party, sn_status, sn_storeitem, sn_select, sn_storestock;
+static int sn_party, sn_status, sn_storeitem, sn_select, sn_storestock, sn_partystore;
 static int sn_shop, sn_equipdrag, sn_skillpoint;
 static int sn_quest, sn_storequest, sn_mapparts, sn_player;
 static int sn_battlesel, sn_bchara, sn_bmon;
@@ -1406,6 +1422,7 @@ static void snos_init(void)
 	sn_sysinfo = sn_get("T_SystemInfo");
 	sn_pstatus = sn_get("T_PartyStatus");
 	sn_party = sn_get("T_Party");
+	sn_partystore = sn_get("T_PartyStore");
 	sn_status = sn_get("T_Status");
 	sn_storeitem = sn_get("T_StoreItem");
 	sn_select = sn_get("T_Select");
@@ -1770,7 +1787,7 @@ static int fill_title(struct page *title)
 #define U8_WORLD "\xE2\x97\x86\xE3\x83\xAF\xE3\x83\xBC\xE3\x83\xAB\xE3\x83\x89"
 
 static int gi_town = -2, gi_bar = -2, gi_menu = -2, gi_mini = -2, gi_info = -2, gi_world = -2;
-static int gi_party = -2, gi_status = -2, gi_chara = -2, gi_skill = -2;
+static int gi_party = -2, gi_status = -2, gi_chara = -2, gi_skill = -2, gi_partystore = -2;
 static int gi_storeitem = -2, gi_select = -2, gi_storestock = -2, gi_selectdata = -2;
 static int gi_shop = -2, gi_equipdrag = -2, gi_skillpoint = -2;
 static int gi_quest = -2, gi_storequest = -2, gi_mapparts = -2, gi_player = -2;
@@ -3952,6 +3969,87 @@ static int fill_castle(struct page *castle)
 	return 1;
 }
 
+/*
+ * The Party screen's 2nd Army box (g_sPartyStore, T_PartyStore.jaf), while it is open (2.31.0).
+ * Its cards are buttons 280001 + N and their STATUS 270001 + N (N from 0, after the box's scroll,
+ * as unit-N on the grid); 200001 is the box's cancel, which closes it; in m_sButtonLock, 200012 is
+ * the box and 200011 the grid, the places a dragged character is dropped on.
+ */
+static void fill_party_store(struct page *store)
+{
+	struct page *list_mgr, *ids, *arr, *as_chara;
+	int i, top, count, shown;
+
+	if (!store || !sprite_live(fpage(store, "m_spBase")))
+		return;
+	list_mgr = fpage(store, "m_sList");
+	top = fint(list_mgr, "m_nTopIndex");
+	ids = fpage(fpage(list_mgr, "m_sList"), "m_anCharaNo");
+	count = ids && ids->type == ARRAY_PAGE ? ids->nr_vars : 0;
+	as_chara = fpage(list_mgr, "m_asChara");
+	shown = as_chara && as_chara->type == ARRAY_PAGE ? as_chara->nr_vars : 0;
+
+	g_sstate.ok = 1;
+	g_sstate.top_index = top;
+	g_sstate.list_count = count;
+	g_sstate.shown = shown;
+	g_nstore = 0;
+	g_has_store = 1;
+	for (i = 0; i < count && g_nstore < UNIT_MAX; i++) {
+		struct unit_row *r = &g_store[g_nstore++];
+		memset(r, 0, sizeof *r);
+		r->index = i;
+		r->chara = ids->values[i].i;
+		read_unit_from_chara(r, r->chara);
+		r->visible = i >= top && i < top + shown;
+	}
+
+	arr = fpage(fpage(store, "m_sButton"), "m_asButton");
+	if (arr && arr->type == ARRAY_PAGE) {
+		for (i = 0; i < arr->nr_vars; i++) {
+			struct page *btn = arr_at(arr, i);
+			char id[40], value[80];
+			const char *label;
+			int bid, idx;
+			struct tbtn b;
+			if (!tbtn_read(btn, &b) || !b.show)
+				continue;
+			bid = b.id;
+			value[0] = 0;
+			if (bid > 280000 && bid < 290000) {
+				idx = bid - 280001;
+				snprintf(id, sizeof id, "store-%d", idx);
+				label = top + idx < g_nstore && g_store[top + idx].name[0]
+					? g_store[top + idx].name : "unit";
+				if (top + idx < g_nstore)
+					snprintf(value, sizeof value, "%s Lv %d",
+						 job_name(g_store[top + idx].job), g_store[top + idx].level);
+				emit_named_btn(btn, i, id, label, "party-store", value, 0);
+			} else if (bid > 270000 && bid < 280000) {
+				idx = bid - 270001;
+				snprintf(id, sizeof id, "store-status-%d", idx);
+				snprintf(value, sizeof value, "store-%d", idx);
+				emit_named_btn(btn, i, id, "Status", "party-store", value, 1);
+			} else if (bid == 200001) {
+				emit_named_btn(btn, i, "store-close", "Close", "party-store", "", 0);
+			}
+		}
+	}
+	arr = fpage(fpage(store, "m_sButtonLock"), "m_asButton");
+	if (arr && arr->type == ARRAY_PAGE) {
+		for (i = 0; i < arr->nr_vars; i++) {
+			struct page *btn = arr_at(arr, i);
+			struct tbtn b;
+			if (!tbtn_read(btn, &b))
+				continue;
+			if (b.id == 200012)
+				emit_named_btn(btn, i, "store-drop", "2nd Army", "party-store", "", 0);
+			else if (b.id == 200011)
+				emit_named_btn(btn, i, "grid-drop", "Party list", "party-store", "", 0);
+		}
+	}
+}
+
 static int fill_party_edit(struct page *party)
 {
 	struct page *btns, *arr, *list_mgr, *chara_list, *ids, *job, *sort, *chara_mgr;
@@ -4186,6 +4284,8 @@ static int fill_party_edit(struct page *party)
 			}
 		}
 	}
+
+	fill_party_store(global_struct(&gi_partystore, "g_sPartyStore", sn_partystore));
 
 	/* Hub tabs and the system bar stay on screen under the roster. */
 	{
@@ -6037,6 +6137,9 @@ static void publish(void)
 	g_has_party = 0;
 	g_nunits = 0;
 	g_has_units = 0;
+	g_nstore = 0;
+	g_has_store = 0;
+	memset(&g_sstate, 0, sizeof g_sstate);
 	memset(&g_info, 0, sizeof g_info);
 	memset(&g_pstate, 0, sizeof g_pstate);
 	memset(&g_status, 0, sizeof g_status);
@@ -6371,6 +6474,7 @@ void rq_ui_on_present(void)
 		Sleep(5);
 	}
 	in_pause = 0;
+	rq_stall_watch_reset();
 }
 
 void rq_ui_set_paused(int on)

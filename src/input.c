@@ -784,6 +784,7 @@ void handle_window_events(void)
 void handle_events(void)
 {
 	rq_prof_begin(RQ_PROF_INPUT);
+	rq_stall_watch();
 	crayfish_log_pump();
 	fire_deferred_events();
 

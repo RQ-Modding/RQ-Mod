@@ -468,6 +468,14 @@ void rq_sound_master_toggle_mute(void);
 
 void rq_ui_init(void);
 void rq_ui_on_present(void);
+/* The stall watch (2.31.0): handle_events logs one line when rq.on_frame has not started for 10 s
+ * (the game pumps events without its update, or a callback has not returned); its numbers as text
+ * for rqmod-ctl where; its clock restarted after a pause. */
+void rq_stall_watch(void);
+void rq_stall_watch_text(char *buf, size_t n);
+void rq_stall_watch_reset(void);
+/* The AIN functions on the game's call stack, innermost first, as one line of names. */
+void rq_ain_stack_line(char *buf, size_t n, int max);
 void rq_ui_on_parts_input(void);
 int rq_ui_wants_frame(void);
 void rq_ui_on_update(void);
@@ -493,7 +501,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.30.0"
+#define RQ_VERSION "2.31.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -640,6 +648,7 @@ static inline void rq_saves_on_game_save(const char *filename) { (void)filename;
 static inline int rq_saves_syscall(int code) { (void)code; return 0; }
 static inline void rq_ui_init(void) {}
 static inline void rq_ui_on_present(void) {}
+static inline void rq_stall_watch(void) {}
 static inline void rq_ui_on_parts_input(void) {}
 static inline int rq_ui_wants_frame(void) { return 0; }
 static inline void rq_ui_on_update(void) {}

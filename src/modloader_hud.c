@@ -142,6 +142,19 @@ static size_t g_typed_n;
 #define HUD_MAX_FRAME_CB 32
 static int g_on_frame_ref[HUD_MAX_FRAME_CB];
 static int g_on_frame_n;
+/* The mod that registered each callback, for the stall watch. */
+static char g_on_frame_mod[HUD_MAX_FRAME_CB][48];
+
+/*
+ * The stall watch (2.31.0). In four Lab stalls the game's loop ran and the Lab's on_frame callback
+ * wrote no heartbeat for 60 s (ideas-later.md, "Test Lab: ..."). rq_hud_tick runs only from
+ * sact_Update; handle_events runs from every wait loop of the game. These say when the tick and
+ * the callbacks last ran and which callback runs now; the pipe thread reads them for where.
+ */
+#define STALL_WATCH_MS 10000
+static volatile uint32_t g_watch_tick, g_watch_round, g_watch_cb_at;
+static volatile int g_watch_cb = -1;
+static int g_watch_logged;
 static int g_mx, g_my, g_left, g_right, g_left_edge, g_left_up, g_prev_left;
 static int g_scroll, g_wheel_seen;
 extern int rq_wheel_steps;
@@ -1057,9 +1070,56 @@ int rq_lua_on_frame(lua_State *L)
 	/* Every mod keeps its own callback; they run in load order. */
 	if (g_on_frame_n >= HUD_MAX_FRAME_CB)
 		return luaL_error(L, "on_frame: too many callbacks (max %d)", HUD_MAX_FRAME_CB);
+	{
+		const char *mod = rq_sandbox_caller_id(L);
+		snprintf(g_on_frame_mod[g_on_frame_n], sizeof g_on_frame_mod[0], "%s", mod ? mod : "?");
+	}
 	lua_pushvalue(L, 1);
 	g_on_frame_ref[g_on_frame_n++] = luaL_ref(L, LUA_REGISTRYINDEX);
 	return 0;
+}
+
+void rq_stall_watch_text(char *buf, size_t n)
+{
+	uint32_t now = SDL_GetTicks();
+	uint32_t tick = g_watch_tick, round = g_watch_round, cb_at = g_watch_cb_at;
+	int cb = g_watch_cb;
+	if (!tick) {
+		snprintf(buf, n, "rq.on_frame has not run yet");
+		return;
+	}
+	if (cb >= 0 && cb < HUD_MAX_FRAME_CB)
+		snprintf(buf, n, "the HUD tick started %.1f s ago; inside on_frame callback %d (mod %s) "
+			 "for %.1f s; the last round ended %.1f s ago",
+			 (now - tick) / 1000.0, cb + 1, g_on_frame_mod[cb], (now - cb_at) / 1000.0,
+			 round ? (now - round) / 1000.0 : -1.0);
+	else
+		snprintf(buf, n, "the HUD tick started %.1f s ago; no on_frame callback runs; "
+			 "the last round ended %.1f s ago",
+			 (now - tick) / 1000.0, round ? (now - round) / 1000.0 : -1.0);
+}
+
+void rq_stall_watch_reset(void)
+{
+	if (g_watch_tick)
+		g_watch_tick = SDL_GetTicks();
+}
+
+/* From handle_events: one line when rq.on_frame has not started for 10 s, and one when it runs
+ * again (rq_hud_tick). A native dialog or a load that pumps no events stops this too, and logs
+ * nothing. */
+void rq_stall_watch(void)
+{
+	char text[512], stack[512];
+	if (g_watch_logged || !g_watch_tick)
+		return;
+	if (SDL_GetTicks() - g_watch_tick < STALL_WATCH_MS)
+		return;
+	g_watch_logged = 1;
+	rq_stall_watch_text(text, sizeof text);
+	rq_ain_stack_line(stack, sizeof stack, 12);
+	rq_log("stall watch: rq.on_frame has not started for %u s, while the game pumps events without "
+	       "its update: %s; AIN stack: %s", (unsigned)(STALL_WATCH_MS / 1000), text, stack);
 }
 
 int rq_lua_dungeon_active(lua_State *L)
@@ -1815,6 +1875,12 @@ static void draw_version_banner(void)
 int rq_hud_tick(void)
 {
 	lua_State *L = rq_lua();
+	uint32_t now = SDL_GetTicks();
+	if (g_watch_logged) {
+		rq_log("stall watch: rq.on_frame runs again after %.1f s", (now - g_watch_tick) / 1000.0);
+		g_watch_logged = 0;
+	}
+	g_watch_tick = now;
 	rq_ui_on_update();
 	g_block_mouse = 0;
 	g_block_keys = 0;
@@ -1843,11 +1909,23 @@ int rq_hud_tick(void)
 	rq_battle_marks_tick();
 	rq_speed_tick();
 	rq_sound_tick();
-	if (!L || g_on_frame_n == 0)
+	if (!L || g_on_frame_n == 0) {
+		g_watch_round = SDL_GetTicks();
 		return g_drew;
+	}
 	for (int i = 0; i < g_on_frame_n; i++) {
+		/* A callback can run the game's loop (a Lab job's rq.ain.call), and so this tick
+		 * again inside it: keep the outer callback's place. */
+		int prev_cb = g_watch_cb;
+		uint32_t prev_at = g_watch_cb_at;
+		int bad;
+		g_watch_cb = i;
+		g_watch_cb_at = SDL_GetTicks();
 		lua_rawgeti(L, LUA_REGISTRYINDEX, g_on_frame_ref[i]);
-		if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+		bad = lua_pcall(L, 0, 0, 0) != LUA_OK;
+		g_watch_cb = prev_cb;
+		g_watch_cb_at = prev_at;
+		if (bad) {
 			/* An error in a callback comes back every frame: log each new text once. */
 			static char last[HUD_MAX_FRAME_CB][256];
 			const char *msg = lua_tostring(L, -1);
@@ -1861,6 +1939,7 @@ int rq_hud_tick(void)
 			lua_pop(L, 1);
 		}
 	}
+	g_watch_round = SDL_GetTicks();
 	log_exploring_change();
 	return g_drew;
 }

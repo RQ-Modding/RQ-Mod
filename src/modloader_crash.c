@@ -128,6 +128,29 @@ static void write_ain_stack(FILE *f)
 	}
 }
 
+void rq_ain_stack_line(char *buf, size_t n, int max)
+{
+	char nm[256];
+	size_t used = 0;
+	int shown = 0;
+	if (!n)
+		return;
+	buf[0] = 0;
+	if (!ain || call_stack_ptr <= 0 || call_stack_ptr > 4096) {
+		snprintf(buf, n, "(none)");
+		return;
+	}
+	for (int i = call_stack_ptr - 1; i >= 0 && shown < max && used + 1 < n; i--, shown++) {
+		int w = snprintf(buf + used, n - used, "%s%s", shown ? " < " : "",
+				 fn_name(call_stack[i].fno, nm, sizeof nm));
+		if (w < 0)
+			break;
+		used += (size_t)w;
+	}
+	if (call_stack_ptr > max && used + 6 < n)
+		snprintf(buf + used, n - used, " < ...");
+}
+
 /* rq.ain.stack(max) (2.27.0): the AIN functions on the game's call stack, innermost first, as
  * names ("T_Result@success" for a method). The game thread only: hooks, rq.on_frame, mod code. */
 int rq_lua_ain_stack(lua_State *L)
@@ -483,6 +506,11 @@ int rq_crash_where(char *out, size_t outn)
 	if (!f)
 		return 0;
 	write_header(f, "where the game thread is (rqmod-ctl where)");
+	{
+		char watch[512];
+		rq_stall_watch_text(watch, sizeof watch);
+		fprintf(f, "Stall watch: %s\n\n", watch);
+	}
 	for (s = 0; s < WHERE_SAMPLES; s++) {
 		fprintf(f, "Game thread, sample %d of %d, 200 ms apart (innermost first):\n",
 			s + 1, WHERE_SAMPLES);
