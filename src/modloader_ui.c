@@ -5180,6 +5180,18 @@ static int fill_quests(struct page *quest)
 		c->selected = (g_qstate.sort_mode == mode);
 		snprintf(c->value, sizeof c->value, "%s", c->selected ? "selected" : "");
 	}
+	/* While a quest is chosen the game reads none of the rows (T_Quest::checkInput skips
+	 * m_sButton2 while isLocked) until Cancel (a right click, 100009) lets it go: the rows are
+	 * not enabled then (2.28.0; agents took it for a lost hover after a dialog). */
+	if (g_qstate.selected > 0) {
+		for (i = n0; i < g_nctrls; i++) {
+			struct ui_ctrl *c = &g_ctrls[i];
+			if (strcmp(c->section, "quests") != 0 || strncmp(c->id, "quest-", 6) != 0)
+				continue;
+			c->enabled = 0;
+			c->armed = 0;
+		}
+	}
 	/* Scroll track. Wheel while this is hovered moves the list. */
 	emit_plain("scroll", "Scroll", "quests", 919, 60, 28, 438);
 	if (g_nctrls == n0)
@@ -5628,6 +5640,12 @@ static int vm_fill_screen(void)
 			title = p;
 			title_at = i;
 		}
+	}
+	/* A mod's dialog over Config (2.28.0): dialog.lua raised the menu above Config's screen. */
+	if ((cfg || view) && rq_hud_under_z() != RQ_HUD_UNDER_Z) {
+		struct page *sel = global_struct(&gi_select, "g_sSelect", sn_select);
+		if (sel && sprite_live(fpage(sel, "m_spBase")) && fill_select(sel))
+			return 1;
 	}
 	if (cfg)
 		return fill_cfg_panel(cfg, kind);

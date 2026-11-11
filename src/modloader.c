@@ -33,6 +33,7 @@
 #include "cJSON.h"
 #include "system4.h"
 #include "system4/ain.h"
+#include "system4/instructions.h"
 #include "system4/string.h"
 #include "system4/utfsjis.h"
 
@@ -988,6 +989,36 @@ static int l_patch_int(lua_State *L)
 	if (fno < 0)
 		return luaL_error(L, "function not found: %s", name);
 	lua_pushinteger(L, patch_ints(g_ain, body_fno(g_ain, fno), from, to, nth));
+	return 1;
+}
+
+/* dialog.lua's (2.28.0), not part of rq: a constant that is a local's first value
+ * (SH_LOCALASSIGN, as `int nZ = 9991;` in T_Select::create), which rq.ain.patch_int does not see.
+ * kit.patch_local_int(name, from, to) -> count. */
+int rq_lua_ain_patch_local_int(lua_State *L)
+{
+	const char *name = luaL_checkstring(L, 1);
+	int32_t from = (int32_t)luaL_checkinteger(L, 2);
+	int32_t to = (int32_t)luaL_checkinteger(L, 3);
+	uint32_t ip, end;
+	int fno, body, hit = 0;
+	if (!g_ain)
+		return luaL_error(L, "AIN not loaded");
+	fno = find_func_utf8(g_ain, name);
+	if (fno < 0)
+		return luaL_error(L, "function not found: %s", name);
+	body = body_fno(g_ain, fno);
+	end = func_end_addr(g_ain, body);
+	for (ip = g_ain->functions[body].address; ip + 2 <= end; ) {
+		uint16_t op = rd16(g_ain->code + ip);
+		int len = instr_len(op);
+		if (op == SH_LOCALASSIGN && ip + 10 <= end && rd32(g_ain->code + ip + 6) == from) {
+			memcpy(g_ain->code + ip + 6, &to, 4);
+			hit++;
+		}
+		ip += (uint32_t)(len < 2 ? 2 : len);
+	}
+	lua_pushinteger(L, hit);
 	return 1;
 }
 

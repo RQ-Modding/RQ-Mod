@@ -11,6 +11,12 @@
 -- "Don't ask again" (remember): 1 to 99 is the game's own switch (確認なし, Config's Confirmations
 -- tab); a text is the mod's own, kept with the loader's keys in rqmod-global.json, cleared by
 -- Config's Resetting too (ダイアログフラグ_クリア), and listed on a page in Config's Mods tab.
+-- confirm has it since 2.19.0, ask since 2.28.0 (with the row it stands for).
+--
+-- Over Config (2.28.0): Config draws at z 15000 to 15010, the game's menu at 9991 (T_Select::create)
+-- and its comment window at 9801 (T_Comment::create), so a dialog opened over Config was under it,
+-- out of sight. While Config shows, both are raised above it, and the HUD's split with them
+-- (kit.under_z): the game's screen, Config, a mod's page, then the dialog.
 local rq, ui, kit = ...
 local call = rq.ain.call
 local gui = rq.ui
@@ -134,7 +140,43 @@ rq.on_frame(function()
   if ok and #list > 0 then ensure_page() end
 end)
 
-rq.on_reset(function() open = false end)
+-- ---- Over Config ----
+
+local MENU_Z, MENU_Z_CONFIG = 9991, 16000 -- under the game's debug overlays (18000 up)
+local NOTE_Z, NOTE_Z_CONFIG = 9801, 16100
+local raised = false
+local raise_logged = false
+
+local function raise(on)
+  if on == raised then return end
+  raised = on
+  local from, to = MENU_Z, MENU_Z_CONFIG
+  local nfrom, nto = NOTE_Z, NOTE_Z_CONFIG
+  if not on then from, to, nfrom, nto = to, from, nto, nfrom end
+  -- Both are a local's first value (`int nZ = 9991;`), which rq.ain.patch_int does not see.
+  local ok, n = pcall(kit.patch_local_int, "T_Select@create", from, to)
+  local ok2, n2 = pcall(kit.patch_local_int, "T_Comment@create", nfrom, nto)
+  local menu = ok and n == 1
+  if on and (not menu or not ok2 or n2 ~= 1) and not raise_logged then
+    raise_logged = true
+    logf("over Config: the menu's z: %s; the comment window's: %s. A dialog there may not show",
+      tostring(n), tostring(n2))
+  end
+  kit.under_z((on and menu) and MENU_Z_CONFIG or nil)
+end
+
+do
+  local ok, err = pcall(rq.ain.hook, "T_Config@run", {
+    before = function() raise(true) end,
+    after = function() raise(false) end,
+  })
+  if not ok then logf("dialogs over Config will show under it: %s", tostring(err)) end
+end
+
+rq.on_reset(function()
+  open = false
+  raise(false) -- going to the title from Config does not come back to T_Config::run's after
+end)
 
 -- ---- Checks ----
 
@@ -215,6 +257,48 @@ local function run(cancel)
   return r
 end
 
+-- "Don't ask again": { off = fn, set = fn } for opts.remember, or nil.
+local function remember_of(o, where)
+  local remember = o.remember
+  if remember == nil then return nil end
+  local label = opt_type(o, "remember_label", "string", where)
+  local game_id, mod
+  if math.type(remember) == "integer" then
+    if remember < 1 or remember > 99 then error("rq.ui." .. where .. ": remember must be 1 to 99 or a text", 3) end
+    game_id = remember
+  elseif type(remember) == "string" and remember ~= "" then
+    mod = rq.mod.id() or "_"
+  else
+    error("rq.ui." .. where .. ": remember must be 1 to 99 or a text", 3)
+  end
+  return {
+    off = function()
+      if game_id then return call("確認なし", game_id) == true end
+      return mod_off(mod, remember)
+    end,
+    set = function(v)
+      if game_id then
+        call(v and "確認なし_ＯＮ" or "確認なし_ＯＦＦ", game_id)
+      else
+        set_mod_off(mod, remember, label, v)
+        if v then ensure_page() end
+        shown = nil
+      end
+    end,
+  }
+end
+
+-- The game's row under the choices: "DON'T ASK AGAIN" (11) with its note, or its "on" look (12).
+local function add_remember(flag)
+  call("選択_区切り追加")
+  if not flag then
+    call("選択_拡張項目追加", 11, 10027, "")
+    call("選択_補助テキスト追加", NOTE, -1, -1, -1)
+  else
+    call("選択_拡張項目追加", 12, 10028, "")
+  end
+end
+
 -- ---- rq.ui.confirm ----
 
 function gui.confirm(text, o)
@@ -230,58 +314,25 @@ function gui.confirm(text, o)
     error('rq.ui.confirm: cursor must be "yes" or "no"', 2)
   end
   local sy, sn = int_opt(o, "sound_yes", "confirm"), int_opt(o, "sound_no", "confirm")
-  local remember, label = o.remember, opt_type(o, "remember_label", "string", "confirm")
-  local game_id, mod
-  if remember ~= nil then
-    if math.type(remember) == "integer" then
-      if remember < 1 or remember > 99 then error("rq.ui.confirm: remember must be 1 to 99 or a text", 2) end
-      game_id = remember
-    elseif type(remember) == "string" and remember ~= "" then
-      mod = rq.mod.id() or "_"
-    else
-      error("rq.ui.confirm: remember must be 1 to 99 or a text", 2)
-    end
-  end
+  local rem = remember_of(o, "confirm")
   local n = running("confirm")
 
-  local function off()
-    if game_id then return call("確認なし", game_id) == true end
-    return mod_off(mod, remember)
-  end
-  local function set(v)
-    if game_id then
-      call(v and "確認なし_ＯＮ" or "確認なし_ＯＦＦ", game_id)
-    else
-      set_mod_off(mod, remember, label, v)
-      if v then ensure_page() end
-      shown = nil
-    end
-  end
-
-  if remember ~= nil and off() then return true end
+  if rem and rem.off() then return true end
   if busy("confirm", n) then return nil end
   local flag = false
   while true do
     add_text(rows)
     call("選択_項目追加", 1, yes, -1, -1, -1, "", sy)
     call("選択_項目追加", 2, no, -1, -1, -1, "", sn)
-    if remember ~= nil then
-      call("選択_区切り追加")
-      if not flag then
-        call("選択_拡張項目追加", 11, 10027, "")
-        call("選択_補助テキスト追加", NOTE, -1, -1, -1)
-      else
-        call("選択_拡張項目追加", 12, 10028, "")
-      end
-    end
+    if rem then add_remember(flag) end
     call("選択_カーソル設定", cursor == "no" and 2 or 1)
     local r = run(false)
     if r == 1 then return true end
-    if r == 11 and remember ~= nil then
-      set(true)
+    if r == 11 and rem then
+      rem.set(true)
       flag = true
-    elseif r == 12 and remember ~= nil then
-      set(false)
+    elseif r == 12 and rem then
+      rem.set(false)
       flag = false
     else
       return false
@@ -339,10 +390,25 @@ function gui.ask(text, items, o)
   o = o or {}
   local rows_t = text_rows(text, opt_type(o, "game", "boolean", "ask"), "ask")
   local rows, ids, picks = ask_rows(items)
+  local rem = remember_of(o, "ask")
+  local answer
+  if rem then
+    -- The row "don't ask again" stands for: the game's is Yes, its first row.
+    for _, r in ipairs(rows) do
+      if not r.sep and (o.remember_answer == nil or r.id == o.remember_answer) then
+        answer = r.id
+        break
+      end
+    end
+    if answer == nil then error("rq.ui.ask: remember_answer is not the id of a row", 2) end
+  elseif o.remember_answer ~= nil then
+    error("rq.ui.ask: remember_answer needs remember", 2)
+  end
   local size, seps = picks + (rows_t and rows_t.lines or 0), 0
   for _, r in ipairs(rows) do
     if r.sep then seps = seps + 1 end
   end
+  if rem then size, seps = size + 2, seps + 1 end -- the row, its note and a separator
   size = size + seps // 2
   if size > MOST_ALL then
     error(string.format("rq.ui.ask: %d rows and lines of text; at most %d fit on the screen", size, MOST_ALL), 2)
@@ -352,20 +418,35 @@ function gui.ask(text, items, o)
   if (x ~= nil and math.type(x) ~= "integer") or (y ~= nil and math.type(y) ~= "integer") then
     error("rq.ui.ask: x and y must be integers", 2)
   end
-  if busy("ask", running("ask")) then return nil end
-  if x then call("選択_位置設定", x, y or -1) end
-  add_text(rows_t)
-  local cursor
-  for _, r in ipairs(rows) do
-    if r.sep then
-      call("選択_区切り追加")
+  local n = running("ask")
+  if rem and rem.off() then return answer end
+  if busy("ask", n) then return nil end
+  local flag = false
+  while true do
+    if x then call("選択_位置設定", x, y or -1) end
+    add_text(rows_t)
+    local cursor
+    for _, r in ipairs(rows) do
+      if r.sep then
+        call("選択_区切り追加")
+      else
+        call("選択_項目追加", r.no, r.text, r.r, r.g, r.b, r.comment, r.sound)
+        if o.cursor ~= nil and r.id == o.cursor and not cursor then cursor = r.no end
+      end
+    end
+    if rem then add_remember(flag) end
+    if cursor then call("選択_カーソル設定", cursor) end
+    local no = run(cancel)
+    if rem and no == 11 then
+      rem.set(true)
+      flag = true
+    elseif rem and no == 12 then
+      rem.set(false)
+      flag = false
+    elseif not no or no <= 0 then
+      return 0
     else
-      call("選択_項目追加", r.no, r.text, r.r, r.g, r.b, r.comment, r.sound)
-      if o.cursor ~= nil and r.id == o.cursor and not cursor then cursor = r.no end
+      return ids[no] or 0
     end
   end
-  if cursor then call("選択_カーソル設定", cursor) end
-  local no = run(cancel)
-  if not no or no <= 0 then return 0 end
-  return ids[no] or 0
 end

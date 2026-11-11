@@ -595,6 +595,20 @@ int rq_hud_choosing(void)
 	return g_modal_n[4] > 0;
 }
 
+static int g_under_z = RQ_HUD_UNDER_Z;
+
+int rq_hud_under_z(void)
+{
+	return g_under_z;
+}
+
+/* dialog.lua's (2.28.0): the choice menu's z, nil for the game's 9991. Not part of rq. */
+int rq_lua_hud_set_under_z(lua_State *L)
+{
+	g_under_z = (int)luaL_optinteger(L, 1, RQ_HUD_UNDER_Z);
+	return 0;
+}
+
 int rq_lua_ui_choosing(lua_State *L)
 {
 	lua_pushboolean(L, rq_hud_choosing());

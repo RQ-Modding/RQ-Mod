@@ -251,9 +251,10 @@ int sact_Update(void)
 	if (scene_is_dirty) {
 #ifdef RQ_MODLOADER
 		/* Under the game's choice menu while it shows, so a mod's page or HUD does not
-		 * cover it (2.7.0); above everything otherwise. */
+		 * cover it (2.7.0); above everything otherwise. Over Config the menu is above
+		 * Config's screen, and the HUD between them (2.28.0). */
 		if (rq_hud_choosing())
-			scene_render_split(RQ_HUD_UNDER_Z, rq_hud_draw);
+			scene_render_split(rq_hud_under_z(), rq_hud_draw);
 		else {
 			scene_render();
 			rq_hud_draw();

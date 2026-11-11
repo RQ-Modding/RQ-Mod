@@ -58,7 +58,12 @@ void rq_uikit_open(lua_State *L, int rq_index)
 	run_part(L, rq_index, rq_uikit_hub_lua, rq_uikit_hub_lua_len, "=uikit_hub");
 	run_part(L, rq_index, rq_uikit_vault_lua, rq_uikit_vault_lua_len, "=uikit_vault");
 	/* rq.ui.confirm, notice and ask (2.19.0): the game's dialogs, wrapped with the vault's port
-	 * of the game's WordWrapText (kit.wrap). */
+	 * of the game's WordWrapText (kit.wrap). kit.under_z sets the menu's z for the HUD's split
+	 * and kit.patch_local_int the menu's own (2.28.0: over Config). */
+	lua_pushcfunction(L, rq_lua_hud_set_under_z);
+	lua_setfield(L, -2, "under_z");
+	lua_pushcfunction(L, rq_lua_ain_patch_local_int);
+	lua_setfield(L, -2, "patch_local_int");
 	run_part(L, rq_index, rq_dialog_lua, rq_dialog_lua_len, "=dialog");
 	lua_pop(L, 1);
 	lua_setfield(L, rq_index, "uikit");

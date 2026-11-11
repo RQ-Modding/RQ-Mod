@@ -333,7 +333,10 @@ int rq_hud_capture_mouse(void);
 int rq_hud_captured(void);
 /* The game's choice menu shows (T_Select::open runs): the HUD is drawn under it (2.7.0). */
 int rq_hud_choosing(void);
+/* The menu's z, under which the HUD is drawn while it shows: 9991, the game's, or above Config's
+ * screen while the menu shows over Config (2.28.0, set by dialog.lua). */
 #define RQ_HUD_UNDER_Z 9991
+int rq_hud_under_z(void);
 
 /* Save profiles (rq.saves.*). rq_saves_init may replace *save_dir. */
 void rq_saves_wait_parent(void);
@@ -407,6 +410,8 @@ int rq_lua_hud_clicked(struct lua_State *L);
 int rq_lua_hud_block(struct lua_State *L);
 int rq_lua_hud_capture_mouse(struct lua_State *L);
 int rq_lua_ui_choosing(struct lua_State *L);
+int rq_lua_hud_set_under_z(struct lua_State *L);
+int rq_lua_ain_patch_local_int(struct lua_State *L);
 int rq_lua_hud_screen(struct lua_State *L);
 int rq_lua_hud_text_width(struct lua_State *L);
 int rq_lua_hud_wrap(struct lua_State *L);
@@ -484,7 +489,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.27.0"
+#define RQ_VERSION "2.28.0"
 
 struct rq_qbattle_skill {
 	int id;
