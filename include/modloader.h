@@ -375,6 +375,10 @@ int rq_lua_saves_switch(struct lua_State *L);
 int rq_lua_hud_text_begin(struct lua_State *L);
 int rq_lua_hud_text_value(struct lua_State *L);
 int rq_lua_hud_text_end(struct lua_State *L);
+int rq_lua_input_type(struct lua_State *L);
+/* The HUD's text input (2.29.0): whether it is on, and text from rqmod-ctl type (any thread). */
+int rq_hud_text_on(void);
+void rq_hud_text_queue(const char *utf8);
 int rq_lua_hud_block_keys(struct lua_State *L);
 int rq_dungeon_active(void);
 int rq_dungeon_exploring(void);
@@ -489,7 +493,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.28.0"
+#define RQ_VERSION "2.29.0"
 
 struct rq_qbattle_skill {
 	int id;

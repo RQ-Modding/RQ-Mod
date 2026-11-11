@@ -4595,9 +4595,19 @@ static void emit_kit_controls(void)
 static void lua_str(lua_State *L, int t, const char *k, char *dst, int n)
 {
 	lua_getfield(L, t, k);
-	if (lua_isstring(L, -1) || lua_isnumber(L, -1))
-		snprintf(dst, n, "%s", lua_tostring(L, -1));
-	else if (lua_isboolean(L, -1))
+	if (lua_isstring(L, -1) || lua_isnumber(L, -1)) {
+		/* Cut to the buffer at a character's start, so the JSON stays UTF-8 (2.29.0: a text
+		 * field's value can pass it). */
+		size_t len;
+		const char *s = lua_tolstring(L, -1, &len);
+		if (len >= (size_t)n) {
+			len = (size_t)n - 1;
+			while (len && ((unsigned char)s[len] & 0xC0) == 0x80)
+				len--;
+		}
+		memcpy(dst, s, len);
+		dst[len] = 0;
+	} else if (lua_isboolean(L, -1))
 		snprintf(dst, n, "%s", lua_toboolean(L, -1) ? "true" : "false");
 	else
 		dst[0] = 0;

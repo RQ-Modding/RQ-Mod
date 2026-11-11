@@ -601,6 +601,29 @@ function input.set_mouse(x, y) end
 ---@param dir integer Positive scrolls up, negative scrolls down.
 function input.wheel(dir) end
 
+---Types text into the text input that is on, as a keyboard types it.
+---
+---The characters go in at the caret of `rq.hud.text_begin`'s text, so into the `rq.uikit.input` field
+---that types. Only characters the game's font can draw go in, and control characters (a line break
+---too) are dropped; the text stops at the first character that would pass the field's longest
+---length. Key presses from `rq.input.set_key` make no typed text, so this is how a mod or an agent
+---types a name: `rqmod-ctl type` does the same while a text input is on. The editing keys (Backspace,
+---Delete, the arrows, Home, End, Ctrl+V) work from `set_key`.
+---
+---Raises an error for a text that is neither a string nor a number.
+---
+---Since: 2.29.0
+---
+---```lua
+---if rq.uikit.typing() == "name" then
+---  rq.input.type("Rance")
+---end
+---```
+---@param text string The text, in UTF-8.
+---@return integer|false count How many characters went in; false while no text input is on.
+---@see rq.hud.text_begin
+function input.type(text) end
+
 ---Gives the mouse back to the player.
 ---
 ---Ends `rq.input.set_mouse` and lets go of the mouse buttons. Keys pressed with `set_key` stay as
@@ -1239,10 +1262,27 @@ function hud.capture_mouse() end
 ---Starts reading typed text.
 ---
 ---It uses the system's text input, so input methods and keyboard layouts work. Only characters the
----game's font can draw are kept, and Backspace removes the last character. Read the text with
----`rq.hud.text_value` and end with `rq.hud.text_end`. Calling it again restarts with the new text.
+---game's font can draw are kept, and control characters are dropped. The text has a caret, at the end
+---of `initial` to start with, and typed characters go in at it:
+---
+---- **Backspace** removes the character before the caret, **Delete** the one after it.
+---- **Left** and **Right** move the caret by a character, **Home** and **End** to the start and the end.
+---- **Ctrl+V** pastes the system clipboard at the caret, without its line breaks and the characters
+---  the font cannot draw.
+---
+---Held, Backspace, Delete, Left and Right repeat: 250 ms after the press, then every 50 ms. The keys are
+---read from the keys' state, so `rq.input.set_key` and `rqmod-ctl key` / `hold` work them too; typed
+---text from a mod or an agent comes through `rq.input.type` and `rqmod-ctl type`. A key already down
+---when the reading starts counts once let go and pressed again. Text past `max_bytes` stops at the first
+---character that does not fit.
+---
+---It does not hide these keys from the game: call `rq.hud.block_keys` while you read, as
+---`rq.uikit.input` does. Read the text with `rq.hud.text_value` and end with `rq.hud.text_end`. Calling
+---it again restarts with the new text.
 ---
 ---Since: 0.3.0
+---Changed: 2.29.0 A caret, Delete, the arrows, Home, End and Ctrl+V; keys from `rq.input.set_key`, and
+---text from `rq.input.type`.
 ---
 ---```lua
 ---rq.hud.text_begin("Rance", 20)
@@ -1257,11 +1297,22 @@ function hud.capture_mouse() end
 ---@see rq.hud.text_value
 function hud.text_begin(initial, max_bytes) end
 
----Returns the typed text and whether reading is on.
+---Returns the typed text, whether reading is on, and where the caret is.
 ---
 ---Since: 0.3.0
+---Changed: 2.29.0 The caret.
+---
+---```lua
+---local text, on, caret = rq.hud.text_value()
+---if on then
+---  local x = 20 + rq.hud.text_width(text:sub(1, caret), 16)
+---  rq.hud.text(20, 20, text, { size = 16 })
+---  rq.hud.rect(x, 20, 2, 18, 255, 255, 255, 220)
+---end
+---```
 ---@return string text The text so far, in UTF-8.
 ---@return boolean active true between `text_begin` and `text_end`.
+---@return integer caret The bytes of `text` before the caret, 0 to `#text`; never inside a character.
 function hud.text_value() end
 
 ---Stops reading typed text.
@@ -5797,7 +5848,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.28.0"
+rq.version = "2.29.0"
 
 rq.units = units
 rq.items = items
@@ -6802,14 +6853,76 @@ function uikit.slider(value, opts) end
 ---@return boolean changed true on the update it changed.
 function uikit.stepper(value, opts) end
 
----Returns the number field typing on this update, by its `opts.id`, or nil.
+---Returns the number field or text field typing on this update, by its `opts.id`, or nil.
 ---
----While one types, the keys it reads are its own; a page of a mod's own that reads Esc or digits
----itself can leave them alone while this is not nil.
+---While one types, the keys it reads are its own; a page of a mod's own that reads Esc, digits or
+---letters itself can leave them alone while this is not nil.
 ---
 ---Since: 2.22.0
+---Changed: 2.29.0 Text fields (`rq.uikit.input`) too.
 ---@return string|nil id The field's `opts.id` (else the kit's id), or nil.
 function uikit.typing() end
+
+---What `rq.uikit.input` takes.
+---
+---Since: 2.29.0
+---@class rq.UiInputOpts: rq.UiPlace
+---@field w? integer The box's width in pixels (not "fill"). Default 240.
+---@field max? integer The longest the text may be, in bytes, 1 to 255. Default 40.
+---@field label? string Text left of the box, in the theme's label font. Also its label in `rqmod-ctl ui`.
+---@field placeholder? string Dim text in the box while the text is empty and it does not type.
+---@field focus? boolean Types from the update the field first shows (again after it was not drawn for an update), as a name prompt does.
+---@field disabled? boolean Greyed: no typing. A field that types stops, with its old text back.
+
+---Draws a text field: the text in a framed box, and returns the text.
+---
+---- **Typing.** A click on the box, or Enter under the keys' cursor, types into it; with `focus` it
+---  types as soon as it shows. It types through the HUD's text input (`rq.hud.text_begin`): the
+---  system's keyboard and input methods, a blinking caret, Backspace, Delete, Left, Right, Home, End,
+---  Ctrl+V to paste, and only characters the game's font can draw. The text slides in the box to keep
+---  the caret in sight.
+---- **Ending.** Enter keeps the text; so does a click outside the box. Esc puts back the text it
+---  started with. A field that is not drawn for an update stops, with what it typed kept as it was.
+---  One field types at a time, a number field (`rq.uikit.stepper`) included: a press on another
+---  stops the first.
+---- **Keys.** While it types, every key is hidden from the game, Ctrl (its message skip) included, and
+---  the arrows move the caret, not the keys' cursor. Enter, Esc and Backspace stay hidden until let go:
+---  Esc there does not close Config or `rq.uikit.page`.
+---
+---The return values: while it types, the text so far; `changed` is true on the update a typing ends
+---with a new text kept; `ended` says how a typing ended on this update. Keep the text yourself and
+---pass it back each update.
+---
+---The field is listed for `rqmod-ctl ui` as `input-<id>` with the text as `value` (none while it is
+---empty, as for every control; its first 159 bytes, cut between characters) and `selected` true while
+---it types. Agents type into it with `rqmod-ctl type "<text>"` (or `rq.input.type`) and edit with
+---`rqmod-ctl key` and `hold`.
+---
+---Raises an error for a text that is not a string, opts that are not a table, a `max` outside 1 to
+---255, a `w` that is not a whole number, or a `label` or `placeholder` that is not a string.
+---
+---Since: 2.29.0
+---
+---```lua
+---local name = "Rance"
+---local open = true
+---rq.on_frame(function()
+---  if not open then return end
+---  open = rq.uikit.page({ id = "rename", title = "Rename" }, function()
+---    local text, changed = rq.uikit.input(name, { id = "name", label = "Name", max = 20, placeholder = "A name" })
+---    name = text
+---    if changed then rq.log("new name:", name) end
+---  end)
+---end)
+---```
+---@param value string The text shown, in UTF-8.
+---@param opts? rq.UiInputOpts `w` (the box), `max`, `label`, `placeholder`, `focus`, `disabled`; place, `id`, `tip`, `nav`.
+---@return string value The text: as typed so far while it types, the one kept or put back when it ends.
+---@return boolean changed true on the update a typing ended with a text other than the one it started with.
+---@return "enter"|"esc"|"away"|nil ended How a typing ended on this update: Enter, Esc, or a click elsewhere (also a stop by a disabled field, another field, or `rq.hud.text_end`); nil otherwise.
+---@see rq.uikit.stepper
+---@see rq.hud.text_begin
+function uikit.input(value, opts) end
 
 ---Draws Config's tabs side by side: normal, hovered and current.
 ---
@@ -7294,7 +7407,9 @@ function uikit.sort(list, index, opts) end
 ---
 ---The page covers the hub under the town tabs and above the footer (0, 56, 1024 by 536). The game
 ---shows dimmed under it and gets no mouse and no keys (`rq.hud.capture_mouse`, `rq.hud.block_keys`),
----so it is modal. With `title` the title sits on the current town tab's piece at the top left. The
+---so it is modal. With `title` the title sits on the current town tab's piece at the top left, and
+---the box `fn` gets starts at the tab's bottom edge (the tab is 45 high at 8 under the page's top), so the tab
+---touches the first thing under it, as the hub's current tab touches its screen. The
 ---page closes by its close button at the top right, a right click, or Esc; the right click and Esc
 ---close when let go, so the game does not get them. Keep the page's state yourself: draw it while
 ---it is open, and stop when it returns false. It does not open by itself; open it from a button of
@@ -7304,13 +7419,16 @@ function uikit.sort(list, index, opts) end
 ---the keys to the menu, and the right click, Space or Esc that ends the menu does not close the page.
 ---
 ---The arrow keys and Enter move the keys' cursor between the page's widgets (`rq.uikit.keys`).
----Esc while a number field types (`rq.uikit.stepper`) puts the field's number back and does not
----close the page.
+---Esc while a number field or a text field types (`rq.uikit.stepper`, `rq.uikit.input`) puts the
+---field's number or text back and does not close the page; while a text field types, the arrows move
+---its caret.
 ---
 ---Since: 2.6.0
 ---Changed: 2.7.0 Stays open, under it, while the game's choice menu shows over it.
 ---Changed: 2.12.0 The arrow keys and Enter move between its widgets.
 ---Changed: 2.22.0 Esc that ends a number field's typing does not close it.
+---Changed: 2.29.0 The same for a text field's. With a title, the box starts at the tab's bottom edge,
+---8 pixels higher than before, so the tab touches what it titles.
 ---
 ---```lua
 ---local open = false

@@ -640,7 +640,9 @@ function ui.page(o, fn)
     local tw = max(200, text_w(o.title, p.title) + 2 * town.pad + 8)
     ui.draw(town.current, x + pad, y + 8, tw, 45)
     hud.text(x + pad, y + 8, o.title, with(p.title, { w = tw, h = 45, align = "center", valign = "center" }))
-    top = y + 8 + 45 + 8
+    -- The content starts at the tab's bottom edge, so the tab touches what it titles, as the
+    -- hub's current tab does (2.29.0; it was 8 pixels lower).
+    top = y + 8 + 45
   end
   local closed = ui.close({ x = x + w - 24 - pad, y = y + pad - 4, id = o.id ~= nil and o.id or "page" })
   -- A right click or Esc closes when let go, so the game does not get the rest of it. Only a

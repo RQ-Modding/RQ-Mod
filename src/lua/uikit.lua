@@ -167,6 +167,7 @@ local focus = {
   edge = nil, ledge = nil,    -- keys{edge = fn} on this update / the last
   enter = false, page = 0,   -- Enter, and Page Up / Page Down (-1 / 1), on this update
   rep = {}, mx = nil, my = nil, moved = false, hit = false,
+  hold = false,              -- a text field typed on the last update: the arrows are its caret's (2.29.0)
 }
 
 -- A widget's tip (2.13.0): the widget hot on this update with a tip, since when, and how it
@@ -355,8 +356,10 @@ focus_update = function()
     for _, k in ipairs({ "up", "down", "left", "right", "enter", "pageup", "pagedown" }) do key_rep(k, true) end
     return
   end
+  local hold = focus.hold
+  focus.hold = false
   for _, dir in ipairs({ "up", "down", "left", "right" }) do
-    if key_rep(dir) then nav(dir) end
+    if key_rep(dir) and not hold then nav(dir) end
   end
   if key_rep("enter") and focus.rep.enter ~= math.huge then
     focus.rep.enter = math.huge -- Enter does not repeat
@@ -373,6 +376,7 @@ rq.on_frame(function()
     published = #shown
   end
   shown, shown_ids = {}, {}
+  frame.n = (frame.n or 0) + 1 -- the update's number (2.29.0)
   frame.was_hot, frame.hot, frame.auto, frame.over = frame.hot, nil, 0, false
   local was_right = mouse.right
   mouse.x, mouse.y, mouse.down, mouse.right, mouse.pressed, mouse.released = input.mouse()
@@ -1456,6 +1460,133 @@ end
 function ui.typing()
   if not typing then return nil end
   return short_id(typing) or typing
+end
+
+-- ---- A text field (2.29.0) ----
+
+-- On the HUD's text input (rq.hud.text_begin): the typed text, the caret, the editing keys and
+-- Ctrl+V are the engine's. The field draws them, and owns Enter, Esc, a click elsewhere and the
+-- keys' cursor. One field types at a time, a number field included (`typing` above).
+local text_owner -- the kit id of the text field the HUD's text input is on for
+
+rq.on_frame(function()
+  -- The field was not drawn on the last update, or another field types: the text input goes.
+  if text_owner and typing ~= text_owner then
+    hud.text_end()
+    text_owner = nil
+  end
+end)
+
+---A text field (2.29.0): the text in a framed box. opts: x, y, id, w (the box, 240), label, max
+---(bytes, 1 to 255, 40), placeholder, disabled, focus (types from the update it first shows),
+---tip, tip_wait, nav. A click on the box, or Enter under the keys' cursor, types into it; Enter
+---keeps the text, Esc puts back the one it started with, a click elsewhere keeps it. Returns the
+---text (as typed so far while it types), whether a typing ended on this update with a new text
+---kept, and how a typing ended on this update ("enter", "esc", "away"; nil otherwise).
+function ui.input(value, o)
+  if o ~= nil and type(o) ~= "table" then error("uikit.input: opts is a table", 2) end
+  o = o or {}
+  if type(value) ~= "string" then error("uikit.input: the text is a string", 2) end
+  local max = o.max == nil and 40 or o.max
+  if math.type(max) ~= "integer" or max < 1 or max > 255 then error("uikit.input: max is 1 to 255 bytes", 2) end
+  if o.w ~= nil and math.type(o.w) ~= "integer" then error("uikit.input: w is a whole number of pixels", 2) end
+  if o.placeholder ~= nil and type(o.placeholder) ~= "string" then error("uikit.input: placeholder is a string", 2) end
+  if o.label ~= nil and type(o.label) ~= "string" then error("uikit.input: label is a string", 2) end
+  local th = ui.theme
+  local id = id_of(o, "input")
+  local st = ui.state(id)
+  local key = o.id ~= nil and tostring(o.id) or o.label or "input"
+  local style = th.label
+  local dim = with(style, { r = th.dim.r, g = th.dim.g, b = th.dim.b })
+  local disabled = o.disabled and true or false
+  local B, PAD = 30, 8
+  local lw = o.label and (text_w(o.label, style) + 12) or 0
+  local bw = o.w or 240
+  local x, y, w, h = place({ x = o.x, y = o.y }, lw + bw, B)
+  local bx = x + lw
+  if o.label then hud.text(x, y, o.label, with(disabled and dim or style, { h = h, valign = "center" })) end
+  if typing == id then typing_alive = true end
+  local fresh = st.seen ~= frame.n - 1 -- not drawn on the last update
+  st.seen = frame.n
+  local changed, ended = false, nil
+
+  local over, clicked = interact(id, bx, y, bw, B, disabled, { nav = o.nav, tip = o.tip, tip_wait = o.tip_wait })
+  local start = typing ~= id and not disabled and not frame.blind and (clicked or (o.focus and fresh))
+  if start then
+    if typing then rq.log("uikit.input: another field was typing; it stops where it was") end
+    typing, typing_alive, text_owner = id, true, id
+    st.start, st.live, st.scroll = value, value, 0
+    st.kd = { [K_ENTER] = input.key(K_ENTER), [K_ESC] = input.key(K_ESC) } -- the Enter that started it
+    hud.text_begin(value, max)
+    if clicked then play("click") end
+  end
+  if typing == id then
+    hud.block_keys() -- the game gets no key, Ctrl (its message skip) included
+    focus.hold = true -- the arrows move the caret
+    local function hit(c)
+      local down = input.key(c)
+      local was = st.kd[c]
+      st.kd[c] = down
+      return down and not was
+    end
+    local text, on = hud.text_value()
+    if on then st.live = text end
+    local done, keep
+    if hit(K_ENTER) then done, keep = "enter", true end
+    if hit(K_ESC) then done, keep = "esc", false end
+    if mouse.pressed and not inside(bx, y, bw, B) then done, keep = "away", true end
+    if not on then done, keep = "away", true end -- a mod's rq.hud.text_end took it
+    if disabled then done, keep = "away", false end
+    if done then
+      typing = nil
+      if text_owner == id then
+        text_owner = nil
+        hud.text_end()
+      end
+      for _, c in ipairs({ K_ENTER, K_ESC, K_BACK }) do
+        if input.key(c) then held_after[c] = true end
+      end
+      local new = keep and st.live or st.start
+      changed, ended = new ~= st.start, done
+      value = new
+      st.start, st.live = nil, nil
+      if done == "enter" then play("click") end
+    else
+      value = st.live
+    end
+  end
+
+  ui.draw("block", bx, y, bw, B, disabled and { tint = { 128, 128, 128 } } or nil)
+  local ns = with(disabled and dim or style, { h = B, valign = "center" })
+  hud.clip_push(bx + 4, y + 2, bw - 8, B - 4)
+  if typing == id then
+    local c = th.button_cover
+    hud.rect(bx + 3, y + 3, bw - 6, B - 6, c.r, c.g, c.b, 50)
+    local _, _, caret = hud.text_value()
+    local t = value
+    caret = math.min(caret or #t, #t)
+    local left = t:sub(1, caret)
+    local cx = left ~= "" and text_w(left, ns) or 0
+    local tw = t ~= "" and text_w(t, ns) or 0
+    local room = bw - 2 * PAD - 2
+    -- The text slides so the caret stays in the box, and no further than its end.
+    if cx - st.scroll > room then st.scroll = cx - room end
+    if cx < st.scroll then st.scroll = cx end
+    if tw - st.scroll < room then st.scroll = math.max(0, tw - room) end
+    if t ~= "" then hud.text(bx + PAD - st.scroll, y, t, ns) end
+    if (rq.time_ms() // 500) % 2 == 0 then
+      hud.rect(bx + PAD - st.scroll + cx, y + 6, 2, B - 12, 255, 255, 255, 220)
+    end
+  elseif value ~= "" then
+    hud.text(bx + PAD, y, value, ns)
+  elseif o.placeholder then
+    hud.text(bx + PAD, y, o.placeholder, with(dim, { h = B, valign = "center" }))
+  end
+  hud.clip_pop()
+  if typing ~= id and over and not disabled then ui.draw("hover_bar", bx, y, bw, B, { alpha = 128 }) end
+  -- For agents: the text (as typed so far while it types), and selected while it types.
+  show("input", key, o.label, bx, y, bw, B, { value = value, disabled = disabled, selected = typing == id })
+  return value, changed, ended
 end
 
 -- What the hub's widgets (uikit_hub.lua) build on.

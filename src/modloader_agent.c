@@ -507,6 +507,12 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 	}
 	if (!_stricmp(cmd, "type")) {
 		a = skip_ws(p);
+		/* While the HUD's text input is on (2.29.0) the text goes to it, any character the
+		 * game's font draws; otherwise the keys of letters, digits and space are pulsed. */
+		if (rq_hud_text_on()) {
+			rq_hud_text_queue(a);
+			return 1;
+		}
 		for (; *a; a++) {
 			unsigned char ch = (unsigned char)*a;
 			if (ch == ' ')

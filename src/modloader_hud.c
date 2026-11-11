@@ -126,6 +126,19 @@ static int g_capture_seen;
 static int g_text_on;
 static int g_text_max;
 static char g_text[256];
+static size_t g_caret; /* bytes before the caret (2.29.0) */
+/* The editing keys (2.29.0), read from the key state on each update, so a real key, an agent's
+ * and rq.input.set_key count alike. Held, they repeat as the kit's keys: 250 ms, then every
+ * 50 ms. V counts only with Ctrl down, and does not repeat. */
+static const int k_edit_keys[] = { VK_BACK, VK_DELETE, VK_LEFT, VK_RIGHT, VK_HOME, VK_END, VK_V };
+#define N_EDIT_KEYS ((int)(sizeof k_edit_keys / sizeof k_edit_keys[0]))
+static int g_edit_down[N_EDIT_KEYS];
+static uint32_t g_edit_next[N_EDIT_KEYS];
+/* rqmod-ctl type while the text input is on (2.29.0): queued by the pipe's thread, put in on
+ * the game thread's next update. */
+static SDL_SpinLock g_typed_lock;
+static char g_typed[1024];
+static size_t g_typed_n;
 #define HUD_MAX_FRAME_CB 32
 static int g_on_frame_ref[HUD_MAX_FRAME_CB];
 static int g_on_frame_n;
@@ -615,60 +628,217 @@ int rq_lua_ui_choosing(lua_State *L)
 	return 1;
 }
 
-/* Text entry for mod dialogs (rename). Printable text only, and only what the
- * game's Gothic face can draw (JIS X 0208 plus ASCII). */
-static void text_on_input(const char *utf8)
+/* Text entry for mod dialogs (rename) and rq.uikit.input. Printable text only, and only what
+ * the game's Gothic face can draw (JIS X 0208 plus ASCII), at the caret (2.29.0). */
+
+/* The length of the UTF-8 character at s, or 0 when it is not one. */
+static size_t u8_len(const char *s)
 {
-	char *sj, *back;
-	size_t len, cur;
-	int ok;
-	if (!g_text_on || !utf8 || !*utf8)
-		return;
-	if ((unsigned char)utf8[0] < 0x20)
-		return;
-	sj = utf2sjis(utf8, 0);
-	if (!sj)
-		return;
-	back = sjis2utf(sj, 0);
-	ok = back && !strcmp(back, utf8);
-	free(back);
-	free(sj);
-	if (!ok)
-		return;
-	len = strlen(utf8);
-	cur = strlen(g_text);
-	if (cur + len > (size_t)g_text_max || cur + len >= sizeof g_text)
-		return;
-	memcpy(g_text + cur, utf8, len + 1);
+	unsigned char c = (unsigned char)s[0];
+	size_t n, i;
+	if (c < 0x80)
+		return c ? 1 : 0;
+	if ((c & 0xE0) == 0xC0)
+		n = 2;
+	else if ((c & 0xF0) == 0xE0)
+		n = 3;
+	else if ((c & 0xF8) == 0xF0)
+		n = 4;
+	else
+		return 0;
+	for (i = 1; i < n; i++)
+		if (((unsigned char)s[i] & 0xC0) != 0x80)
+			return 0;
+	return n;
 }
 
-static void text_on_key(int code)
+/* Whether the game's font draws this one character: it comes back the same through Shift JIS. */
+static int text_drawable(const char *ch)
 {
-	size_t n;
-	if (!g_text_on || code != VK_BACK)
+	char *sj = utf2sjis(ch, 0), *back;
+	int ok;
+	if (!sj)
+		return 0;
+	back = sjis2utf(sj, 0);
+	ok = back && !strcmp(back, ch);
+	free(back);
+	free(sj);
+	return ok;
+}
+
+/* Puts utf8 in at the caret, character by character: control characters and what the font
+ * cannot draw are dropped, and it stops at the first one past the limit. Returns how many
+ * characters went in. */
+static int text_insert(const char *utf8)
+{
+	int n = 0;
+	const char *p = utf8;
+	if (!g_text_on || !utf8)
+		return 0;
+	while (*p) {
+		char ch[5];
+		size_t len = u8_len(p), cur;
+		if (!len) {
+			p++;
+			continue;
+		}
+		memcpy(ch, p, len);
+		ch[len] = 0;
+		p += len;
+		if ((unsigned char)ch[0] < 0x20 || (unsigned char)ch[0] == 0x7F || !text_drawable(ch))
+			continue;
+		cur = strlen(g_text);
+		if (cur + len > (size_t)g_text_max || cur + len >= sizeof g_text)
+			break;
+		if (g_caret > cur)
+			g_caret = cur;
+		memmove(g_text + g_caret + len, g_text + g_caret, cur - g_caret + 1);
+		memcpy(g_text + g_caret, ch, len);
+		g_caret += len;
+		n++;
+	}
+	return n;
+}
+
+static void text_on_input(const char *utf8)
+{
+	text_insert(utf8);
+}
+
+static size_t text_prev(size_t at)
+{
+	if (!at)
+		return 0;
+	at--;
+	while (at > 0 && ((unsigned char)g_text[at] & 0xC0) == 0x80)
+		at--;
+	return at;
+}
+
+static size_t text_next(size_t at)
+{
+	size_t len = strlen(g_text), n;
+	if (at >= len)
+		return len;
+	n = u8_len(g_text + at);
+	return at + (n ? n : 1);
+}
+
+static void text_edit(int code)
+{
+	size_t len = strlen(g_text), to;
+	if (g_caret > len)
+		g_caret = len;
+	switch (code) {
+	case VK_BACK:
+		to = text_prev(g_caret);
+		memmove(g_text + to, g_text + g_caret, len - g_caret + 1);
+		g_caret = to;
+		break;
+	case VK_DELETE:
+		to = text_next(g_caret);
+		memmove(g_text + g_caret, g_text + to, len - to + 1);
+		break;
+	case VK_LEFT:
+		g_caret = text_prev(g_caret);
+		break;
+	case VK_RIGHT:
+		g_caret = text_next(g_caret);
+		break;
+	case VK_HOME:
+		g_caret = 0;
+		break;
+	case VK_END:
+		g_caret = len;
+		break;
+	case VK_V: {
+		char *clip = SDL_HasClipboardText() ? SDL_GetClipboardText() : NULL;
+		if (clip) {
+			text_insert(clip);
+			SDL_free(clip);
+		}
+		break;
+	}
+	}
+}
+
+/* On each update while the text input is on: the queued text, then the editing keys. */
+static void text_tick(void)
+{
+	char typed[sizeof g_typed];
+	uint32_t now;
+	int i;
+	if (!g_text_on)
 		return;
-	n = strlen(g_text);
-	if (!n)
-		return;
-	n--;
-	while (n > 0 && ((unsigned char)g_text[n] & 0xC0) == 0x80)
-		n--;
-	g_text[n] = 0;
+	SDL_AtomicLock(&g_typed_lock);
+	memcpy(typed, g_typed, g_typed_n);
+	typed[g_typed_n] = 0;
+	g_typed_n = 0;
+	SDL_AtomicUnlock(&g_typed_lock);
+	if (typed[0])
+		text_insert(typed);
+	now = SDL_GetTicks();
+	for (i = 0; i < N_EDIT_KEYS; i++) {
+		int code = k_edit_keys[i];
+		int down = key_is_down_raw(code) ? 1 : 0, fire = 0;
+		if (code == VK_V && !key_is_down_raw(VK_CONTROL))
+			down = 0;
+		if (down && !g_edit_down[i]) {
+			fire = 1;
+			g_edit_next[i] = code == VK_V ? UINT32_MAX : now + 250;
+		} else if (down && g_edit_next[i] != UINT32_MAX && (int32_t)(now - g_edit_next[i]) >= 0) {
+			fire = 1;
+			g_edit_next[i] = now + 50;
+		}
+		g_edit_down[i] = down;
+		if (fire)
+			text_edit(code);
+	}
+}
+
+int rq_hud_text_on(void)
+{
+	return g_text_on;
+}
+
+/* From the pipe's thread (rqmod-ctl type). */
+void rq_hud_text_queue(const char *utf8)
+{
+	size_t len = strlen(utf8);
+	SDL_AtomicLock(&g_typed_lock);
+	if (g_typed_n + len >= sizeof g_typed)
+		len = sizeof g_typed - 1 - g_typed_n;
+	memcpy(g_typed + g_typed_n, utf8, len);
+	g_typed_n += len;
+	SDL_AtomicUnlock(&g_typed_lock);
 }
 
 int rq_lua_hud_text_begin(lua_State *L)
 {
 	const char *init = luaL_optstring(L, 1, "");
 	int max = (int)luaL_optinteger(L, 2, 40);
+	int i;
 	if (max < 1)
 		max = 1;
 	if (max > (int)sizeof g_text - 1)
 		max = (int)sizeof g_text - 1;
 	g_text_max = max;
 	snprintf(g_text, sizeof g_text, "%.*s", max, init);
+	/* Not in the middle of a character. */
+	g_caret = strlen(g_text);
+	while (g_caret > 0 && ((unsigned char)g_text[g_caret] & 0xC0) == 0x80)
+		g_caret--;
+	g_text[g_caret] = 0;
+	/* A key already down (the Enter or the click that started it) waits to be let go. */
+	for (i = 0; i < N_EDIT_KEYS; i++) {
+		g_edit_down[i] = 1;
+		g_edit_next[i] = UINT32_MAX;
+	}
+	SDL_AtomicLock(&g_typed_lock);
+	g_typed_n = 0;
+	SDL_AtomicUnlock(&g_typed_lock);
 	if (!g_text_on) {
 		register_input_handler(text_on_input);
-		register_key_handler(text_on_key);
 		SDL_StartTextInput();
 		g_text_on = 1;
 	}
@@ -679,7 +849,8 @@ int rq_lua_hud_text_value(lua_State *L)
 {
 	lua_pushstring(L, g_text);
 	lua_pushboolean(L, g_text_on);
-	return 2;
+	lua_pushinteger(L, (lua_Integer)g_caret);
+	return 3;
 }
 
 int rq_lua_hud_text_end(lua_State *L)
@@ -688,10 +859,21 @@ int rq_lua_hud_text_end(lua_State *L)
 	if (g_text_on) {
 		SDL_StopTextInput();
 		clear_input_handler();
-		clear_key_handler();
 		g_text_on = 0;
 	}
 	return 0;
+}
+
+/* rq.input.type(text) (2.29.0): text into the HUD's text input as if typed. */
+int rq_lua_input_type(lua_State *L)
+{
+	const char *s = luaL_checkstring(L, 1);
+	if (!g_text_on) {
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+	lua_pushinteger(L, text_insert(s));
+	return 1;
 }
 
 static int input_code_at(lua_State *L, int idx);
@@ -1654,6 +1836,7 @@ int rq_hud_tick(void)
 	g_prev_left = g_left;
 	g_scroll = rq_wheel_steps - g_wheel_seen;
 	g_wheel_seen = rq_wheel_steps;
+	text_tick();
 	draw_version_banner();
 	rq_item_refresh();
 	rq_roster_refresh();

@@ -1224,7 +1224,7 @@ static void guard_game_calls(lua_State *L)
 {
 	static const struct { const char *module; const char *names; } k_calls[] = {
 		{ "hud", "text_width wrap cg text_begin" },
-		{ "input", "set_key set_mouse wheel release" },
+		{ "input", "set_key set_mouse wheel release type" },
 		{ "ui", "get aim shot shot_result" },
 		{ "loot", "list" },
 		{ "orb", "roster get_state set_state set_status get_hp get_max_hp set_hp full_heal" },
@@ -1325,6 +1325,7 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "wheel", rq_lua_input_wheel);
 	set_cfn(L, "scroll", rq_lua_input_scroll);
 	set_cfn(L, "release", rq_lua_input_release);
+	set_cfn(L, "type", rq_lua_input_type);
 	lua_setfield(L, -2, "input");
 
 	lua_newtable(L);
