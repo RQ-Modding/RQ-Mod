@@ -260,16 +260,54 @@ static int instr_len(uint16_t op)
 	return 2 + op_nargs(op) * 4;
 }
 
-static uint32_t func_end_addr(struct ain *ain, int fno)
+/* Where code that starts at `start` ends: at the next function's code. rq.ain.hook moves a hooked
+ * function's address to a stub at the end of the code that jumps to its code, which no function's
+ * address marks then (2.34.0), so those count too. */
+static uint32_t code_end_addr(struct ain *ain, uint32_t start)
 {
-	uint32_t start = ain->functions[fno].address;
+	const uint32_t *hooked;
+	int nhooked = rq_hook_codes(&hooked);
 	uint32_t end = (uint32_t)ain->code_size;
 	for (int i = 0; i < ain->nr_functions; i++) {
 		uint32_t a = ain->functions[i].address;
 		if (a > start && a < end)
 			end = a;
 	}
+	for (int i = 0; i < nhooked; i++) {
+		if (hooked[i] > start && hooked[i] < end)
+			end = hooked[i];
+	}
 	return end;
+}
+
+/* rq.ain.hook's stub (modloader_scene.c, hook_for) at a function's address: PUSH id; CALLSYS
+ * VM_XSYS_SCENE_BEFORE; IFZ; RETURN; JUMP code. The code it jumps to, or 0. */
+static uint32_t hook_stub_target(struct ain *ain, uint32_t a)
+{
+	if ((size_t)a + 26 > ain->code_size)
+		return 0;
+	if (rd16(ain->code + a) != PUSH || rd16(ain->code + a + 6) != CALLSYS
+	    || rd32(ain->code + a + 8) != (uint32_t)VM_XSYS_SCENE_BEFORE
+	    || rd16(ain->code + a + 12) != IFZ || rd16(ain->code + a + 18) != RETURN
+	    || rd16(ain->code + a + 20) != JUMP)
+		return 0;
+	return rd32(ain->code + a + 22);
+}
+
+/* A function's own code, past rq.ain.hook's stub, and where it ends. The patches below read and
+ * write there, so a function hooked before or after a patch is still found (2.34.0: the loader's
+ * own hooks at boot, as on Ｔ戦闘前初期化, came before Custom TADA Mode's patch). */
+static uint32_t code_start(struct ain *ain, int fno)
+{
+	uint32_t a = ain->functions[fno].address, t;
+	for (int i = 0; i < 8 && (t = hook_stub_target(ain, a)) != 0; i++)
+		a = t;
+	return a;
+}
+
+static uint32_t code_end(struct ain *ain, int fno)
+{
+	return code_end_addr(ain, code_start(ain, fno));
 }
 
 /* The loader wraps some game functions (a hook at their head or tail): the name then
@@ -279,8 +317,8 @@ static uint32_t func_end_addr(struct ain *ain, int fno)
 static int body_fno(struct ain *ain, int fno)
 {
 	for (int depth = 0; depth < 16; depth++) {
-		uint32_t ip = ain->functions[fno].address;
-		uint32_t end = func_end_addr(ain, fno);
+		uint32_t ip = code_start(ain, fno);
+		uint32_t end = code_end(ain, fno);
 		int next = -1;
 		for (; ip + 6 <= end; ) {
 			uint16_t op = rd16(ain->code + ip);
@@ -375,8 +413,8 @@ static uint32_t relocate_func(struct ain *ain, uint32_t start, uint32_t end,
 
 static int patch_floats(struct ain *ain, int fno, float from, float to, int nth)
 {
-	uint32_t start = ain->functions[fno].address;
-	uint32_t end = func_end_addr(ain, fno);
+	uint32_t start = code_start(ain, fno);
+	uint32_t end = code_end(ain, fno);
 	uint32_t ip;
 	int hit = 0, n = 0;
 	for (ip = start; ip + 6 <= end; ) {
@@ -402,9 +440,9 @@ static int patch_floats(struct ain *ain, int fno, float from, float to, int nth)
 /* PUSH immediates, the int side of patch_floats. */
 static int patch_ints(struct ain *ain, int fno, int32_t from, int32_t to, int nth)
 {
-	uint32_t ip, end = func_end_addr(ain, fno);
+	uint32_t ip, end = code_end(ain, fno);
 	int hit = 0, n = 0;
-	for (ip = ain->functions[fno].address; ip + 6 <= end; ) {
+	for (ip = code_start(ain, fno); ip + 6 <= end; ) {
 		uint16_t op = rd16(ain->code + ip);
 		int len = instr_len(op);
 		int32_t v = 0;
@@ -446,14 +484,14 @@ static int g_nr_code_places;
  * 0xffff where the body ends. Returns 0 when ip is not an instruction of the body. */
 static int place_sig(struct ain *ain, int fno, uint32_t at, uint16_t *sig)
 {
-	uint32_t ip, end = func_end_addr(ain, fno);
+	uint32_t ip, end = code_end(ain, fno);
 	uint16_t prev[PLACE_BEFORE];
 	int i, n = 0;
 	for (i = 0; i < PLACE_BEFORE + PLACE_AFTER; i++)
 		sig[i] = 0xffff;
 	for (i = 0; i < PLACE_BEFORE; i++)
 		prev[i] = 0xffff;
-	for (ip = ain->functions[fno].address; ip + 2 <= end; ) {
+	for (ip = code_start(ain, fno); ip + 2 <= end; ) {
 		uint16_t op = rd16(ain->code + ip);
 		int len = instr_len(op);
 		if (len < 2)
@@ -484,10 +522,10 @@ static int place_sig(struct ain *ain, int fno, uint32_t at, uint16_t *sig)
 static int patch_ints_after(struct ain *ain, int fno, int gi, int32_t from, int32_t to,
 			    int nth_ref, int window, uint32_t *out, int out_max)
 {
-	uint32_t ip, end = func_end_addr(ain, fno);
+	uint32_t ip, end = code_end(ain, fno);
 	uint16_t prev = 0xffff;
 	int hit = 0, ref = 0, armed = 0;
-	for (ip = ain->functions[fno].address; ip + 2 <= end; ) {
+	for (ip = code_start(ain, fno); ip + 2 <= end; ) {
 		uint16_t op = rd16(ain->code + ip);
 		int len = instr_len(op);
 		int32_t v = 0;
@@ -517,8 +555,8 @@ static int patch_ints_after(struct ain *ain, int fno, int gi, int32_t from, int3
 
 static uint32_t find_op_after_float(struct ain *ain, int fno, float needle, uint16_t want_op, int nth_float)
 {
-	uint32_t start = ain->functions[fno].address;
-	uint32_t end = func_end_addr(ain, fno);
+	uint32_t start = code_start(ain, fno);
+	uint32_t end = code_end(ain, fno);
 	uint32_t ip;
 	int n = 0;
 	int seen = 0;
@@ -544,8 +582,8 @@ static uint32_t find_op_after_float(struct ain *ain, int fno, float needle, uint
 
 static uint32_t find_jump_after_op(struct ain *ain, int fno, uint16_t after_op)
 {
-	uint32_t start = ain->functions[fno].address;
-	uint32_t end = func_end_addr(ain, fno);
+	uint32_t start = code_start(ain, fno);
+	uint32_t end = code_end(ain, fno);
 	uint32_t ip;
 	int seen = 0;
 	for (ip = start; ip + 6 <= end; ) {
@@ -564,8 +602,8 @@ static uint32_t find_jump_after_op(struct ain *ain, int fno, uint16_t after_op)
 
 static uint32_t last_localref_before_last_callfunc(struct ain *ain, int fno)
 {
-	uint32_t start = ain->functions[fno].address;
-	uint32_t end = func_end_addr(ain, fno);
+	uint32_t start = code_start(ain, fno);
+	uint32_t end = code_end(ain, fno);
 	uint32_t ip, last_call = 0, last_ref = 0;
 	for (ip = start; ip + 6 <= end; ) {
 		uint16_t op = rd16(ain->code + ip);
@@ -600,8 +638,8 @@ static struct {
 static int patch_floats_rec(struct ain *ain, int fno, float from, float to, int nth,
 			    uint32_t *rec, int *nrec, int cap)
 {
-	uint32_t start = ain->functions[fno].address;
-	uint32_t end = func_end_addr(ain, fno);
+	uint32_t start = code_start(ain, fno);
+	uint32_t end = code_end(ain, fno);
 	uint32_t ip;
 	int hit = 0, n = 0;
 	for (ip = start; ip + 6 <= end; ) {
@@ -716,17 +754,22 @@ static int dungeon_camera(struct ain *ain, float lock, float dmin, float dmax, f
 			if (!insert_at)
 				insert_at = find_op_after_float(ain, fno, 35.0f, 0x36, 0);
 		}
-		old_start = ain->functions[fno].address;
+		old_start = code_start(ain, fno);
 		new_addr = 0;
 		if (insert_at) {
 			p = extra;
 			wr16(p, 0x40); p += 2;
 			wrf(p, step); p += 4;
 			wr16(p, first == 0 ? 0x39 : 0x38); p += 2;
-			new_addr = relocate_func(ain, old_start, func_end_addr(ain, fno), insert_at,
+			new_addr = relocate_func(ain, old_start, code_end(ain, fno), insert_at,
 						 extra, (size_t)(p - extra));
 			if (new_addr) {
-				ain->functions[fno].address = new_addr;
+				uint32_t at = ain->functions[fno].address;
+				/* A hooked function keeps its stub, which jumps to the new copy. */
+				if (at != old_start && hook_stub_target(ain, at) == old_start)
+					memcpy(ain->code + at + 22, &new_addr, 4);
+				else
+					ain->functions[fno].address = new_addr;
 				if (g_cam.n_step < 2)
 					g_cam.step[g_cam.n_step++] = new_addr + (insert_at - old_start) + 2;
 				if (first == 0)
@@ -799,8 +842,8 @@ static int skip_msgbox_sites(struct ain *ain, const char *utf8_needle)
 	rq_log("skip_msgbox '%s': nr_strings=%d matches=%d", utf8_needle, nstr, str_hits);
 
 	for (i = 0; i < ain->nr_functions; i++) {
-		uint32_t start = ain->functions[i].address;
-		uint32_t end = func_end_addr(ain, i);
+		uint32_t start = code_start(ain, i);
+		uint32_t end = code_end(ain, i);
 		uint32_t ip;
 		for (ip = start; ip + 6 <= end; ) {
 			uint16_t op = rd16(ain->code + ip);
@@ -1106,8 +1149,8 @@ int rq_lua_ain_patch_local_int(lua_State *L)
 	if (fno < 0)
 		return luaL_error(L, "function not found: %s", name);
 	body = body_fno(g_ain, fno);
-	end = func_end_addr(g_ain, body);
-	for (ip = g_ain->functions[body].address; ip + 2 <= end; ) {
+	end = code_end(g_ain, body);
+	for (ip = code_start(g_ain, body); ip + 2 <= end; ) {
 		uint16_t op = rd16(g_ain->code + ip);
 		int len = instr_len(op);
 		if (op == SH_LOCALASSIGN && ip + 10 <= end && rd32(g_ain->code + ip + 6) == from) {
@@ -1158,7 +1201,7 @@ static int l_patch_int_after(lua_State *L)
 			g_code_places[g_nr_code_places].fno = fno;
 			g_code_places[g_nr_code_places].body = body;
 			g_code_places[g_nr_code_places].ip = ips[i];
-			g_code_places[g_nr_code_places].off = ips[i] - g_ain->functions[body].address;
+			g_code_places[g_nr_code_places].off = ips[i] - code_start(g_ain, body);
 			g_code_places[g_nr_code_places].value = to;
 			place_sig(g_ain, body, ips[i], g_code_places[g_nr_code_places].sig);
 			g_nr_code_places++;
@@ -1174,7 +1217,7 @@ static int l_patch_int_after(lua_State *L)
  * opcodes around it. */
 static uint32_t place_in(struct code_place *p, int body, int *matches)
 {
-	uint32_t start = g_ain->functions[body].address, end = func_end_addr(g_ain, body);
+	uint32_t start = code_start(g_ain, body), end = code_end(g_ain, body);
 	uint32_t ip = start + p->off, found = 0;
 	uint16_t sig[PLACE_BEFORE + PLACE_AFTER];
 	*matches = 0;
@@ -1670,6 +1713,7 @@ static void open_rq(lua_State *L)
 	rq_battle_lua_open(L, lua_gettop(L));
 	rq_item_open_lua(L, lua_gettop(L));
 	rq_sprite_hooks(L, lua_gettop(L));
+	rq_savedata_open(L, lua_gettop(L)); /* 2.34.0: rq.savedata, rq.saves.on_save and on_load */
 	rq_uikit_open(L, lua_gettop(L));
 	rq_config_open(L, lua_gettop(L));
 	rq_music_open_lua(L, lua_gettop(L)); /* after rq.uikit and rq.config (2.27.0: the page) */

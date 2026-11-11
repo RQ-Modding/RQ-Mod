@@ -48,6 +48,8 @@ struct hook {
 
 static struct hook g_hooks[HOOK_MAX];
 static int g_nhooks;
+/* The code each hook's stub jumps to: an address no function holds any more (2.34.0). */
+static uint32_t g_hook_code[HOOK_MAX];
 static uint16_t *g_ret_map;
 static int g_ret_n;
 int g_rq_scene_ret_on;
@@ -501,9 +503,18 @@ static struct hook *hook_for(int fno)
 	ain->code = xrealloc(ain->code, ain->code_size + out.index);
 	memcpy(ain->code + ain->code_size, out.buf, out.index);
 	ain->code_size += out.index;
+	g_hook_code[id] = ain->functions[fno].address;
 	ain->functions[fno].address = base + 6;
 	free(out.buf);
 	return &g_hooks[id];
+}
+
+/* For the loader's code patches (modloader.c): the code addresses the stubs jump to, so a scan of
+ * a function's code stops before a hooked function's code, which no function's address marks. */
+int rq_hook_codes(const uint32_t **out)
+{
+	*out = g_hook_code;
+	return g_nhooks;
 }
 
 static void ret_map_set(int fno, int id)

@@ -450,6 +450,8 @@ void rq_saves_on_game_save(const char *filename)
 {
 	cJSON *meta, *mods, *ever, *el;
 	char stamp[32];
+	if (is_game_slot_file(filename))
+		rq_savedata_write(filename);
 	if (!g_ready || !is_game_slot_file(filename))
 		return;
 	meta = load_meta(g_active);
@@ -471,6 +473,19 @@ void rq_saves_on_game_save(const char *filename)
 	if (!store_meta(g_active, meta))
 		rq_log("saves: could not write metadata for '%s'", g_active);
 	cJSON_Delete(meta);
+}
+
+/* The game read or deleted a slot file: rq.savedata reads or deletes its own beside it. */
+void rq_saves_on_game_load(const char *filename)
+{
+	if (is_game_slot_file(filename))
+		rq_savedata_read(filename);
+}
+
+void rq_saves_on_game_delete(const char *filename)
+{
+	if (is_game_slot_file(filename))
+		rq_savedata_remove(filename);
 }
 
 /* ---- summary of what a save folder holds --------------------------------- */

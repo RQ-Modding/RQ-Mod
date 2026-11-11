@@ -26,6 +26,7 @@
 #include "system4.h"
 #include "system4/ain.h"
 #include "system4/buffer.h"
+#include "system4/file.h"
 #include "system4/instructions.h"
 #include "system4/string.h"
 #include "system4/utfsjis.h"
@@ -1538,6 +1539,382 @@ void rq_store_push_global(lua_State *L)
 		lua_pushlightuserdata(L, &g_store_global);
 		lua_pushcclosure(L, fns[i].fn, 1);
 		lua_setfield(L, -2, fns[i].name);
+	}
+}
+
+/* ---- rq.savedata (loader 2.34.0): each mod's data that follows the game's save ----
+ * Kept in memory, one object per mod id. modloader_saves.c calls rq_savedata_write when the
+ * game has written a slot file (RanceQuestMagnum_030.ASD, the suspend save _930), _read when it
+ * has read one, _remove when it has deleted one; the file is the slot's name with .rqmod.json.
+ * lua/savedata.lua empties it at the title and copies it into the game's daily backup. The data
+ * of a mod that is not loaded stays in the object, so it is written back. */
+
+#define SAVEDATA_DEPTH 16
+#define SAVEDATA_INT_MAX 9007199254740992.0 /* 2^53: past it a double loses integers */
+
+static cJSON *g_savedata;
+
+static cJSON *savedata_doc(void)
+{
+	if (!g_savedata)
+		g_savedata = cJSON_CreateObject();
+	return g_savedata;
+}
+
+/* RanceQuestMagnum_030.ASD -> <save folder>\RanceQuestMagnum_030.rqmod.json (malloc'd). */
+static char *savedata_file(const char *slot_file)
+{
+	char name[RQ_PATH_MAX];
+	const char *base = strrchr(slot_file, '\\');
+	const char *slash = strrchr(slot_file, '/');
+	size_t n;
+
+	if (slash && (!base || slash > base))
+		base = slash;
+	base = base ? base + 1 : slot_file;
+	n = strlen(base);
+	if (n > 4 && !strcasecmp(base + n - 4, ".ASD"))
+		n -= 4;
+	snprintf(name, sizeof name, "%.*s.rqmod.json", (int)n, base);
+	return savedir_path(name);
+}
+
+void rq_savedata_write(const char *slot_file)
+{
+	char *path = savedata_file(slot_file);
+	cJSON *doc = savedata_doc();
+	char *text;
+
+	if (!doc->child) {
+		/* Nothing to keep: a file from an older save would come back with this one. */
+		if (file_exists(path) && remove_utf8(path))
+			rq_log("savedata: cannot remove %s", path);
+		free(path);
+		return;
+	}
+	text = cJSON_Print(doc);
+	if (!text || !file_write(path, (uint8_t *)text, strlen(text)))
+		rq_log("savedata: cannot write %s", path);
+	free(text);
+	free(path);
+}
+
+void rq_savedata_read(const char *slot_file)
+{
+	char *path = savedata_file(slot_file);
+	size_t len = 0;
+	char *buf;
+	int mods = 0;
+	cJSON *it;
+
+	cJSON_Delete(g_savedata);
+	g_savedata = NULL;
+	if (file_exists(path)) {
+		buf = file_read(path, &len);
+		if (buf) {
+			g_savedata = cJSON_Parse(buf);
+			free(buf);
+		}
+		if (!g_savedata || !cJSON_IsObject(g_savedata)) {
+			rq_log("savedata: %s is not a JSON object; this save's mod data starts empty", path);
+			cJSON_Delete(g_savedata);
+			g_savedata = NULL;
+		}
+	}
+	cJSON_ArrayForEach(it, savedata_doc())
+		mods++;
+	rq_log("savedata: %d mod%s in %s", mods, mods == 1 ? "" : "s", path);
+	free(path);
+}
+
+void rq_savedata_remove(const char *slot_file)
+{
+	char *path = savedata_file(slot_file);
+	if (file_exists(path) && remove_utf8(path))
+		rq_log("savedata: cannot remove %s", path);
+	free(path);
+}
+
+/* A Lua value to JSON. Returns NULL with *err set for what cannot be kept. */
+static cJSON *savedata_from_lua(lua_State *L, int idx, int depth, const char **err)
+{
+	idx = lua_absindex(L, idx);
+	switch (lua_type(L, idx)) {
+	case LUA_TBOOLEAN:
+		return cJSON_CreateBool(lua_toboolean(L, idx));
+	case LUA_TNUMBER:
+		if (lua_isinteger(L, idx)) {
+			lua_Integer v = lua_tointeger(L, idx);
+			/* Compared as integers: 2^53 + 1 is 2^53 as a double. */
+			if (v > ((lua_Integer)1 << 53) || v < -((lua_Integer)1 << 53)) {
+				*err = "an integer past 2^53";
+				return NULL;
+			}
+			return cJSON_CreateNumber((double)v);
+		} else {
+			double d = lua_tonumber(L, idx);
+			if (d != d || d > 1.7976931348623157e308 || d < -1.7976931348623157e308) {
+				*err = "NaN or an infinite number";
+				return NULL;
+			}
+			return cJSON_CreateNumber(d);
+		}
+	case LUA_TSTRING: {
+		size_t n;
+		const char *s = lua_tolstring(L, idx, &n);
+		if (strlen(s) != n) {
+			*err = "a string with a zero byte";
+			return NULL;
+		}
+		return cJSON_CreateString(s);
+	}
+	case LUA_TTABLE: {
+		lua_Integer count = 0, top = 0;
+		int strings = 0, numbers = 0;
+		cJSON *out;
+
+		if (depth >= SAVEDATA_DEPTH) {
+			*err = "tables nested past 16 levels (or a table inside itself)";
+			return NULL;
+		}
+		luaL_checkstack(L, 4, "savedata");
+		lua_pushnil(L);
+		while (lua_next(L, idx)) {
+			lua_pop(L, 1);
+			if (lua_type(L, -1) == LUA_TSTRING) {
+				strings++;
+			} else if (lua_isinteger(L, -1) && lua_tointeger(L, -1) >= 1) {
+				numbers++;
+				if (lua_tointeger(L, -1) > top)
+					top = lua_tointeger(L, -1);
+			} else {
+				lua_pop(L, 1);
+				*err = "a table key that is not a string or a list index";
+				return NULL;
+			}
+			count++;
+		}
+		if (strings && numbers) {
+			*err = "a table with both string keys and list indexes";
+			return NULL;
+		}
+		if (numbers && top != count) {
+			*err = "a list with holes";
+			return NULL;
+		}
+		if (numbers) {
+			lua_Integer i;
+			out = cJSON_CreateArray();
+			for (i = 1; i <= top; i++) {
+				cJSON *v;
+				lua_rawgeti(L, idx, i);
+				v = savedata_from_lua(L, -1, depth + 1, err);
+				lua_pop(L, 1);
+				if (!v) {
+					cJSON_Delete(out);
+					return NULL;
+				}
+				cJSON_AddItemToArray(out, v);
+			}
+			return out;
+		}
+		out = cJSON_CreateObject();
+		lua_pushnil(L);
+		while (lua_next(L, idx)) {
+			cJSON *v = savedata_from_lua(L, -1, depth + 1, err);
+			if (!v) {
+				lua_pop(L, 2);
+				cJSON_Delete(out);
+				return NULL;
+			}
+			cJSON_AddItemToObject(out, lua_tostring(L, -2), v);
+			lua_pop(L, 1);
+		}
+		return out;
+	}
+	default:
+		*err = lua_typename(L, lua_type(L, idx));
+		return NULL;
+	}
+}
+
+static void savedata_to_lua(lua_State *L, cJSON *v)
+{
+	cJSON *it;
+	int i = 0;
+
+	luaL_checkstack(L, 4, "savedata");
+	if (cJSON_IsBool(v)) {
+		lua_pushboolean(L, cJSON_IsTrue(v));
+	} else if (cJSON_IsNumber(v)) {
+		double d = v->valuedouble;
+		if (d <= SAVEDATA_INT_MAX && d >= -SAVEDATA_INT_MAX && d == (double)(long long)d)
+			lua_pushinteger(L, (lua_Integer)d);
+		else
+			lua_pushnumber(L, d);
+	} else if (cJSON_IsString(v)) {
+		lua_pushstring(L, v->valuestring);
+	} else if (cJSON_IsArray(v)) {
+		lua_newtable(L);
+		cJSON_ArrayForEach(it, v) {
+			savedata_to_lua(L, it);
+			lua_rawseti(L, -2, ++i);
+		}
+	} else if (cJSON_IsObject(v)) {
+		lua_newtable(L);
+		cJSON_ArrayForEach(it, v) {
+			lua_pushstring(L, it->string);
+			savedata_to_lua(L, it);
+			lua_rawset(L, -3);
+		}
+	} else {
+		lua_pushnil(L);
+	}
+}
+
+static cJSON *savedata_mod(lua_State *L, int create)
+{
+	const char *mod = mod_of(L);
+	cJSON *doc = savedata_doc();
+	cJSON *m = cJSON_GetObjectItemCaseSensitive(doc, mod);
+
+	if (m && !cJSON_IsObject(m)) {
+		cJSON_DeleteItemFromObjectCaseSensitive(doc, mod);
+		m = NULL;
+	}
+	if (!m && create)
+		m = cJSON_AddObjectToObject(doc, mod);
+	return m;
+}
+
+static int l_savedata_get(lua_State *L)
+{
+	const char *key = luaL_checkstring(L, 1);
+	cJSON *m = savedata_mod(L, 0);
+	cJSON *v = m ? cJSON_GetObjectItemCaseSensitive(m, key) : NULL;
+
+	if (!v || cJSON_IsNull(v)) {
+		lua_settop(L, 2);
+		return 1;
+	}
+	savedata_to_lua(L, v);
+	return 1;
+}
+
+static int l_savedata_set(lua_State *L)
+{
+	const char *key = luaL_checkstring(L, 1);
+	const char *err = NULL;
+	cJSON *m, *v;
+
+	if (lua_isnoneornil(L, 2)) {
+		m = savedata_mod(L, 0);
+		if (m)
+			cJSON_DeleteItemFromObjectCaseSensitive(m, key);
+		return 0;
+	}
+	v = savedata_from_lua(L, 2, 0, &err);
+	if (!v)
+		return luaL_error(L, "rq.savedata.set: %s cannot be kept (numbers, strings, booleans and tables of them)",
+				  err ? err : "the value");
+	m = savedata_mod(L, 1);
+	cJSON_DeleteItemFromObjectCaseSensitive(m, key);
+	cJSON_AddItemToObject(m, key, v);
+	return 0;
+}
+
+static int l_savedata_delete(lua_State *L)
+{
+	lua_settop(L, 1);
+	lua_pushnil(L);
+	return l_savedata_set(L);
+}
+
+static int l_savedata_keys(lua_State *L)
+{
+	cJSON *m = savedata_mod(L, 0);
+	cJSON *it;
+	int n = 0;
+
+	lua_newtable(L);
+	if (!m)
+		return 1;
+	cJSON_ArrayForEach(it, m) {
+		lua_pushstring(L, it->string);
+		lua_rawseti(L, -2, ++n);
+	}
+	return 1;
+}
+
+/* lua/savedata.lua's own calls: empty the data (the title), and copy a slot's file into the
+ * game's backup folder (only the folder's last name is taken: it goes under the save folder's
+ * Backup, where the game puts its copy). */
+static int l_savedata_clear(lua_State *L)
+{
+	(void)L;
+	cJSON_Delete(g_savedata);
+	g_savedata = NULL;
+	return 0;
+}
+
+static int l_savedata_backup(lua_State *L)
+{
+	const char *slot_file = luaL_checkstring(L, 1);
+	const char *folder = luaL_checkstring(L, 2);
+	const char *leaf = folder + strlen(folder);
+	char *src = savedata_file(slot_file), *dst, *base, rel[RQ_PATH_MAX];
+	int ok = 0;
+
+	while (leaf > folder && leaf[-1] != '\\' && leaf[-1] != '/')
+		leaf--;
+	/* savedir_path gives '/', the game's own names '\\'. */
+	base = src + strlen(src);
+	while (base > src && base[-1] != '\\' && base[-1] != '/')
+		base--;
+	if (*leaf && !strstr(leaf, "..") && file_exists(src)) {
+		snprintf(rel, sizeof rel, "Backup\\%s\\%s", leaf, base);
+		dst = savedir_path(rel);
+		ok = file_copy(src, dst);
+		if (!ok)
+			rq_log("savedata: cannot copy %s to %s", src, dst);
+		free(dst);
+	}
+	free(src);
+	lua_pushboolean(L, ok);
+	return 1;
+}
+
+extern const char rq_savedata_lua[];
+extern const unsigned rq_savedata_lua_len;
+
+/* rq.savedata, then lua/savedata.lua (rq.saves.on_save and on_load, the title, the backup).
+ * After rq.ain.hook exists. */
+void rq_savedata_open(lua_State *L, int rq_index)
+{
+	static const struct { const char *name; lua_CFunction fn; } fns[] = {
+		{ "get", l_savedata_get }, { "set", l_savedata_set },
+		{ "delete", l_savedata_delete }, { "keys", l_savedata_keys },
+	};
+	int i;
+
+	lua_newtable(L);
+	for (i = 0; i < 4; i++) {
+		lua_pushcfunction(L, fns[i].fn);
+		lua_setfield(L, -2, fns[i].name);
+	}
+	lua_setfield(L, rq_index, "savedata");
+
+	if (luaL_loadbuffer(L, rq_savedata_lua, rq_savedata_lua_len, "=savedata") != LUA_OK) {
+		rq_log("savedata: %s", lua_tostring(L, -1));
+		lua_pop(L, 1);
+		return;
+	}
+	lua_pushvalue(L, rq_index);
+	lua_pushcfunction(L, l_savedata_clear);
+	lua_pushcfunction(L, l_savedata_backup);
+	if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
+		rq_log("savedata: %s", lua_tostring(L, -1));
+		lua_pop(L, 1);
 	}
 }
 

@@ -5,6 +5,9 @@
 --   rq.encounters.info, hold, set_steps, on_steps, on_encounter   random fights on a quest's map
 --   rq.chara.add_exp, level_up, on_level_up          EXP and levels, as the game gives them
 --   (rq.chara.get's uncapped is in C, modloader_roster.c, as the rest of get)
+-- And a fight's rewards (loader 2.34.0, notes/plans/plan-rewards-savedata.md):
+--   rq.battle.on_reward                              the gold and EXP, before the result screen
+--   rq.battle.bags, set_bag                          the enemies' gold bags
 --
 -- Built only on public calls: rq.ain.call, global, set_global, method and hook.
 --   所持金_設定 / 所持金＋ / 所持金－      the money, clamped to 0..999,999,999 (C_変数)
@@ -14,6 +17,9 @@
 --   雑魚戦闘処理(配置敵)                   a fight from the map: 0 random, 1 an enemy on the map
 --   キャラ_レベルアップ(iic)               a level that takes its EXP (a fight's result)
 --   レベルアップ処理(iic)                  a free level: EXP back to 0 (story, training, the reserve)
+--   Ｔ戦闘後の取得経験値算出(結果)         a fight's gold and EXP (results 1 and 4); gives the reserve
+--                                         its share (Ｃ経験値追加) and returns the enemies defeated
+--   戦闘データ_作成 / 戦闘データ_削除      the gold bags rolled (after on_start) and cleared
 local rq = ...
 local call, hook, g, set = rq.ain.call, rq.ain.hook, rq.ain.global, rq.ain.set_global
 
@@ -390,4 +396,293 @@ function chara.level_up(iic, n)
     gained = gained + 1
   end
   return gained
+end
+
+-- ---- rq.battle.on_reward: a fight's gold and EXP (loader 2.34.0) ----
+--
+-- Ｔ戦闘後の取得経験値算出 sums everything; the result screen is made right after it returns
+-- (戦闘リザルト_金袋入手), shows ◆取得金額 and ◆戦闘後／経験値１ and ５, adds PTA_EXP[1..5] to the
+-- party (戦闘リザルト_ＥＸＰ加算) and pays ◆取得金額 as it closes (Ｒ８戦闘_後処理). Only the
+-- reserve's share is given inside the function, so while a callback waits its Ｃ経験値追加 calls
+-- are held and given after the callbacks, with the game's own check for a free level.
+
+local battle = rq.battle
+local CHEAT_GOLD = 228 -- FA[228]: the gold the game's cheat check counts (お金増えた)
+local LUCKY = "幸福きゃん" -- the fight that gives the reserve nothing
+
+local reward_list, add_reward = handlers()
+local reward_hooked = false
+local summing = nil -- { held = {iic...}, lucky } while the sum runs and a callback waits
+
+-- A number rounded down and kept to 0..INT_MAX; nil for anything else.
+local function count(v)
+  if type(v) ~= "number" or v ~= v then return nil end
+  v = math.floor(v)
+  if v < 0 then v = 0 elseif v > INT_MAX then v = INT_MAX end
+  return math.tointeger(v)
+end
+
+local function party_slots(name)
+  local out = {}
+  for slot = 1, 5 do
+    local iic = gint(name, slot)
+    if iic > 0 then out[#out + 1] = { slot = slot, iic = iic } end
+  end
+  return out
+end
+
+local function fallen(iic)
+  local ok, st = pcall(call, "Ｃ状態変化", iic, -1)
+  return ok and st == 3
+end
+
+-- The game's rule: the smallest ally EXP that is not 0, divided by 20.
+local function reserve_rule(values, lucky)
+  if lucky then return 0 end
+  local low = 0
+  for _, e in ipairs(values) do
+    if e ~= 0 and (low == 0 or e < low) then low = e end
+  end
+  return low // 20
+end
+
+-- What each ally gets now: a written number, or the game's for a fallen or capped ally.
+local function ally_values(allies, game)
+  local out = {}
+  for i = 1, #game.allies do
+    local a = allies[i]
+    local e = type(a) == "table" and count(rawget(a, "exp")) or nil
+    if e == nil or game.locked[i] then e = game.allies[i] end
+    out[i] = e
+  end
+  return out
+end
+
+local function reward_ctx(h, held)
+  local slots = party_slots("PTA")
+  local game = { gold = gint("◆取得金額"), exp = gint("◆戦闘後／経験値５"), allies = {}, locked = {} }
+  local allies = {}
+  for i, p in ipairs(slots) do
+    local exp = gint("PTA_EXP", p.slot)
+    local down, capped = fallen(p.iic), gint("PTA_EXP_B1", p.slot) == 1
+    game.allies[i] = exp
+    game.locked[i] = down or capped
+    allies[i] = { iic = p.iic, exp = exp, down = down, capped = capped }
+  end
+  local enemies = {}
+  for _, p in ipairs(party_slots("PTB")) do enemies[#enemies + 1] = p.iic end
+  local state = { exp = game.exp, allies = allies }
+  local ctx = {
+    result = int(h.args[1]) and h.args[1] or 0,
+    kills = int(h.result) and h.result or 0,
+    bags = gint("◆取得金袋数"),
+    gold = game.gold,
+    base = gint("◆戦闘後／経験値１"),
+    group = gint("◆戦闘グループ"),
+    rank = gint("◆戦闘ランク"),
+    allies = allies,
+    enemies = enemies,
+  }
+  setmetatable(ctx, {
+    __index = function(_, k)
+      if k == "exp" then return state.exp end
+      if k == "reserve" then
+        if state.reserve ~= nil then return state.reserve end
+        return reserve_rule(ally_values(allies, game), held.lucky)
+      end
+    end,
+    __newindex = function(t, k, v)
+      if k == "exp" then
+        local n = count(v)
+        if n == nil then error("rq.battle.on_reward: ctx.exp must be a number", 2) end
+        local old = state.exp
+        for i, a in ipairs(allies) do
+          local e = count(rawget(a, "exp"))
+          if e and e > 0 and not game.locked[i] then
+            a.exp = old > 0 and math.min(INT_MAX, e * n // old) or n
+          end
+        end
+        state.exp = n
+      elseif k == "reserve" then
+        local n = count(v)
+        if n == nil then error("rq.battle.on_reward: ctx.reserve must be a number", 2) end
+        state.reserve = n
+      else
+        rawset(t, k, v)
+      end
+    end,
+  })
+  return ctx, state, game, slots
+end
+
+-- Gives the reserve its share as the game's loop does: Ｃ経験値追加, then a free level for a
+-- full bar under the cap. on_level_up reports it as a fight's (battle and free).
+local function give_reserve(held, share)
+  if share <= 0 then return end
+  battle_depth = battle_depth + 1
+  for _, iic in ipairs(held) do
+    local ok, err = pcall(function()
+      call("Ｃ経験値追加", iic, share)
+      if call("ＣＥＸＰ", iic, -1) == call("ＣＥＸＰ最大", iic, -1)
+          and call("ＣＬＶ", iic, -1) < call("ＣＬＶ最大", iic, -1) then
+        call("レベルアップ処理", iic)
+      end
+    end)
+    if not ok then logf("rq.battle.on_reward: the reserve's share for %d: %s", iic, tostring(err)) end
+  end
+  battle_depth = battle_depth - 1
+end
+
+local function write_back(ctx, state, game, slots)
+  local gold = count(rawget(ctx, "gold"))
+  if gold ~= nil and gold ~= game.gold then
+    set("◆取得金額", gold)
+    set("FA", CHEAT_GOLD, gint("FA", CHEAT_GOLD) + (gold - game.gold))
+  end
+  if state.exp ~= game.exp then
+    set("◆戦闘後／経験値５", state.exp)
+    local total = gint("◆クエストＥＸＰ合計") + (state.exp - game.exp)
+    set("◆クエストＥＸＰ合計", math.max(0, math.min(INT_MAX, total)))
+  end
+  local values = ally_values(state.allies, game)
+  for i, p in ipairs(slots) do
+    local e, was = values[i], game.allies[i]
+    if e ~= was then
+      set("PTA_EXP", p.slot, e)
+      -- The quest's level-up bonus, for a level the game's EXP would not have brought.
+      local ok, exp, max = pcall(function()
+        return call("ＣＥＸＰ", p.iic, -1), call("ＣＥＸＰ最大", p.iic, -1)
+      end)
+      if ok and int(exp) and int(max) and max <= exp + e and max > exp + was then
+        pcall(call, "クエストボーナス／ＬＶＵＰ／加算")
+      end
+    end
+  end
+  return values
+end
+
+local function hook_reward()
+  if reward_hooked then return end
+  reward_hooked = true
+  hook("Ｔ戦闘後の取得経験値算出", {
+    before = function()
+      summing = nil
+      if #reward_list == 0 then return end
+      local ok, ev = pcall(g, "◇戦闘イベント名")
+      summing = { held = {}, lucky = ok and ev == LUCKY }
+    end,
+    after = function(h)
+      local held = summing
+      summing = nil
+      if not held then return end
+      local share
+      local ok, err = pcall(function()
+        local ctx, state, game, slots = reward_ctx(h, held)
+        share = reserve_rule(game.allies, held.lucky) -- the game's, if anything below fails
+        for _, x in ipairs({ table.unpack(reward_list) }) do run(x, "rq.battle.on_reward", ctx) end
+        local values = write_back(ctx, state, game, slots)
+        if state.reserve ~= nil then share = state.reserve else share = reserve_rule(values, held.lucky) end
+      end)
+      if not ok then logf("rq.battle.on_reward: %s", tostring(err)) end
+      give_reserve(held.held, share or 0)
+    end,
+  })
+  hook("Ｃ経験値追加", { before = function(h)
+    if summing then
+      summing.held[#summing.held + 1] = h.args[1]
+      h.skip = true
+    end
+  end })
+end
+
+function battle.on_reward(fn)
+  check_fn(fn, "rq.battle.on_reward")
+  hook_reward()
+  return add_reward(fn)
+end
+
+-- ---- rq.battle.bags, set_bag: the enemies' gold bags (loader 2.34.0) ----
+--
+-- g_anMonsterGold[i] is the bag of the enemy PTB[i + 1]: -1 none, 0 carried, 1 picked (when it
+-- falls, 戦闘_モンスター消し). The game rolls them (50% each) in 戦闘_初期化, after on_start, so a
+-- set_bag before the roll is kept and written over the roll.
+
+local BAG_NONE, BAG_CARRIED, BAG_PICKED = -1, 0, 1
+local bag_phase = nil -- "starting" from Ｔ戦闘前初期化 to the roll, "fight" until 戦闘データ_削除
+local bag_wish = {}   -- enemy slot -> true or false, set before the roll
+local bags_hooked = false
+
+local function hook_bags()
+  if bags_hooked then return end
+  local ok = pcall(function()
+    hook("Ｔ戦闘前初期化", { before = function()
+      bag_phase = "starting"
+      bag_wish = {}
+    end })
+    hook("戦闘データ_作成", { after = function()
+      bag_phase = "fight"
+      local wish = bag_wish
+      bag_wish = {}
+      for i = 0, 4 do
+        local want = wish[gint("PTB", i + 1)]
+        if want ~= nil then set("g_anMonsterGold", i, want and BAG_CARRIED or BAG_NONE) end
+      end
+    end })
+    hook("戦闘データ_削除", { after = function()
+      bag_phase = nil
+      bag_wish = {}
+    end })
+  end)
+  if ok then bags_hooked = true end
+end
+
+hook_bags()
+do
+  local stop
+  stop = rq.on_frame(function()
+    hook_bags()
+    if bags_hooked and stop then stop() end
+  end)
+end
+
+local function enemy_index(iic)
+  for i = 0, 4 do
+    if gint("PTB", i + 1) == iic then return i end
+  end
+  return nil
+end
+
+function battle.bags()
+  need_game("rq.battle.bags")
+  local out = {}
+  if bag_phase == nil then return out end
+  for i = 0, 4 do
+    local iic = gint("PTB", i + 1)
+    if iic > 0 then
+      local v
+      if bag_phase == "starting" then
+        v = bag_wish[iic] and BAG_CARRIED or BAG_NONE
+      else
+        v = gint("g_anMonsterGold", i)
+      end
+      out[#out + 1] = { enemy = iic, carries = v >= BAG_CARRIED, picked = v == BAG_PICKED }
+    end
+  end
+  return out
+end
+
+function battle.set_bag(iic, carries)
+  need_game("rq.battle.set_bag")
+  if not int(iic) then error("rq.battle.set_bag: expected an enemy's slot", 2) end
+  if type(carries) ~= "boolean" then error("rq.battle.set_bag: expected true or false", 2) end
+  local i = bag_phase and enemy_index(iic)
+  if not i then error(string.format("rq.battle.set_bag: %d is not an enemy of this fight", iic), 2) end
+  if bag_phase == "starting" then
+    bag_wish[iic] = carries
+    return true
+  end
+  local v = gint("g_anMonsterGold", i)
+  if v == BAG_PICKED or fallen(iic) then return false end
+  set("g_anMonsterGold", i, carries and BAG_CARRIED or BAG_NONE)
+  return true
 end

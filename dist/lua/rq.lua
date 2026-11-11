@@ -25,6 +25,7 @@ local ain = {}
 ---
 ---Since: 0.2.0
 ---Changed: 1.3.0 Reaches the game's code of a function the loader wraps (such as `Ｔ戦闘前初期化`); before, it patched only the wrapper and found nothing.
+---Changed: 2.34.0 Reaches the game's code of a function hooked with `rq.ain.hook` (a hook moves the function to a stub); before, a hook made first, as the loader's own on `Ｔ戦闘前初期化` since this version, left nothing to find.
 ---@param name string The function's name.
 ---@param from number The value to find.
 ---@param to number The new value.
@@ -39,6 +40,7 @@ function ain.patch_float(name, from, to, n) end
 ---
 ---Since: 0.17.0
 ---Changed: 1.3.0 Reaches the game's code of a function the loader wraps.
+---Changed: 2.34.0 Reaches the game's code of a function hooked with `rq.ain.hook`.
 ---@param name string The function's name.
 ---@param from integer The value to find.
 ---@param to integer The new value.
@@ -60,6 +62,7 @@ function ain.patch_int(name, from, to, n) end
 ---
 ---Since: 1.3.0
 ---Changed: 2.22.0 Returns the places too.
+---Changed: 2.34.0 Reaches the game's code of a function hooked with `rq.ain.hook`.
 ---
 ---```lua
 ---local _, at = rq.ain.patch_int_after("Ｔ戦闘前初期化", "◆２倍モード", 2, 3, 0)
@@ -82,11 +85,12 @@ function ain.patch_int_after(name, global, from, to, nth_ref, window) end
 ---the next time it runs that code, so a value changed between fights counts from the next fight. When
 ---another install wraps the function later, the place is still found: the wrapped code stays where
 ---it was, and a body moved and grown is searched for the same constant with the same instructions
----around it.
+---around it. So is it when the function is hooked later with `rq.ain.hook`.
 ---
 ---Raises an error for a place that `patch_int_after` did not give.
 ---
 ---Since: 2.22.0
+---Changed: 2.34.0 A place in a function hooked with `rq.ain.hook` after the patch is found; before, it returned false.
 ---@param place integer A place from `rq.ain.patch_int_after`.
 ---@param value integer The new value.
 ---@return boolean ok false when the place is no longer in the game's code as it was written (it is logged); nothing is written then.
@@ -2058,6 +2062,51 @@ function saves.delete(id) end
 ---@return string? err Why the choice could not be recorded.
 function saves.switch(id) end
 
+---What `rq.saves.on_save` and `on_load` callbacks get.
+---@class rq.SaveCtx
+---@field suspend boolean true for the suspend save (the SYSTEM menu's Suspend, the title's Resume).
+
+---Calls `fn` just before the game writes its save.
+---
+---The game saves before a quest starts, when one ends, from the SYSTEM menu's Save, and on Suspend
+---(then `ctx.suspend` is true and the game closes). Put a mod's last numbers into `rq.savedata` here;
+---`rq.savedata` is written with the save right after. An error is logged once for each new error
+---text.
+---
+---Since: 2.34.0
+---
+---```lua
+---local steps = 0
+---rq.saves.on_save(function()
+---  rq.savedata.set("steps", steps)
+---end)
+---```
+---@param fn fun(ctx: rq.SaveCtx) Runs before the save is written.
+---@return fun() remove Removes this callback.
+---@see rq.savedata
+function saves.on_save(fn) end
+
+---Calls `fn` after the game has loaded a save.
+---
+---It runs for the title's Continue, the SYSTEM menu's Load and the title's Resume, after the game's
+---own after-load step, with `rq.savedata` holding that save's data. For the suspend save it runs
+---before the map shows again. A new game loads nothing, and starts with no `rq.savedata`.
+---`rq.on_reset("load")` runs before the load instead. An error is logged once for each new error
+---text.
+---
+---Since: 2.34.0
+---
+---```lua
+---local steps = 0
+---rq.saves.on_load(function()
+---  steps = rq.savedata.get("steps", 0)
+---end)
+---```
+---@param fn fun(ctx: rq.SaveCtx) Runs after the save is loaded.
+---@return fun() remove Removes this callback.
+---@see rq.savedata
+function saves.on_load(fn) end
+
 ---How `rq.agent.control` finds a control: a game button, or a rectangle a mod draws.
 ---@class rq.AgentOpts
 ---@field label? string The text `rqmod-ctl ui` shows for the control.
@@ -3502,13 +3551,16 @@ function item.find(no, opts) end
 ---@see rq.item.find
 function item.count(no, opts) end
 
----Small key and value storage for each mod and each save.
+---Small key and value storage for each mod and each save profile.
 ---
----It lives in `rqmod-store.json` in the active save folder, so it follows the `rq.saves` profile. Use
----it for facts such as "this character was already recruited". Values are numbers, strings and
----booleans. Each mod sees only its own keys. The file is written on every `set` and `delete`.
+---It lives in `rqmod-store.json` in the active save folder, so it follows the `rq.saves` profile, not
+---the game's save: the file is written on every `set` and `delete`, so after a quit without saving
+---or a load it is ahead of the save. Keep progress that must match the save (counts, unlocks,
+---"already given") in `rq.savedata`, and settings in `rq.store.global`. Values are numbers (read back
+---as floats), strings and booleans. Each mod sees only its own keys.
 ---
 ---Since: 0.4.0
+---Changed: 2.34.0 The reference says it follows the profile; `rq.savedata` follows the save.
 ---
 ---```lua
 ---if not rq.store.get("alice_joined", false) then
@@ -3565,6 +3617,71 @@ function store.keys() end
 ---@field delete fun(key: string) Deletes a key.
 ---@field keys fun(): string[] Lists this mod's keys.
 store.global = {}
+
+---Each mod's data that follows the game's save.
+---
+---Kept in memory while the game runs: nothing is written on `set`. When the game writes its save (or
+---the suspend save) the data is written beside it, in `RanceQuestMagnum_030.rqmod.json` (`_930` for
+---the suspend save), and when the game loads a save the data comes back as it was then. So after a
+---quit without saving, or the load of an older save, a mod sees the data that matches the save. The
+---data is emptied at the title, so a new game starts with none, and data set at the title is dropped
+---by the next load. A save made before this version, or without the loader, has none.
+---
+---At the top level of `init.lua` no save is loaded yet: read the data in `rq.saves.on_load`, or when
+---it is needed. Each mod sees only its own keys. The data of a mod that is not loaded now is kept and
+---written back, and the file is deleted with its save (the suspend save after a resume, both at the
+---title's Reset) and copied into the game's daily backup with it.
+---
+---Values are numbers, strings, booleans and tables of them: a table has string keys, or is a list
+---(1 to n with no holes), up to 16 levels deep. A whole number comes back an integer (up to 2^53).
+---`set` copies a table and `get` returns a new copy, so changing one after does nothing until it is
+---set again. The whole file is written at every save: keep it small.
+---
+---Since: 2.34.0
+---
+---```lua
+---rq.shop.on_buy(function(ctx)
+---  if ctx.no == MY_ITEM then rq.savedata.set("bought", rq.savedata.get("bought", 0) + 1) end
+---end)
+---```
+---@class rq.savedata
+local savedata = {}
+
+---Reads a key.
+---
+---Since: 2.34.0
+---@param key string The key.
+---@param default? any What to return when the key is not set.
+---@return any value The value (a copy for a table), or `default`.
+function savedata.get(key, default) end
+
+---Writes a key.
+---
+---Raises an error for a value that cannot be kept: a function, a table with both string keys and
+---list indexes, a list with holes, a table nested past 16 levels or inside itself, NaN, an infinite
+---number, an integer past 2^53, or a string with a zero byte.
+---
+---Since: 2.34.0
+---
+---```lua
+---rq.savedata.set("met", { "Sill", "Kanami" })
+---local met = rq.savedata.get("met", {})
+---```
+---@param key string The key.
+---@param value any The value; nil deletes the key.
+function savedata.set(key, value) end
+
+---Deletes a key.
+---
+---Since: 2.34.0
+---@param key string The key.
+function savedata.delete(key) end
+
+---Lists this mod's keys.
+---
+---Since: 2.34.0
+---@return string[] keys The keys.
+function savedata.keys() end
 
 ---What `rq.combat.on_physical` gets for one physical hit.
 ---@class rq.PhysicalCtx
@@ -3979,13 +4096,65 @@ function battle.on_start(fn) end
 
 ---Calls `fn` at the start of `戦闘後処理`, before the game cleans up the fight.
 ---
----Set a drop here with `rq.battle.set_drop`.
+---Set a drop here with `rq.battle.set_drop`. The fight's gold has been paid and the party's EXP
+---given by then: change them in `rq.battle.on_reward`, which the result screen shows.
 ---
 ---Since: 0.5.0
 ---Changed: 0.23.0 Returns a remover.
 ---@param fn fun(ctx: rq.BattleEndCtx) Gets the fight and its result.
 ---@return fun() remove Removes this callback.
 function battle.on_end(fn) end
+
+---One ally in `rq.battle.on_reward`'s `ctx.allies`.
+---@class rq.RewardAlly
+---@field iic integer The ally's roster slot.
+---@field exp integer What the ally gets, after its own items and skills. Write a number (rounded down, kept from 0); a fallen or capped ally keeps the game's 0 whatever is written.
+---@field down boolean The ally fell in the fight: the game gives none.
+---@field capped boolean The ally is at its level cap: the game gives none and shows "talent limit".
+
+---What `rq.battle.on_reward` callbacks get. Fields marked writable change what the game gives.
+---@class rq.RewardCtx
+---@field result integer The game's result code, as in `rq.battle.on_end`: 1 for a fight won, 4 for one the enemies ran from (the two that pay; `rq.battle.start` returns "other" for 4).
+---@field group integer The fight group (`◆戦闘グループ`).
+---@field rank integer The fight rank (`◆戦闘ランク`): 1 an enemy standing on the map, 2 a boss.
+---@field kills integer The enemies defeated, as the result screen counts them.
+---@field bags integer The gold bags picked up, 0 to 5.
+---@field enemies integer[] The enemies' slots.
+---@field gold integer Writable. The gold, after all of the game's rules. A number, rounded down, kept from 0; the result screen shows it and it is paid as the screen closes.
+---@field base integer The fight's base EXP, the result screen's top number.
+---@field exp integer Writable. The fight's EXP after the fight's bonuses (enemies defeated, the quest's EXP bonus, a small party), the result screen's second number. Writing it scales every ally's `exp` by the same ratio at once, so the next callback reads the new numbers.
+---@field allies rq.RewardAlly[] The party, in the result screen's order. Change the entries' `exp`, not the list.
+---@field reserve integer Writable. What each reserve character gets. Until a callback writes it, it reads the game's rule from the allies as they stand: the smallest `exp` that is not 0, divided by 20.
+
+---Calls `fn` once per fight that pays, after the game has summed the gold and EXP and before the result screen shows them.
+---
+---What the callbacks leave is what the result screen shows, what the party gets and the gold paid.
+---Callbacks run in load order, each one reading what the ones before wrote. A fight the enemies ran
+---from pays as a won one does (`ctx.result` 4); a fight lost pays nothing and calls nothing.
+---
+---The rest follows the new numbers: the quest's EXP total (a twentieth of which goes to the
+---characters in training at the quest's end) moves with `ctx.exp`, an ally the new EXP levels up
+---counts toward the quest's level-up bonus, and the reserve gets `ctx.reserve` with the game's own
+---free level for a full bar (`rq.chara.on_level_up` reports it with `battle` and `free`). An ally
+---at 0 HP or at the cap gets no level, as with `rq.chara.add_exp`. The item a fight drops was chosen
+---before it: `rq.battle.get_drop` and `set_drop` work here too.
+---
+---An error in a callback is logged once for each new error text; what it wrote before the error
+---stays.
+---
+---Since: 2.34.0
+---
+---```lua
+------ Twice the EXP and half again the gold, on the result screen too
+---rq.battle.on_reward(function(ctx)
+---  ctx.exp = ctx.exp * 2
+---  ctx.gold = ctx.gold * 1.5
+---end)
+---```
+---@param fn fun(ctx: rq.RewardCtx) Reads and changes the fight's rewards.
+---@return fun() remove Removes this callback.
+---@see rq.battle.bags
+function battle.on_reward(fn) end
 
 ---What `rq.battle.on_support` gets.
 ---@class rq.BattleSupportCtx
@@ -4455,20 +4624,22 @@ function battle.buffs(iic) end
 
 ---Returns the item a won fight hands out (`◆戦闘後アイテム取得`).
 ---
----Read it inside `rq.battle.on_end`.
+---Read it inside `rq.battle.on_end` or `rq.battle.on_reward`: the game chooses it before the fight.
 ---
 ---Since: 0.9.0
+---Changed: 2.34.0 Also in `rq.battle.on_reward`.
 ---@return integer no The item number; 0 for none.
 function battle.get_drop() end
 
 ---Sets the item a won fight hands out.
 ---
----Set it inside `rq.battle.on_end`. The game then skips its own drop rules and puts the item in quest
----storage, which goes to the vault after the result screen.
+---Set it inside `rq.battle.on_end` or `rq.battle.on_reward`. The game then skips its own drop rules
+---and puts the item in quest storage, which goes to the vault after the result screen.
 ---
 ---Raises an error for a value that is not a number, a text id, nil or false.
 ---
 ---Since: 0.9.0
+---Changed: 2.34.0 Also in `rq.battle.on_reward`.
 ---
 ---```lua
 ---rq.battle.on_end(function(ctx)
@@ -4477,6 +4648,47 @@ function battle.get_drop() end
 ---```
 ---@param who string|integer|nil|false An item number or text id; nil or false clears it.
 function battle.set_drop(who) end
+
+---One enemy in `rq.battle.bags`.
+---@class rq.BagInfo
+---@field enemy integer The enemy's slot.
+---@field carries boolean The enemy carries a gold bag.
+---@field picked boolean The enemy fell and its bag was picked up.
+
+---Lists the gold bags of the fight's enemies.
+---
+---At a fight's start the game gives each enemy a bag at 50%. When an enemy with a bag falls, the bag
+---shows where it stood and is picked up; the bags picked set the fight's gold (`rq.battle.on_reward`'s
+---`bags`). The game rolls the bags after `rq.battle.on_start`, so there the list shows only the bags a
+---mod set with `rq.battle.set_bag`.
+---
+---Raises an error at the top level of a mod.
+---
+---Since: 2.34.0
+---@return rq.BagInfo[] bags One entry per enemy, in the game's order; empty outside a fight.
+function battle.bags() end
+
+---Gives an enemy a gold bag, or takes its bag away, before it falls.
+---
+---The bag shows where the enemy stood when it falls, as the game's, and the gold follows the game's
+---table for the bags picked: one bag a quarter of the quest's gold, two a half, three all of it, four
+---twice, five four times. Called in `rq.battle.on_start`, it is kept and written over the game's roll.
+---
+---Raises an error for a slot that is not an enemy of this fight, for `carries` that is not a
+---boolean, and at the top level of a mod.
+---
+---Since: 2.34.0
+---
+---```lua
+------ Every enemy carries a bag
+---rq.battle.on_start(function(ctx)
+---  for _, e in ipairs(ctx.enemies) do rq.battle.set_bag(e, true) end
+---end)
+---```
+---@param iic integer The enemy's slot.
+---@param carries boolean true for a bag, false for none.
+---@return boolean ok false for an enemy that already fell, or whose bag was picked up.
+function battle.set_bag(iic, carries) end
 
 ---Shows another face for an ally on the cards in a fight.
 ---
@@ -6168,13 +6380,14 @@ function encounters.on_encounter(fn) end
 ---@field statuspage rq.statuspage
 ---@field game rq.game
 ---@field encounters rq.encounters
+---@field savedata rq.savedata
 rq = {}
 
 ---The loader version.
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.33.0"
+rq.version = "2.34.0"
 
 rq.units = units
 rq.items = items
@@ -6216,7 +6429,8 @@ function rq.on_frame(fn) end
 
 ---Calls `fn` after a load or after going to the title, once the game runs again.
 ---
----Use it to clear a mod's own flags, such as "a scene is playing". These are the same callbacks as
+---Use it to clear a mod's own flags, such as "a scene is playing". For a load it runs when the game
+---starts reading the save, before that save's `rq.savedata` is in: read that in `rq.saves.on_load`. These are the same callbacks as
 ---`rq.sprite.on_reset`, and they run after every mod sprite is gone. On the title, every Lua call
 ---that was waiting in the game (a scene, a fight from `rq.battle.start`) has already ended with the
 ---error "rq: the game went to the title".
@@ -6224,6 +6438,7 @@ function rq.on_frame(fn) end
 ---Since: 1.13.0
 ---@param fn fun(why: "load"|"title") `why` says which one happened.
 ---@return fun() remove Removes this callback.
+---@see rq.saves.on_load
 function rq.on_reset(fn) end
 
 ---Returns the time since the game started, in real milliseconds.
@@ -9171,3 +9386,4 @@ rq.gamebutton = gamebutton
 rq.statuspage = statuspage
 rq.game = game
 rq.encounters = encounters
+rq.savedata = savedata

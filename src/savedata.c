@@ -581,11 +581,15 @@ int load_globals(const char *keyname, const char *filename, const char *group_na
 		free(path);
 		retval = load_globals_from_gsave(save, keyname, group_name, n);
 		gsave_free(save);
+		if (retval)
+			rq_saves_on_game_load(filename);
 		return retval;
 	case SAVEFILE_INVALID_SIGNATURE:
 		// If not a System4 save file, try reading as a json.
 		retval = load_globals_from_json(path, keyname, group_name, n);
 		free(path);
+		if (retval)
+			rq_saves_on_game_load(filename);
 		return retval;
 	default:
 		WARNING("%s: %s", display_utf0(path), savefile_strerror(error));
@@ -607,5 +611,6 @@ int delete_save_file(const char *filename)
 		return 0;
 	}
 	free(path);
+	rq_saves_on_game_delete(filename);
 	return 1;
 }

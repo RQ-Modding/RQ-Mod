@@ -358,6 +358,14 @@ int rq_saves_install(struct ain *ain);
 int rq_saves_title_active(void);
 int rq_saves_syscall(int code);
 void rq_saves_on_game_save(const char *filename);
+/* After the game read or deleted a save file (savedata.c); slot files go to rq.savedata. */
+void rq_saves_on_game_load(const char *filename);
+void rq_saves_on_game_delete(const char *filename);
+/* rq.savedata (modloader_roster.c, loader 2.34.0): kept beside the game's slot files. */
+void rq_savedata_open(struct lua_State *L, int rq_index);
+void rq_savedata_write(const char *slot_file);
+void rq_savedata_read(const char *slot_file);
+void rq_savedata_remove(const char *slot_file);
 int rq_mod_count(void);
 const char *rq_mod_id(int i);
 const char *rq_mod_dir(int i);
@@ -416,6 +424,8 @@ int rq_lua_hud_capture_mouse(struct lua_State *L);
 int rq_lua_ui_choosing(struct lua_State *L);
 int rq_lua_hud_set_under_z(struct lua_State *L);
 int rq_lua_ain_patch_local_int(struct lua_State *L);
+/* modloader_scene.c: where rq.ain.hook's stubs jump, for the code patches (2.34.0). */
+int rq_hook_codes(const uint32_t **out);
 int rq_lua_hud_screen(struct lua_State *L);
 int rq_lua_hud_text_width(struct lua_State *L);
 int rq_lua_hud_wrap(struct lua_State *L);
@@ -501,7 +511,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.33.0"
+#define RQ_VERSION "2.34.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -645,6 +655,8 @@ static inline void rq_saves_wait_parent(void) {}
 static inline void rq_saves_init(char **save_dir) { (void)save_dir; }
 static inline const char *rq_saves_base_dir(void) { return NULL; }
 static inline void rq_saves_on_game_save(const char *filename) { (void)filename; }
+static inline void rq_saves_on_game_load(const char *filename) { (void)filename; }
+static inline void rq_saves_on_game_delete(const char *filename) { (void)filename; }
 static inline int rq_saves_syscall(int code) { (void)code; return 0; }
 static inline void rq_ui_init(void) {}
 static inline void rq_ui_on_present(void) {}
