@@ -6,6 +6,8 @@
 --   rq.battle.escape, set_escape, rq.combat.on_escape the escape chance and the flight
 --   rq.battle.set_ambush                              the ambush (read in on_start's ctx, C)
 --   rq.battle.on_log, log                             each line of the battle log
+--   rq.combat.rules, set_rules                        what a skill can do: crit, stun, poison,
+--                                                     accuracy (2.44.0, notes/plans/plan-mod-review.md)
 --
 -- Built only on public calls: rq.ain.call, global, set_global, hook, patch_int and stack.
 --   Ｔ順番生成(fg)          the whole turn list ◆戦闘順番[1..50] (roster slots), at a fight's start
@@ -31,6 +33,10 @@
 --   Ｔ特殊行動(a, d, skill) "Relax, relax" (217) ends the fight (◆逃げた発動) unless fight rank 2,
 --                           a boss fight or FA[75] 3.
 --   戦闘ログ_追加(text, color, end)   every line of the battle log; an empty text adds nothing.
+--   クリティカル計算(a, d, skill, 条件)   the crit: the attacker's rate, +30 hidden, 0 for a multiplier
+--                           (Ｓ倍率) over 150 and for skill 120; then +50 with skill 549 on half the
+--                           rolls against race 4 or a woman, +30 with party item 91 on the enemies'
+--                           turn, halved for all enemies (Ｓ対象 3 or 4) or FA[82]; rolls.
 local rq, priv = ...
 local call, hook, g, set = rq.ain.call, rq.ain.hook, rq.ain.global, rq.ain.set_global
 local battle, combat = rq.battle, rq.combat
@@ -393,9 +399,26 @@ local function pop_roll(r)
   if roll_ctx == r then roll_ctx = r.prev end
 end
 
+-- The rules mods set with rq.combat.set_rules (2.44.0): skill -> { crit, stun, poison, by }.
+-- "sometimes" changes only what rq.combat.rules says.
+local mod_rules = {}
+
+local function rule_of(skill, field)
+  local m = mod_rules[skill]
+  return m and m[field]
+end
+
 -- The stun.
 
 local STUN_SKIP = { [120] = true, [448] = true, [152] = true }
+
+-- Blocked by the skill: the game's skip, or a mod's rule over it.
+local function stun_blocked(skill)
+  local rule = rule_of(skill, "stun")
+  if rule == true then return nil end
+  if rule == false then return "skill" end
+  return STUN_SKIP[skill] and "skill" or nil
+end
 local stun_list, add_stun = handlers("rq.combat.on_stun")
 local stun_hooked = false
 local stun_cur = nil
@@ -438,7 +461,7 @@ local function stun_install()
       local r = {
         fn = "衝撃計算", name = "rq.combat.on_stun",
         attacker = a[1], defender = a[2], skill = a[3], forecast = a[4] == "模擬",
-        blocked = STUN_SKIP[a[3]] and "skill" or nil,
+        blocked = stun_blocked(a[3]),
         log1 = g("◆戦闘ログ１"), outer = stun_cur,
       }
       r.decide = function(rate) return stun_decide(r, rate) end
@@ -470,9 +493,31 @@ end
 local poison_list, add_poison = handlers("rq.combat.on_poison")
 local poison_hooked = false
 
+-- The game's own zeroing at the end of 毒計算, for a target the skill's rate would reach: character
+-- 22, skill 502, item 195 held, a barrier. (Skill 120's is the game's rule, which a mod's replaces.)
+local function poison_shielded(d)
+  local ok, v = pcall(function()
+    return call("Ｃ番号", d, -1) == 22 or call("ＣＳ有無", d, 502, 0) ~= 0
+      or call("Ｉ固有番号", call("Ｃ持ち物", d, -1), -1) == 195 or call("Ｃバリア", d, -1) ~= 0
+  end)
+  return ok and v == true
+end
+
+-- A mod's rule: false never poisons; a rate is the skill's own, or the weapon's or the coat's
+-- when higher, as the game's own poison skills.
+local function poison_ruled(r, rate)
+  local rule = rule_of(r.skill, "poison")
+  if rule == false then return 0 end
+  if math.type(rule) == "integer" then
+    if rate == 0 and (rule == 0 or poison_shielded(r.defender)) then return 0 end
+    return math.max(rate, rule)
+  end
+  return rate
+end
+
 local function poison_decide(r, rate)
   local final = run_rolls(poison_list, "rq.combat.on_poison", {
-    attacker = r.attacker, defender = r.defender, skill = r.skill, rate = rate,
+    attacker = r.attacker, defender = r.defender, skill = r.skill, rate = poison_ruled(r, rate),
   })
   if final ~= rate then
     set("◆戦闘ログ１", r.log1 .. (final > 0 and (" (Poison = " .. final .. ")") or ""))
@@ -500,7 +545,8 @@ local function poison_install()
       if not r or r.fn ~= "毒計算" then return end
       pop_roll(r)
       -- The game's rate was 0, so it did not roll: the callbacks may give one.
-      if r.done or not r.clean or #poison_list == 0 then return end
+      if r.done or not r.clean then return end
+      if #poison_list == 0 and math.type(rule_of(r.skill, "poison")) ~= "integer" then return end
       r.done = true
       local ok, final = pcall(poison_decide, r, 0)
       if not ok then logf("rq.combat.on_poison: %s", tostring(final)) return end
@@ -858,6 +904,152 @@ function battle.log(text)
   if text == "" then return false end
   local r = call("戦闘ログ_追加", text, 5, false)
   return r == true or r == 1
+end
+
+-- ---- The rules: what a skill can do in a fight (2.44.0) ----
+
+-- The game's rules by skill number, written in its combat code (notes/plans/plan-mod-review.md
+-- 1.1); the rest comes from the skill's data: 行動種類 (1 physical), 倍率 and 機能.
+local CRIT_ZERO = { [120] = true }                          -- クリティカル計算: aa = 0
+local STUN_OWN = { [149] = true, [183] = true, [422] = true, [507] = true } -- stun in their own code
+local POISON_RATE = { [424] = 60, [404] = 50, [390] = 50, [539] = 80, [443] = 80, [560] = 80,
+  [561] = 80, [562] = 80, [590] = 100 }                     -- 毒計算's own rates
+local POISON_OWN = { [433] = true, [545] = true }           -- Queen's Curse, Deadly Mist
+local NO_POISON = { [120] = true }                          -- 毒計算: bb = 0
+
+-- The crit: a rule held over the game's zeroing by the skill's multiplier while クリティカル計算
+-- runs (150 lets it roll; 151 zeroes it, as the game does for 120 once that check is patched out).
+local crit_hooked, crit_120_open, crit_held = false, false, nil
+
+local function crit_install()
+  if crit_hooked then return end
+  crit_hooked = true
+  hook("クリティカル計算", {
+    before = function(h)
+      local skill = h.args[3]
+      if math.type(skill) ~= "integer" then return end
+      local rule = rule_of(skill, "crit")
+      if rule == false then
+        h.skip, h.result = true, 0
+        return
+      end
+      local ok, mult = pcall(call, "Ｓ倍率", skill, -1)
+      if not ok or math.type(mult) ~= "integer" then return end
+      local want = rule ~= true and (mult > 150 or CRIT_ZERO[skill] == true)
+      local does = mult > 150 or (CRIT_ZERO[skill] == true and not crit_120_open)
+      if want ~= does then
+        crit_held = { skill = skill, mult = mult }
+        call("Ｓ倍率", skill, want and 151 or 150)
+      end
+    end,
+    after = function()
+      local c = crit_held
+      if not c then return end
+      crit_held = nil
+      pcall(call, "Ｓ倍率", c.skill, c.mult)
+    end,
+  })
+end
+
+local function game_rules(skill, s)
+  local koudou, mult, kinou = s.koudou or 0, s.bairitsu or 0, s.kinou or 0
+  local physical = koudou == 1
+  local out = { accuracy = (kinou == 56 or kinou == 79) and "ignores" or "rolls" }
+  if not physical then
+    out.crit = false
+  elseif mult > 150 or CRIT_ZERO[skill] then
+    out.crit = "sometimes" -- skill 549 and party item 91 add to a zeroed chance
+  else
+    out.crit = true
+  end
+  if STUN_SKIP[skill] then
+    out.stun = false
+  else
+    out.stun = physical or kinou == 59 or STUN_OWN[skill] == true
+  end
+  if NO_POISON[skill] then
+    out.poison = false
+  elseif POISON_RATE[skill] then
+    out.poison, out.poison_rate = "own", POISON_RATE[skill]
+  elseif POISON_OWN[skill] then
+    out.poison = "own"
+  elseif physical then
+    out.poison = "coat"
+  else
+    out.poison = false
+  end
+  return out
+end
+
+function combat.rules(skill)
+  if math.type(skill) ~= "integer" then error("rq.combat.rules: expected a skill number", 2) end
+  local ok, s = pcall(rq.skill.get, skill)
+  if skill <= 0 or not ok or type(s) ~= "table" then return nil end
+  local out = game_rules(skill, s)
+  local m = mod_rules[skill]
+  if m then
+    if m.crit ~= nil then out.crit = m.crit end
+    if m.stun ~= nil then out.stun = m.stun end
+    if m.poison ~= nil then
+      if math.type(m.poison) == "integer" then
+        out.poison, out.poison_rate = m.poison > 0 and "own" or false, m.poison > 0 and m.poison or nil
+      else
+        out.poison, out.poison_rate = m.poison, nil
+      end
+    end
+    out.set_by = {}
+    for k, v in pairs(m.by) do out.set_by[k] = v end
+  end
+  return out
+end
+
+local RULES = {
+  crit = 'true, false, "sometimes" or "game"',
+  stun = 'true, false, "sometimes" or "game"',
+  poison = 'a rate 0 to 100, false, "sometimes" or "game"',
+}
+
+function combat.set_rules(skill, rules)
+  if math.type(skill) ~= "integer" or skill <= 0 then error("rq.combat.set_rules: expected a skill number", 2) end
+  if type(rules) ~= "table" then error("rq.combat.set_rules: rules is a table", 2) end
+  -- No check that the skill exists: the game's skills are not read yet while init.lua runs.
+  for k, v in pairs(rules) do
+    if not RULES[k] then
+      error("rq.combat.set_rules: no rule '" .. tostring(k) .. "' (crit, stun, poison)", 2)
+    end
+    local good = v == false or v == "sometimes" or v == "game"
+    if k == "poison" then
+      good = good or (math.type(v) == "integer" and v >= 0 and v <= 100)
+    else
+      good = good or v == true
+    end
+    if not good then error("rq.combat.set_rules: " .. k .. " is " .. RULES[k], 2) end
+  end
+  local m = mod_rules[skill] or { by = {} }
+  local id = mod_id()
+  for k, v in pairs(rules) do
+    if v == "game" then
+      m[k], m.by[k] = nil, nil
+    else
+      m[k], m.by[k] = v, id
+    end
+  end
+  mod_rules[skill] = next(m.by) and m or nil
+  if rules.crit ~= nil then
+    crit_install()
+    if skill == 120 and rules.crit == true and not crit_120_open then
+      local n = rq.ain.patch_int("クリティカル計算", 120, -1)
+      if n == 1 then
+        crit_120_open = true
+      else
+        logf("rq.combat.set_rules: skill 120's check in クリティカル計算 found %d times", n)
+      end
+    end
+  end
+  if rules.stun ~= nil then stun_install() end
+  if rules.poison ~= nil then poison_install() end
+  logf("rq.combat.set_rules (%s): skill %d", id, skill)
+  return combat.rules(skill)
 end
 
 -- choices.lua (2.38.0) runs after this file and shares the callback lists' helpers.

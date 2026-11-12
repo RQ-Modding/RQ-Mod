@@ -354,6 +354,28 @@ local function describe(row)
   return "a text of at most " .. row.max .. " bytes"
 end
 
+-- recommend = { min, max } and warn (2.44.0): the range a mod advises, inside min to max, and the
+-- text the question shows when the player leaves it.
+local function check_recommend(row, r, at)
+  if r.warn ~= nil and type(r.warn) ~= "string" then fail(at .. ": warn is a text", 4) end
+  if r.recommend == nil then
+    if r.warn ~= nil then fail(at .. ": warn needs recommend", 4) end
+    return
+  end
+  local rc = r.recommend
+  local a, b = type(rc) == "table" and rc[1], type(rc) == "table" and rc[2]
+  if type(a) ~= "number" or type(b) ~= "number" or b < a then
+    fail(at .. ": recommend is { min, max }, two numbers, max not below min", 4)
+  end
+  if a < row.min or b > row.max then
+    fail(at .. ": recommend lies inside the row's min and max", 4)
+  end
+  if row.kind == "stepper" and (not whole(a) or not whole(b)) then
+    fail(at .. ": a stepper's recommend is two whole numbers", 4)
+  end
+  row.recommend, row.warn = { a, b }, r.warn
+end
+
 local function check_rows(rows)
   if type(rows) ~= "table" or #rows == 0 then fail("rows is a list of rows", 3) end
   local out, by_key = {}, {}
@@ -391,6 +413,7 @@ local function check_rows(rows)
           fail(at .. ": min and max are whole numbers, max not below min", 3)
         end
         row.default = r.default == nil and row.min or r.default
+        check_recommend(row, r, at)
       elseif kind == "slider" then
         row.min, row.max, row.step = r.min or 0, r.max or 1, r.step
         row.low, row.high = r.low, r.high
@@ -401,6 +424,13 @@ local function check_rows(rows)
           fail(at .. ": step is a number above 0", 3)
         end
         row.default = r.default == nil and row.min or r.default
+        -- The value beside the track (2.44.0), as `format` writes it; value = false hides it.
+        if r.format ~= nil and (type(r.format) ~= "string" or not pcall(string.format, r.format, 1.5)) then
+          fail(at .. ": format is a string.format pattern for one number, such as \"%.1f\"", 3)
+        end
+        if r.value ~= nil and type(r.value) ~= "boolean" then fail(at .. ": value is true or false", 3) end
+        row.format, row.show_value = r.format or "%g", r.value ~= false
+        check_recommend(row, r, at)
       elseif kind == "choice" then
         if type(r.options) ~= "table" or #r.options == 0 then fail(at .. ": options is a list of texts", 3) end
         for j, o in ipairs(r.options) do
@@ -464,7 +494,8 @@ local function notes(row)
 end
 
 ---rq.config.settings{ id, title, keep, rows, reset, label_w, draw, on_open, on_close }: a page
----from a list of rows, and an object with get, set, on_change and reset. 2.35.0.
+---from a list of rows, and an object with get, set, on_change and reset. 2.35.0. A slider shows its
+---value (format), and a slider or stepper may have recommend and warn (2.44.0).
 function config.settings(t)
   if type(t) ~= "table" then fail("expected a table with rows", 2) end
   local mod = rq.mod and rq.mod.id and rq.mod.id()
@@ -542,7 +573,68 @@ function config.settings(t)
     end
   end
 
-  local function draw_row(row, blocked)
+  -- A slider's value while its knob is held: drawn, and written at the release (2.44.0), so a drag
+  -- writes the store once and the question comes once.
+  local pending = {}
+  local asking = false
+
+  local function fmt_value(row, v)
+    if row.kind == "slider" then return string.format(row.format, v) end
+    return tostring(v)
+  end
+
+  -- The recommended range as the mod wrote it: 15 to 35, 17.5 to 40.
+  local function range_text(row)
+    return "Recommended: " .. string.format("%g", row.recommend[1]) .. " to " .. string.format("%g", row.recommend[2])
+  end
+
+  -- Whether the range fits on the row's line, after the control: the label column, the control
+  -- (a stepper's two buttons, a slider's value) and the text, with the row's gaps.
+  local function range_inline(row, box_w)
+    local cw
+    if row.kind == "slider" then
+      cw = (row.w or 200) + (row.show_value and 82 or 0)
+    else
+      local maxlen = math.max(#tostring(row.max), #tostring(row.min))
+      cw = 68 + (row.w or math.max(64, rq.hud.text_width(string.rep("8", maxlen), ui.theme.label) + 24))
+    end
+    local used = (row.label and (label_w or 0) + 12 or 0) + cw + 12
+    local style = {}
+    for k, x in pairs(ui.theme.label) do style[k] = x end
+    style.size = NOTE.size
+    return used + rq.hud.text_width(range_text(row), style) <= box_w
+  end
+
+  -- -1 under the recommended range, 1 over it, 0 inside (or no range).
+  local function side(row, v)
+    local rc = row.recommend
+    if not rc then return 0 end
+    if v < rc[1] then return -1 end
+    if v > rc[2] then return 1 end
+    return 0
+  end
+
+  -- The value to write when the player sets nv on the page: leaving the recommended range asks with
+  -- the game's Yes / No, and No puts the value at the range's nearest end. Moving within the outside
+  -- part does not ask again. A question that cannot show counts as No.
+  local function settle(row, old, nv)
+    local s = side(row, nv)
+    if s == 0 or s == side(row, old) or asking then return nv end
+    local rc = row.recommend
+    local edge = s < 0 and rc[1] or rc[2]
+    -- The buttons say the rest ("Keep 239", "Back to 150"): the text stays in the window's first box.
+    local lines = { (row.label or row.key) .. ": " .. fmt_value(row, nv) .. ". " .. range_text(row) .. "." }
+    if row.warn then lines[#lines + 1] = row.warn end
+    asking = true
+    local ok, yes = pcall(rq.ui.confirm, table.concat(lines, "\n"),
+      { yes = "Keep " .. fmt_value(row, nv), no = "Back to " .. fmt_value(row, edge), cursor = "no" })
+    asking = false
+    if not ok then rq.log("config settings " .. mod .. ": the question: " .. tostring(yes)) end
+    if ok and yes == true then return nv end
+    return edge
+  end
+
+  local function draw_row(row, blocked, box_w)
     local kind = row.kind
     if kind == "label" then
       ui.label(row.text, { dim = row.dim, size = row.size, color = row.color })
@@ -554,6 +646,7 @@ function config.settings(t)
     local dis = row_disabled(row, blocked)
     local id = row.id ~= nil and row.id or row.key
     local v = value(row)
+    local inline = row.recommend and range_inline(row, box_w)
     if kind == "checkbox" then
       local nv, c = ui.checkbox(v, row.label, { id = id, disabled = dis, tip = row.tip, w = row.w })
       if c and not dis then write(row, nv) end
@@ -565,8 +658,22 @@ function config.settings(t)
           nv, c = ui.stepper(v, { id = id, min = row.min, max = row.max, step = row.step, big = row.big,
             w = row.w, disabled = dis, tip = row.tip })
         elseif kind == "slider" then
-          nv, c = ui.slider(v, { id = id, min = row.min, max = row.max, step = row.step, low = row.low,
-            high = row.high, label = row.label, w = row.w, disabled = dis, tip = row.tip })
+          local shown = pending[row.key]
+          if shown == nil then shown = v end
+          local held
+          nv, c, held = ui.slider(shown, { id = id, min = row.min, max = row.max, step = row.step, low = row.low,
+            high = row.high, label = row.label, w = row.w, disabled = dis, tip = row.tip, band = row.recommend })
+          if held and not dis then
+            pending[row.key] = nv
+            c = false
+          elseif pending[row.key] ~= nil then
+            -- The release: the drag's last value is the change.
+            nv, c = pending[row.key], pending[row.key] ~= v
+            pending[row.key] = nil
+          end
+          if row.show_value then
+            ui.label(fmt_value(row, nv), { w = 70, dim = dis })
+          end
         elseif kind == "choice" then
           local index = v
           if row.values then
@@ -582,12 +689,15 @@ function config.settings(t)
           nv, c = ui.input(v, { id = id, max = row.max, w = row.w, placeholder = row.placeholder,
             disabled = dis, tip = row.tip })
         end
+        if row.recommend and inline then ui.label(range_text(row), NOTE) end
         if c and not dis then
           local ok = fit(row, nv)
+          if ok ~= nil and row.recommend then ok = fit(row, settle(row, v, ok)) end
           if ok ~= nil then write(row, ok) end
         end
       end)
     end
+    if row.recommend and not inline then ui.label(range_text(row) .. ".", NOTE) end
     notes(row)
   end
 
@@ -609,7 +719,7 @@ function config.settings(t)
       end
       local blocked = keep == "save" and rq.world.current() == nil
       if blocked then ui.label("Load a save to change these.", { dim = true }) end
-      for _, row in ipairs(rows) do draw_row(row, blocked) end
+      for _, row in ipairs(rows) do draw_row(row, blocked, box.w) end
       if t.reset ~= false then
         ui.space(0, 4)
         if ui.button("Reset", { id = "reset", disabled = blocked,

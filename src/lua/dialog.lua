@@ -11,7 +11,9 @@
 -- "Don't ask again" (remember): 1 to 99 is the game's own switch (確認なし, Config's Confirmations
 -- tab); a text is the mod's own, kept with the loader's keys in rqmod-global.json, cleared by
 -- Config's Resetting too (ダイアログフラグ_クリア), and listed on a page in Config's Mods tab.
--- confirm has it since 2.19.0, ask since 2.28.0 (with the row it stands for).
+-- confirm has it since 2.19.0, ask since 2.28.0 (with the row it stands for). remember_checked
+-- (2.44.0) shows the row ticked when the window opens; the answer then turns the question off, as a
+-- tick does, unless the player unticked it (a cancel turns nothing off).
 --
 -- Over Config (2.28.0): Config draws at z 15000 to 15010, the game's menu at 9991 (T_Select::create)
 -- and its comment window at 9801 (T_Comment::create), so a dialog opened over Config was under it,
@@ -260,7 +262,11 @@ end
 -- "Don't ask again": { off = fn, set = fn } for opts.remember, or nil.
 local function remember_of(o, where)
   local remember = o.remember
-  if remember == nil then return nil end
+  local checked = opt_type(o, "remember_checked", "boolean", where)
+  if remember == nil then
+    if checked ~= nil then error("rq.ui." .. where .. ": remember_checked needs remember", 3) end
+    return nil
+  end
   local label = opt_type(o, "remember_label", "string", where)
   local game_id, mod
   if math.type(remember) == "integer" then
@@ -272,6 +278,7 @@ local function remember_of(o, where)
     error("rq.ui." .. where .. ": remember must be 1 to 99 or a text", 3)
   end
   return {
+    checked = checked == true,
     off = function()
       if game_id then return call("確認なし", game_id) == true end
       return mod_off(mod, remember)
@@ -288,14 +295,33 @@ local function remember_of(o, where)
   }
 end
 
--- The game's row under the choices: "DON'T ASK AGAIN" (11) with its note, or its "on" look (12).
-local function add_remember(flag)
+-- remember_checked (2.44.0): ticked from the start, the row keeps its words, "DON'T ASK AGAIN",
+-- with the tick: 10027's bar and 10028's ticked box, in both halves (the normal and the hovered
+-- look, 340 wide each). The game's "UNDO" (10028) answers a tick the player made; shown first, it
+-- reads as nothing the player knows.
+local ticked_cg
+local function ticked()
+  if ticked_cg == nil then
+    local ok, cg = pcall(rq.image.compose, "rq.dialog.dont-ask-ticked", {
+      { cg = 10027, src = { 0, 0, 680, 27 } },
+      { cg = 10028, src = { 306, 0, 34, 27 }, x = 306, y = 0, mode = "copy" },
+      { cg = 10028, src = { 646, 0, 34, 27 }, x = 646, y = 0, mode = "copy" },
+    }, { w = 680, h = 27 })
+    ticked_cg = ok and cg or false
+    if not ok then logf("the ticked row's look: %s", tostring(cg)) end
+  end
+  return ticked_cg or 10028
+end
+
+-- The game's row under the choices: "DON'T ASK AGAIN" (11) with its note, or its "on" look (12):
+-- the game's "UNDO", or with remember_checked the same words ticked.
+local function add_remember(flag, checked)
   call("選択_区切り追加")
   if not flag then
     call("選択_拡張項目追加", 11, 10027, "")
     call("選択_補助テキスト追加", NOTE, -1, -1, -1)
   else
-    call("選択_拡張項目追加", 12, 10028, "")
+    call("選択_拡張項目追加", 12, checked and ticked() or 10028, "")
   end
 end
 
@@ -319,15 +345,14 @@ function gui.confirm(text, o)
 
   if rem and rem.off() then return true end
   if busy("confirm", n) then return nil end
-  local flag = false
+  local flag = rem and rem.checked or false
   while true do
     add_text(rows)
     call("選択_項目追加", 1, yes, -1, -1, -1, "", sy)
     call("選択_項目追加", 2, no, -1, -1, -1, "", sn)
-    if rem then add_remember(flag) end
+    if rem then add_remember(flag, rem.checked) end
     call("選択_カーソル設定", cursor == "no" and 2 or 1)
     local r = run(false)
-    if r == 1 then return true end
     if r == 11 and rem then
       rem.set(true)
       flag = true
@@ -335,7 +360,9 @@ function gui.confirm(text, o)
       rem.set(false)
       flag = false
     else
-      return false
+      -- Ticked from the start (remember_checked) and left ticked: the answer turns it off.
+      if rem and flag and rem.checked then rem.set(true) end
+      return r == 1
     end
   end
 end
@@ -421,7 +448,7 @@ function gui.ask(text, items, o)
   local n = running("ask")
   if rem and rem.off() then return answer end
   if busy("ask", n) then return nil end
-  local flag = false
+  local flag = rem and rem.checked or false
   while true do
     if x then call("選択_位置設定", x, y or -1) end
     add_text(rows_t)
@@ -434,7 +461,7 @@ function gui.ask(text, items, o)
         if o.cursor ~= nil and r.id == o.cursor and not cursor then cursor = r.no end
       end
     end
-    if rem then add_remember(flag) end
+    if rem then add_remember(flag, rem.checked) end
     if cursor then call("選択_カーソル設定", cursor) end
     local no = run(cancel)
     if rem and no == 11 then
@@ -446,6 +473,7 @@ function gui.ask(text, items, o)
     elseif not no or no <= 0 then
       return 0
     else
+      if rem and flag and rem.checked then rem.set(true) end
       return ids[no] or 0
     end
   end

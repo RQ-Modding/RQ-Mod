@@ -749,8 +749,10 @@ local function snap(v, mn, mx, step)
 end
 
 ---A slider as on the Sound tab. opts: x, y, w (the track, default 200), min (0), max (1),
----step, low, high (texts at the ends), id, disabled. Drag the knob, click the track, or turn
----the wheel over it. Returns the new value and whether it changed on this update.
+---step, low, high (texts at the ends), band ({from, to}: that part of the track drawn lighter, as
+---a recommended range, 2.44.0), id, disabled. Drag the knob, click the track, or turn the wheel
+---over it. Returns the new value, whether it changed on this update, and whether the knob is held
+---(2.44.0: a drag goes on, so the value is not final yet).
 function ui.slider(value, o)
   o = o or {}
   local th = ui.theme
@@ -778,13 +780,22 @@ function ui.slider(value, o)
   local opts = o.disabled and { tint = { 128, 128, 128 } } or nil
   if o.low then hud.text(x, y, o.low, with(dim, { h = h, valign = "center" })) end
   ui.draw("track", tx - 1, ty - 1, tw + 2, 17, opts)
+  if type(o.band) == "table" and mx > mn then
+    -- The recommended part: a light veil over that part of the track (2.44.0).
+    local b1, b2 = tonumber(o.band[1]) or mn, tonumber(o.band[2]) or mx
+    if b2 < b1 then b1, b2 = b2, b1 end
+    b1, b2 = math.max(mn, math.min(mx, b1)), math.max(mn, math.min(mx, b2))
+    local x1 = tx + math.floor((b1 - mn) / (mx - mn) * tw)
+    local x2 = tx + math.floor((b2 - mn) / (mx - mn) * tw)
+    if x2 > x1 then hud.rect(x1, ty + 1, x2 - x1, 13, 190, 255, 190, o.disabled and 30 or 70) end
+  end
   if o.high then hud.text(tx + tw + 8, y, o.high, with(dim, { h = h, valign = "center" })) end
   local f = mx > mn and (value - mn) / (mx - mn) or 0
   ui.draw((held or over) and "knob_hot" or "knob", tx + math.floor(f * tw) - 12, ty - 19, 24, 35, opts)
   -- The box is the track from min to max, so x = box.x + (v - min) / (max - min) * box.w.
   show("slider", o.id or o.label or "slider", o.label, tx, ty - 19, tw, 35,
     { value = string.format("%g of %g..%g", value, mn, mx), disabled = o.disabled })
-  return value, value ~= old
+  return value, value ~= old, held and not o.disabled and true or false
 end
 
 ---Tabs side by side, as at the top of Config. opts: x, y, w (each tab, default 120), id.

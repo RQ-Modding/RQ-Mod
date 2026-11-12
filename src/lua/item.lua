@@ -82,6 +82,29 @@ local function changed(ii)
   return true
 end
 
+-- The calls in C that make, end or change instances tell rq.uikit's lists too (2.44.0): they
+-- waited for the lists' 2-second relisting. Each upvalue keeps the call's name, so the C side's
+-- argument errors still name it ("bad argument #1 to 'give'").
+do
+  local give, remove, set, transform, equip, edit = item.give, item.remove, item.set, item.transform,
+    item.equip, item.edit
+  local function relist(ii, ...)
+    changed(math.type(ii) == "integer" and ii or nil)
+    return ...
+  end
+  local function given(...)
+    local ii = ...
+    if math.type(ii) == "integer" then changed(ii) end
+    return ...
+  end
+  if give then function item.give(...) return given(give(...)) end end
+  if remove then function item.remove(ii, ...) return relist(ii, remove(ii, ...)) end end
+  if set then function item.set(ii, ...) return relist(ii, set(ii, ...)) end end
+  if transform then function item.transform(ii, ...) return relist(ii, transform(ii, ...)) end end
+  if equip then function item.equip(ii, ...) return relist(ii, equip(ii, ...)) end end
+  if edit then function item.edit(...) return relist(nil, edit(...)) end end
+end
+
 -- The money and donations on the system bar, as the vault updates them.
 local function show_money()
   pcall(call, "システムバー_更新", 2, -1)

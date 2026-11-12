@@ -761,7 +761,10 @@ function ui.item_list(rows, index, o)
       if mouse.released or not mouse.down then
         drag.done = true
         if drag.from ~= key and inside(x, y, 381 + 22, h) and not dropped then
-          dropped = { group = o.drag, row = drag.row, from = drag.from, to = key, index = drag.index }
+          -- The row under the mouse in this list (2.44.0); nil past its last row.
+          local at = st.top + (mouse.y - y) // 128 + 1
+          if at < 1 or at > #rows then at = nil end
+          dropped = { group = o.drag, row = drag.row, from = drag.from, to = key, index = drag.index, at = at }
           play("click")
         end
       else
@@ -784,13 +787,14 @@ function ui.item_list(rows, index, o)
 end
 
 ---The row dropped on this update on another list of a drag group: the row (an ii or a table),
----the id of the list it came from, the id of the list it was dropped on, and its index there. nil
----when nothing was dropped.
+---the id of the list it came from, the id of the list it was dropped on, its index in the list it
+---came from, and the index of the row it was dropped on (nil past the last row; 2.44.0). nil when
+---nothing was dropped.
 function ui.item_dropped(group)
   if group ~= nil and type(group) ~= "string" then error("uikit.item_dropped: group is a name", 2) end
   local d = dropped
   if not d or (group ~= nil and d.group ~= group) then return nil end
-  return d.row, d.from, d.to, d.index
+  return d.row, d.from, d.to, d.index, d.at
 end
 
 -- ---- Counters ----
@@ -870,12 +874,13 @@ local function check_state(st, where)
   end
 end
 
--- One toggle: lit when nothing is picked or it is the one picked.
-local function toggle(lit, dim, x, y, w, h, on, id, label, picked)
-  local over, clicked = interact(id, x, y, w, h, false)
+-- One toggle: lit when nothing is picked or it is the one picked. A fixed one takes no clicks.
+local function toggle(lit, dim, x, y, w, h, on, id, label, picked, fixed)
+  local over, clicked = false, false
+  if not fixed then over, clicked = interact(id, x, y, w, h, false) end
   ui.draw(on and lit or dim, x, y, w, h)
   if over then cover(x, y, w, h) end
-  show("filter", label, label, x, y, w, h, { selected = picked })
+  show("filter", label, label, x, y, w, h, { selected = picked, disabled = fixed or nil })
   return clicked
 end
 
@@ -888,7 +893,8 @@ local FILTER_STYLES = { vault = true, shop = true, equip = true }
 ---categories' top left), id, style ("vault", "shop" or "equip": the column painted in that
 ---panel, and its groups), back (the column's grey, default true), classes, lock, equip (false
 ---leaves them out), sub ({x, y} for the sub-filters, default x - 407, y - 153; false leaves them
----out). Returns state and whether it changed.
+---out), type (a category kept picked: the others are dim and take no clicks, 2.44.0). Returns
+---state and whether it changed.
 function ui.filters(state, o)
   o = o or {}
   state = state or {}
@@ -896,6 +902,13 @@ function ui.filters(state, o)
   local style = o.style or "vault"
   if not FILTER_STYLES[style] then error("uikit.filters: style is \"vault\", \"shop\" or \"equip\"", 2) end
   local f = T("filters")
+  local fixed = o.type
+  if fixed ~= nil then
+    local known = false
+    for _, c in ipairs(f.cats) do if c.type == fixed then known = true end end
+    if not known then error("uikit.filters: type is 21, 1, 11 or 17", 2) end
+    if state.type ~= fixed then state.type, state.sub = fixed, 0 end
+  end
   local key = o.id ~= nil and tostring(o.id) or "filters"
   local show_lock = o.lock ~= false and style ~= "shop"
   local show_equip = o.equip ~= false and style == "equip"
@@ -907,7 +920,8 @@ function ui.filters(state, o)
   for i, c in ipairs(f.cats) do
     local on = ty == 0 or ty == c.type
     local id = id_of({ id = key .. ".cat." .. c.type }, "filter")
-    if toggle(c.lit, c.dim, x, y + 34 * (i - 1), 73, c.h, on, id, key .. "-" .. c.name, ty == c.type) then
+    if toggle(c.lit, c.dim, x, y + 34 * (i - 1), 73, c.h, on, id, key .. "-" .. c.name, ty == c.type,
+        fixed ~= nil) then
       ty = ty == c.type and 0 or c.type
       sub, changed = 0, true
     end
@@ -1067,15 +1081,19 @@ end
 -- panels are 768 high), and the store's SORT (T_StoreItem: a T_Sort of "Default Sort" and the
 -- short name of the mode, its bottom right on 1020,764, the mode in use framed). "Default Sort"
 -- sorts by item number; the second button opens the game's sort menu, current or not. A new
--- mode is saved, as the game's stores do. x, y: the list's top left.
-local function store_sort(st, key, style, x, y)
+-- mode is saved, as the game's stores do. x, y: the list's top left; h: its height (768 in the
+-- game's stores; a shorter list has its SORT at its own foot, 2.44.0).
+local function store_sort(st, key, style, x, y, h)
+  h = h or 768
   local b = T("filters").backs[style]
   local top = b.src[2] + b.src[4]
-  if top < 768 then
-    hud.cg(x + 407 + b.x, y + 154 + b.y + b.src[4], b.cg, { src = { b.src[1], top, b.src[3], 768 - top } })
+  -- The column's art is the store's panel, where a row on the screen is the same row of the CG.
+  local foot = h >= 768 and 768 or math.min(768, b.src[2] + h - 154 - b.y)
+  if top < foot then
+    hud.cg(x + 407 + b.x, y + 154 + b.y + b.src[4], b.cg, { src = { b.src[1], top, b.src[3], foot - top } })
   end
   local _, _, pressed = ui.sort({ "Default Sort", call("アイテム倉庫_ソート名_short", st.sort) },
-    st.sort > 10 and 2 or 1, { x = x + 405, y = y + 682, back = false, again = 2, id = key .. "-sort" })
+    st.sort > 10 and 2 or 1, { x = x + 405, y = y + h - 86, back = false, again = 2, id = key .. "-sort" })
   local function set(m)
     st.sort = m
     call("アイテムソートモード_設定", m)
@@ -1107,31 +1125,66 @@ end
 ---column ("Default Sort" and the mode's short name, 405 right and 682 down). opts: x, y, id
 ---(keeps the filters, sort and scroll), where ("vault", "storage", "both", "shop" or "quest"),
 ---chara (a character: the column gets Equippable / Unequippable for them), shown, style, sort (a
----mode; default the stores' saved one), keys. Returns the ii picked on this update, else nil, then
----the current ii.
+---mode; default the stores' saved one), keys; 2.44.0: only (fn(ii): keep the items it returns
+---true for), type (a category kept picked), first (rows put before the rest, unsorted, filtered
+---the same), drag (a drag group, as item_list's). Returns the ii picked on this update, else nil,
+---then the current ii.
 function ui.item_picker(o)
   o = o or {}
   local wh = WHERE[o.where or "vault"]
   if not wh then error("uikit.item_picker: where is \"vault\", \"storage\", \"both\", \"shop\" or \"quest\"", 2) end
   if o.chara ~= nil and math.type(o.chara) ~= "integer" then error("uikit.item_picker: chara is a character number", 2) end
+  if o.only ~= nil and type(o.only) ~= "function" then error("uikit.item_picker: only is a function(ii)", 2) end
+  if o.first ~= nil and type(o.first) ~= "table" then error("uikit.item_picker: first is a list of rows", 2) end
+  if o.drag ~= nil and type(o.drag) ~= "string" then error("uikit.item_picker: drag is a group name", 2) end
+  if o.type ~= nil then
+    local known = false
+    for _, c in ipairs(T("filters").cats) do if c.type == o.type then known = true end end
+    if not known then error("uikit.item_picker: type is 21, 1, 11 or 17", 2) end
+  end
   local key = o.id ~= nil and tostring(o.id) or "picker"
   local st = ui.state("picker:" .. key)
   st.filter = st.filter or { type = 0, sub = 0, class = 0, lock = 0, equip = 0 }
   st.filter.equip = st.filter.equip or 0
   st.filter.chara = o.chara
+  if o.type and st.filter.type ~= o.type then st.filter.type, st.filter.sub = o.type, 0 end
   if o.sort ~= nil and not SORTS[o.sort] then error("uikit.item_picker: no sort mode " .. tostring(o.sort), 2) end
   -- As the game's lists (T_ItemList::sort), a mode under 10 is the default.
   st.sort = st.sort or (o.sort and (o.sort < 10 and 1 or o.sort)) or saved_sort()
   local x, y = place(o, 402 + 5 + 75, (o.shown or 6) * 128)
+  local firsts = {}
+  for _, r in ipairs(o.first or {}) do
+    local ii = ii_of(r)
+    if math.type(ii) == "integer" and ii > 0 then firsts[#firsts + 1] = ii end
+  end
   local sig = (o.where or "vault") .. ":" .. st.filter.type .. ":" .. st.filter.sub .. ":" .. st.filter.class .. ":"
     .. st.filter.lock .. ":" .. st.filter.equip .. ":" .. tostring(o.chara) .. ":" .. st.sort .. ":" .. changes
+    .. ":" .. table.concat(firsts, ",")
   if st.sig ~= sig or not st.list or (st.stamp and rq.time_ms() - st.stamp > 2000) then
-    local list = ui.item_filter(items_in(wh.places), st.filter)
+    local all = items_in(wh.places)
+    if o.only then
+      local kept = {}
+      for _, ii in ipairs(all) do
+        local ok, keep = pcall(o.only, ii)
+        if ok and keep then kept[#kept + 1] = ii end
+      end
+      all = kept
+    end
+    local list = ui.item_filter(all, st.filter)
     if not (wh.unsorted and st.sort == 1) then ui.item_sort(list, st.sort) end
+    if o.first and #o.first > 0 then
+      -- The rows first, as given (a row table keeps its words), then the rest without them.
+      local head, seen = ui.item_filter(o.first, st.filter), {}
+      for _, r in ipairs(head) do seen[ii_of(r)] = true end
+      for _, ii in ipairs(list) do if not seen[ii] then head[#head + 1] = ii end end
+      list = head
+    end
     st.list, st.sig, st.stamp = list, sig, rq.time_ms()
     st.index = nil
     if st.ii then
-      for i, ii in ipairs(list) do if ii == st.ii then st.index = i end end
+      for i, r in ipairs(list) do if ii_of(r) == st.ii then st.index = i end end
+      -- An item no longer listed (used up, sold, filtered out) is not the current one (2.44.0).
+      if not st.index then st.ii = nil end
     end
   end
   if st.sorted_as ~= st.sort then
@@ -1145,21 +1198,22 @@ function ui.item_picker(o)
   local shown = o.shown or 6
   local down = (T("filters").sub[st.filter.type] and 1 or 0) * 128
   local index, changed, _, _, chosen = ui.item_list(st.list, st.index, { x = x, y = y + down, id = key .. "-list",
-    shown = shown - down // 128, style = o.style or (o.chara and "equip") or wh.style, bar = { y, shown * 128 }, keys = o.keys })
+    shown = shown - down // 128, style = o.style or (o.chara and "equip") or wh.style, bar = { y, shown * 128 },
+    keys = o.keys, drag = o.drag })
   if changed then
     st.index = index
-    st.ii = st.list[index]
+    st.ii = ii_of(st.list[index])
   end
-  if chosen and index then picked = st.list[index] end
+  if chosen and index then picked = ii_of(st.list[index]) end
   local fstyle = o.chara and "equip" or wh.filters or "vault"
   local fx, fy = x + 407, y + 154
-  local _, fchanged = ui.filters(st.filter, { x = fx, y = fy, id = key, style = fstyle })
+  local _, fchanged = ui.filters(st.filter, { x = fx, y = fy, id = key, style = fstyle, type = o.type })
   if fchanged then ui.state("itemlist:" .. key .. "-list").top = 0 end
   if fstyle ~= "shop" then
     ui.draw(T("vault").count_box, x + 416, y + 28)
     ui.number(#st.list, { x = x + 419, y = y + 31, w = 39 })
   end
-  store_sort(st, key, fstyle, x, y)
+  store_sort(st, key, fstyle, x, y, shown * 128)
   return picked, st.ii
 end
 

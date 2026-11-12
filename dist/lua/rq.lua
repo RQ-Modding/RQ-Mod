@@ -1053,15 +1053,21 @@ function ui.choosing() end
 ---Resetting in Config's Confirmations tab turns it back on too. The key is the mod's own, found as
 ---`rq.mod.id` finds it (through `return rq.ui.confirm(...)` too, since 2.24.1).
 ---
+---The row starts unticked, as the game's. `opts.remember_checked` shows it ticked, with its words
+---and the game's tick (the game's own ticked row reads "UNDO"): when the player answers with it still
+---ticked, the question is turned off, whichever button they pressed. Ticked or not, a tick takes
+---effect at once, as in the game's own dialogs.
+---
 ---The game has one list of dialog rows, so the call shows nothing and returns nil while another
 ---dialog is being built or shows (`rq.ui.choosing`, or one of these calls), and logs it once.
 ---
 ---Raises an error while `init.lua` loads (the game is not running yet), for an empty text or one that
----is not a string, for more than 9 lines, for an option of the wrong type, and for a `remember` that
----is neither a text nor 1 to 99.
+---is not a string, for more than 9 lines, for an option of the wrong type, for a `remember` that
+---is neither a text nor 1 to 99, and for a `remember_checked` without `remember`.
 ---
 ---Since: 2.19.0
 ---Changed: 2.28.0 Shown over Config.
+---Changed: 2.44.0 `remember_checked`.
 ---
 ---```lua
 ---if rq.ui.confirm("Swap the absorbed item?\nThe old one goes back to the vault.",
@@ -1070,7 +1076,7 @@ function ui.choosing() end
 ---end
 ---```
 ---@param text string The question.
----@param opts? {yes?: string, no?: string, cursor?: "yes"|"no", sound_yes?: integer, sound_no?: integer, remember?: string|integer, remember_label?: string, game?: boolean} `yes`, `no`: the buttons' labels (default "Yes", "No"). `cursor`: the button the cursor starts on (default "yes"). `sound_yes`, `sound_no`: sound numbers for the buttons (default the game's). `remember`: a key for the mod's own "don't ask again", or 1 to 99 for the game's own. `remember_label`: how the Confirmations page names the mod's question (default the key). `game`: the text is the game's, where `@` and `$` start a line.
+---@param opts? {yes?: string, no?: string, cursor?: "yes"|"no", sound_yes?: integer, sound_no?: integer, remember?: string|integer, remember_label?: string, remember_checked?: boolean, game?: boolean} `yes`, `no`: the buttons' labels (default "Yes", "No"). `cursor`: the button the cursor starts on (default "yes"). `sound_yes`, `sound_no`: sound numbers for the buttons (default the game's). `remember`: a key for the mod's own "don't ask again", or 1 to 99 for the game's own. `remember_label`: how the Confirmations page names the mod's question (default the key). `remember_checked`: the row starts ticked (default false; since 2.44.0). `game`: the text is the game's, where `@` and `$` start a line.
 ---@return boolean|nil yes true for Yes (or a question turned off), false for No, nil when it was not shown.
 ---@see rq.ui.notice
 ---@see rq.ui.ask
@@ -1118,6 +1124,8 @@ function ui.notice(text, opts) end
 ---mod's own question. The row stands for one answer, `opts.remember_answer` (default the first row):
 ---once the player turns the question off, the call returns that row's id without asking. Pressing
 ---the row keeps the window open, as in the game's own dialogs; the player then picks a row.
+---`opts.remember_checked` shows the row ticked: when the player picks a row with it still ticked, the
+---question is turned off, whichever row they picked (a cancel turns nothing off).
 ---
 ---The window does not scroll: the rows to pick and the lines of text together are at most 20 (two
 ---separators count as one), for example 9 lines and 11 rows, or 20 rows and no text. With
@@ -1127,19 +1135,24 @@ function ui.notice(text, opts) end
 ---Raises an error while `init.lua` loads, for a text that is not a string, for more than 9 lines, for
 ---a row without text, with no row to pick, with more rows and lines than fit, for an option of the
 ---wrong type, for a `remember` that is neither a text nor 1 to 99, for a `remember_answer` that is no
----row's id, and for a `remember_answer` without `remember`.
+---row's id, and for a `remember_answer` or a `remember_checked` without `remember`.
 ---
 ---Since: 2.19.0
 ---Changed: 2.28.0 Shown over Config; `remember`, `remember_label` and `remember_answer`.
+---Changed: 2.44.0 `remember_checked`.
 ---
 ---```lua
 ---local pick = rq.ui.ask("Take Quest@Gem Lady?", {
 ---  { id = "yes", text = "Yes", sound = 5012 }, { id = "trade", text = "Trade a Jewel" }, { id = "no", text = "No" },
 ---}, { game = true, cursor = "yes", remember = 11 }) -- the game's "Take Quest" switch
+---
+----- Asked once: ticked from the start, and "no" while it is turned off.
+---local copy = rq.ui.ask("Copy the other save?", { { id = "yes", text = "Yes" }, { id = "no", text = "No" } },
+---  { remember = "copy", remember_answer = "no", remember_checked = true })
 ---```
 ---@param text string|nil The question, or nil for rows only.
 ---@param rows (string|rq.UiAskRow)[] The rows: a text, `"-"` for a separator, or a table.
----@param opts? {cursor?: any, cancel?: boolean, x?: integer, y?: integer, game?: boolean, remember?: string|integer, remember_label?: string, remember_answer?: any} `cursor`: the id of the row the cursor starts on. `cancel`: true lets a right click or Space close it, and the call returns 0 (default false, as the game's questions). `x`, `y`: the dialog's top left (default the center). `game`: the text is the game's, where `@` and `$` start a line. `remember`: a key for the mod's own "don't ask again", or 1 to 99 for the game's own. `remember_label`: how the Confirmations page names the mod's question (default the key). `remember_answer`: the id of the row returned while the question is turned off (default the first row).
+---@param opts? {cursor?: any, cancel?: boolean, x?: integer, y?: integer, game?: boolean, remember?: string|integer, remember_label?: string, remember_answer?: any, remember_checked?: boolean} `cursor`: the id of the row the cursor starts on. `cancel`: true lets a right click or Space close it, and the call returns 0 (default false, as the game's questions). `x`, `y`: the dialog's top left (default the center). `game`: the text is the game's, where `@` and `$` start a line. `remember`: a key for the mod's own "don't ask again", or 1 to 99 for the game's own. `remember_label`: how the Confirmations page names the mod's question (default the key). `remember_answer`: the id of the row returned while the question is turned off (default the first row). `remember_checked`: the row starts ticked (default false; since 2.44.0).
 ---@return any|nil id The picked row's id, 0 when cancelled, `remember_answer` while the question is turned off, nil when it was not shown.
 ---@see rq.ui.choose
 function ui.ask(text, rows, opts) end
@@ -4085,7 +4098,7 @@ function combat.on_magic(fn) end
 ---@field skill integer The skill number.
 ---@field rate integer The stun chance about to be rolled, 0 to 100: the game's, then what the callback before left. 0 when `blocked`.
 ---@field base integer The chance of the game's formula (impact, the skill, hiding, a charging target, the target's resilience, at most 75, and its other rules), also where the game does not stun.
----@field blocked? "skill"|"repeat" Why the game does not stun here: "skill" for the skills that never stun (120, Fortune 448, 152), "repeat" for a target stunned in the turn before. nil when the game rolls.
+---@field blocked? "skill"|"repeat" Why the game does not stun here: "skill" for the skills that never stun (120, Fortune 448, 152, or a skill a mod's `rq.combat.set_rules` gave `stun = false`; not one it gave `stun = true`, since 2.44.0), "repeat" for a target stunned in the turn before. nil when the game rolls.
 ---@field forecast boolean true when the game only works out the battle forecast: count nothing and roll no dice then.
 
 ---Calls `fn` where the game works out a stun, to change its chance.
@@ -4125,7 +4138,7 @@ function combat.on_stun(fn) end
 ---@field attacker integer The attacker's roster slot.
 ---@field defender integer The defender's roster slot.
 ---@field skill integer The skill number.
----@field rate integer The poison chance about to be rolled, 0 to 100: the game's (from the skill, weapon 118 or Poison Attack, 264; 0 for most hits), then what the callback before left.
+---@field rate integer The poison chance about to be rolled, 0 to 100: the game's (from the skill, weapon 118 or Poison Attack, 264; 0 for most hits; with a mod's `rq.combat.set_rules` poison rule, since 2.44.0), then what the callback before left.
 
 ---Calls `fn` after each hit on a target with no status, to change the chance it is poisoned.
 ---
@@ -4256,6 +4269,83 @@ function combat.on_heal(fn) end
 ---@return fun() remove Removes this callback.
 ---@see rq.battle.set_escape
 function combat.on_escape(fn) end
+
+---What a skill can do in a fight, from `rq.combat.rules`.
+---
+---Since: 2.44.0
+---@class rq.CombatRules
+---@field crit boolean|"sometimes" Can it deal a critical hit: true where the game rolls the attacker's chance; "sometimes" where the game zeroes that chance (a multiplier over 150, or skill 120) but skill 549 or party item 91 can add to it; false for a skill that is not a physical attack.
+---@field stun boolean|"sometimes" Can it stun: true for a physical attack, function 59 and the skills that stun in their own code (149, 183, 422, 507); false for the skills the game never stuns with (120, Fortune 448, 152) and the rest.
+---@field poison "own"|"coat"|"sometimes"|false Can it poison: "own" with a rate of its own (`poison_rate`), "coat" only through the attacker's weapon 118 or Poison Attack (264) on a physical attack, false never.
+---@field poison_rate? integer The skill's own poison chance, 0 to 100, when it has one the loader knows (the game's table in `毒計算`, or a mod's rule).
+---@field accuracy "ignores"|"rolls" "ignores" for function 56 or 79, which never miss; "rolls" for the rest.
+---@field set_by? table<string, string> For each rule a mod set (`crit`, `stun`, `poison`), the mod's id. nil when no mod set one.
+
+---Returns what a skill can do in a fight: crit, stun, poison and accuracy.
+---
+---Worked out at each call from the skill's data as it is now (`rq.skill.get`: its action kind,
+---multiplier and function, so a `rq.skill.patch` shows), the game's rules by skill number, which
+---the game keeps only in its combat code (the loader knows them), and the rules mods set with
+---`rq.combat.set_rules`. For a skill's hover text, as Better Explained writes it.
+---
+---The game's own exceptions show as "sometimes": a skill whose crit chance the game zeroes can
+---still crit with skill 549 or item 91. A rule a mod changes through a callback (`on_crit`,
+---`on_stun`, `on_poison`) does not show here unless that mod also calls `set_rules`.
+---
+---Raises an error when `skill` is not a whole number.
+---
+---Since: 2.44.0
+---
+---```lua
+---rq.skill.on_describe(function(no, text)
+---  local r = rq.combat.rules(no)
+---  if r and r.crit == false then return text .. "\nCan't Crit" end
+---  return text
+---end)
+---```
+---@param skill integer The skill number.
+---@return rq.CombatRules|nil rules What it can do; nil when there is no such skill, and before the game runs (at a mod's top level).
+---@see rq.combat.set_rules
+function combat.rules(skill) end
+
+---Changes what a skill can do in a fight: its crit, stun or poison rule, in the fight and in
+---`rq.combat.rules` together.
+---
+---Each field of `rules` sets one rule; the fields left out keep theirs:
+---
+---- `crit = true`: the skill rolls the attacker's crit chance even where the game zeroes it (a
+---  multiplier over 150, or skill 120), with the game's other rules (+30 hidden, halved for all
+---  enemies). `false`: it never crits.
+---- `stun = true`: it stuns at the chance of the game's formula even where the game never stuns
+---  (skills 120, Fortune 448 and 152; `rq.combat.on_stun`'s `base`). `false`: it never stuns.
+---- `poison = N` (0 to 100): its own poison chance, as the game's poison skills have; the
+---  weapon's or the coat's chance when higher, and a target the game shields (a barrier, character
+---  22, skill 502, item 195) is not poisoned. `false`: it never poisons.
+---- `"sometimes"`: the fight is left as it is, and `rules` says "sometimes", for a mod whose change
+---  depends on the fight and stays in its own callback.
+---- `"game"`: back to the game's rule.
+---
+---In the fight the rules act where the game works out those rolls: on physical attacks
+---(`クリティカル計算`, `衝撃計算`, `毒計算`). The callbacks (`on_crit`, `on_stun`, `on_poison`) run
+---after the rule and see its chance. The last call for a skill wins, whichever mod made it.
+---
+---A mod sets its rules from `init.lua`, before the game's skills are read: the skill is not checked
+---then, and the call returns nil until the game runs.
+---
+---Raises an error when `skill` is not a whole number above 0, `rules` is not a table, or a field is
+---not one of the three or has another value.
+---
+---Since: 2.44.0
+---
+---```lua
+---rq.combat.set_rules(rq.ids.skill.FORTUNE, { crit = true, stun = true }) -- Fortune crits and stuns
+---rq.combat.set_rules(MY_SKILL, { poison = 40 })
+---```
+---@param skill integer The skill number.
+---@param rules {crit?: boolean|"sometimes"|"game", stun?: boolean|"sometimes"|"game", poison?: integer|false|"sometimes"|"game"} The rules to change.
+---@return rq.CombatRules|nil rules What the skill can do now; nil before the game runs, or for no such skill.
+---@see rq.combat.rules
+function combat.set_rules(skill, rules) end
 
 ---What `rq.counter.on_guard_counter` gets.
 ---@class rq.CounterGuardCtx
@@ -8139,7 +8229,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.43.0"
+rq.version = "2.44.0"
 
 rq.units = units
 rq.items = items
@@ -9267,13 +9357,24 @@ function uikit.choice(list, index, opts) end
 ---Under the keys' cursor, Page Down raises it and Page Up lowers it by `step`, or a twentieth (5%),
 ---as Config's sliders: on the press, then on every update after 250 ms.
 ---
+---`opts.band` draws a part of the track lighter, such as a range a mod recommends; it does not limit
+---the value. The third value it returns tells a drag that goes on from a value that is final: a page
+---that acts on the value (a question, a write to a file) can wait for the knob's release.
+---
 ---Since: 1.7.0
 ---Changed: 1.8.0 Added `opts.label`.
 ---Changed: 2.12.0 Page Up and Page Down.
+---Changed: 2.44.0 `opts.band`, and a third value, `held`.
+---
+---```lua
+---local v, changed, held = rq.uikit.slider(zoom, { min = 5, max = 250, step = 0.5, band = { 60, 150 } })
+---if changed and not held then save(v) end -- a wheel step, a click; a drag saves at its release
+---```
 ---@param value number The value.
----@param opts? rq.UiPlace|{min?: number, max?: number, step?: number, low?: string, high?: string, label?: string, disabled?: boolean} `w`: the track's width (default 200). `min` (default 0), `max` (default 1), `step`, `low` and `high` (texts at the ends), `label` (its name in `rqmod-ctl ui`), `disabled`.
+---@param opts? rq.UiPlace|{min?: number, max?: number, step?: number, low?: string, high?: string, band?: number[], label?: string, disabled?: boolean} `w`: the track's width (default 200). `min` (default 0), `max` (default 1), `step`, `low` and `high` (texts at the ends), `band` ({from, to}: that part of the track drawn lighter), `label` (its name in `rqmod-ctl ui`), `disabled`.
 ---@return number value The new value.
 ---@return boolean changed true on the update it changed.
+---@return boolean held true while the knob is dragged: the value may still change. Since 2.44.0.
 function uikit.slider(value, opts) end
 
 ---What `rq.uikit.stepper` takes.
@@ -10307,18 +10408,20 @@ function uikit.item_card_size() end
 ---@return boolean chosen true on the update a row is clicked or Enter is pressed (2.9.0).
 function uikit.item_list(rows, index, opts) end
 
----Returns the row dropped on this update on another list of a drag group (`item_list`'s `drag`).
+---Returns the row dropped on this update on another list of a drag group (`item_list`'s `drag`),
+---and the row of the list it was dropped on, for a list whose rows are places (slots).
 ---
 ---Raises an error when `group` is not a name.
 ---
 ---Since: 2.9.0
+---Changed: 2.44.0 The fifth value, `at`.
 ---
 ---```lua
 ---rq.on_frame(function()
 ---  a_pick = rq.uikit.item_list(a, a_pick, { x = 101, y = 0, id = "a", drag = "mine" })
 ---  b_pick = rq.uikit.item_list(b, b_pick, { x = 538, y = 0, id = "b", drag = "mine" })
----  local row, from, to = rq.uikit.item_dropped("mine")
----  if row then move(row, from, to) end
+---  local row, from, to, _, at = rq.uikit.item_dropped("mine")
+---  if row then move(row, from, to, at) end -- at: the row of `to` under the mouse
 ---end)
 ---```
 ---@param group? string The group; nil for any.
@@ -10326,6 +10429,7 @@ function uikit.item_list(rows, index, opts) end
 ---@return string|nil from The `id` of the list it came from.
 ---@return string|nil to The `id` of the list it was dropped on.
 ---@return integer|nil index Its index in the list it came from.
+---@return integer|nil at The index of the row it was dropped on in the list `to`; nil past its last row. Since 2.44.0.
 function uikit.item_dropped(group) end
 
 ---Draws the game's storage screen: the storage's red list on the left and the vault's list right of
@@ -10425,10 +10529,15 @@ function uikit.number(value, opts) end
 ---`-unlocked`, `-equippable`, `-unequippable`, and the sub-filters by their names
 ---(`filter-<id>-swords`, `-rank-a`, `-others`).
 ---
----Raises an error when the state is not a table of whole numbers, or with another style.
+---With `opts.type` the category stays picked: the others are drawn dim and take no click, for a
+---list of one kind (`item_picker`'s `type`). The sub-filters of that category work as usual.
+---
+---Raises an error when the state is not a table of whole numbers, with another style, or with a
+---`type` that is not a category.
 ---
 ---Since: 2.8.0
 ---Changed: 2.9.0 `style`, and Equippable / Unequippable.
+---Changed: 2.44.0 `type`.
 ---
 ---```lua
 ---local state = {}
@@ -10438,7 +10547,7 @@ function uikit.number(value, opts) end
 ---end)
 ---```
 ---@param state? rq.UiFilterState The state; a new one when nil.
----@param opts? rq.UiPlace|{style?: "vault"|"shop"|"equip", back?: boolean, classes?: boolean, lock?: boolean, equip?: boolean, sub?: false|{x: integer, y: integer}} Place (the categories' top left, 945, 154 in the vault, the shop and the equip list) and `id`; `style` (default "vault"); `back` (the column's grey, default true); `classes`, `lock` and `equip` (false leaves them out); `sub` (where the sub-filters' panel goes, default 407 left and 153 up, over the list's first row; false leaves it out).
+---@param opts? rq.UiPlace|{style?: "vault"|"shop"|"equip", back?: boolean, classes?: boolean, lock?: boolean, equip?: boolean, sub?: false|{x: integer, y: integer}, type?: integer} Place (the categories' top left, 945, 154 in the vault, the shop and the equip list) and `id`; `style` (default "vault"); `back` (the column's grey, default true); `classes`, `lock` and `equip` (false leaves them out); `sub` (where the sub-filters' panel goes, default 407 left and 153 up, over the list's first row; false leaves it out); `type` (a category kept picked: 21, 1, 11 or 17; since 2.44.0).
 ---@return rq.UiFilterState state The state.
 ---@return boolean changed true on the update it changed.
 function uikit.filters(state, opts) end
@@ -10510,12 +10619,23 @@ function uikit.item_sorts() end
 ---scroll and the pick are kept by `opts.id` (`rq.uikit.state("picker:<id>")` has `filter`, `sort`,
 ---`list` and `ii`).
 ---
----Raises an error with another place, or when `chara` is not a whole number.
+---For a list of some items only: `opts.only` keeps the items it returns true for, `opts.type` keeps
+---one category picked in the column (21 for special items: the rank buttons over the list and
+---Locked / Unlocked still filter), and `opts.first` puts rows before the rest, in its order and
+---unsorted, filtered as the rest (an item worn now, as a row table with its own `level` words).
+---`opts.drag` lets the rows be dragged onto another list of that group (`item_list`'s `drag`,
+---`item_dropped`). With `shown` under 6 the SORT sits at the list's own foot. The current instance
+---is one the list shows: an item used up, sold or filtered out is no longer current.
+---
+---Raises an error with another place, when `chara` is not a whole number, when `only` is not a
+---function, `first` not a list, `drag` not a name, or `type` not a category.
 ---
 ---Since: 2.8.0
 ---Changed: 2.9.0 The shop and quest places, `chara`, `keys`; a click on the current row picks it again.
 ---Changed: 2.10.0 The game's SORT at the bottom right, in place of the sort button under the column
 ---(`button-<id>-sort` is now `tab-<id>-sort-default-sort` and the mode's tab); the saved sort mode.
+---Changed: 2.44.0 `only`, `type`, `first` and `drag`; the SORT at the foot of a shorter list; the
+---current instance cleared when the list no longer shows it.
 ---
 ---```lua
 ---local picking = true
@@ -10528,10 +10648,14 @@ function uikit.item_sorts() end
 ---    give(ii)
 ---  end
 ---end)
+---
+----- Special items only, unlocked ones, the worn one first.
+---local ii = rq.uikit.item_picker({ x = 538, y = 0, id = "special", type = 21,
+---  only = function(ii) return not rq.uikit.item_data(ii).locked end, first = { worn_row } })
 ---```
----@param opts? rq.UiPlace|{where?: "vault"|"storage"|"both"|"shop"|"quest", chara?: integer, shown?: integer, style?: "vault"|"storage"|"shop"|"equip", sort?: integer, keys?: boolean} Place and `id`; `where` (default "vault"); `chara` (a character's roster slot: their equip list); `shown` (rows, default 6); `style` of the rows (default from `where`); `sort` (the first sort mode, default the stores' saved one; a mode under 10 is 1, as in the game); `keys` (the list's keys).
+---@param opts? rq.UiPlace|{where?: "vault"|"storage"|"both"|"shop"|"quest", chara?: integer, shown?: integer, style?: "vault"|"storage"|"shop"|"equip", sort?: integer, keys?: boolean, only?: fun(ii: integer): boolean, type?: integer, first?: (integer|rq.UiItemRow)[], drag?: string} Place and `id`; `where` (default "vault"); `chara` (a character's roster slot: their equip list); `shown` (rows, default 6); `style` of the rows (default from `where`); `sort` (the first sort mode, default the stores' saved one; a mode under 10 is 1, as in the game); `keys` (the list's keys); since 2.44.0: `only` (keeps the items it returns true for), `type` (a category kept picked: 21, 1, 11 or 17), `first` (rows before the rest), `drag` (a drag group).
 ---@return integer|nil picked The instance picked on this update.
----@return integer|nil current The instance picked last.
+---@return integer|nil current The instance picked last, while the list shows it.
 function uikit.item_picker(opts) end
 
 ---A page in the Mods tab of the game's Config screen.
@@ -10612,7 +10736,15 @@ function config.show(id) end
 ---keep none. Each value's row checks it: a stored value it cannot take, as a number past `max` after
 ---the mod lowered it, reads as the default.
 ---
+---A slider shows its value beside the track (`format`) and writes it when the knob is let go. A
+---stepper or a slider with `recommend` draws that range lighter on the track (a slider's), says
+---"Recommended: a to b" after the control (under the row when the line has no room), and asks with
+---the game's Yes / No when the player sets a value outside it: the question gives the value, the
+---range and `warn`; Yes keeps the value, No puts the range's nearest end. Moving further on the same side does not ask again. `Settings.set` and
+---Reset never ask.
+---
 ---Since: 2.35.0
+---Changed: 2.44.0 A slider shows its value and writes it at the release; `format`, `value`, `recommend` and `warn`.
 ---@class rq.SettingsRow
 ---@field kind "checkbox"|"stepper"|"slider"|"choice"|"input"|"label"|"space" The widget.
 ---@field key? string Where the value is kept in the store; each value row needs one, and no two rows share one. A mod that had a page of its own keeps its players' settings by naming the keys it used.
@@ -10629,6 +10761,10 @@ function config.show(id) end
 ---@field big? integer A stepper's step with Shift held. Default `step` x 10.
 ---@field low? string A slider's text at its low end.
 ---@field high? string A slider's text at its high end.
+---@field format? string How a slider's value is written beside it, a `string.format` pattern for one number, such as "%.1f". Default "%g". Since 2.44.0.
+---@field value? boolean false hides a slider's value. Default true. Since 2.44.0.
+---@field recommend? number[] A stepper's or a slider's recommended range, {min, max}, inside its `min` and `max`; leaving it asks the player first. Since 2.44.0.
+---@field warn? string What the question says past the recommended range: what goes wrong there. Needs `recommend`. Since 2.44.0.
 ---@field options? string[] A choice's texts.
 ---@field values? any[] A choice's values, one for each option; without them a choice keeps the option's number, 1 and up.
 ---@field dir? "row"|"col" A choice's options side by side (default) or one under another.
@@ -10711,10 +10847,12 @@ function Settings.reset() end
 ---the page, and its object keeps working on the same keys.
 ---
 ---Raises an error for a row that is not one of the kinds, a value row with no key or a key used
----twice, a default the row cannot take, or a `keep` that is not one of the three; and when called
+---twice, a default the row cannot take, a `recommend` that is not two numbers inside the row's `min`
+---and `max`, a `warn` without `recommend`, or a `keep` that is not one of the three; and when called
 ---from no mod's code.
 ---
 ---Since: 2.35.0
+---Changed: 2.44.0 Rows with `recommend` and `warn`; a slider's value.
 ---
 ---```lua
 ---local settings = rq.config.settings({
@@ -10725,6 +10863,9 @@ function Settings.reset() end
 ---      note = "How many each time." },
 ---    { kind = "choice", key = "speed", label = "Speed", options = { "Slow", "Fast" },
 ---      values = { 0.5, 2 }, disabled = function() return not settings.get("on") end },
+---    { kind = "slider", key = "zoom", label = "Farthest zoom", min = 35, max = 250, step = 1,
+---      default = 120, format = "%.0f", recommend = { 60, 150 },
+---      warn = "Past 150 the edge of the sky shows as black corners." },
 ---  },
 ---})
 ---settings.on_change(function(key, value) rq.log(key, "is now", value) end)
