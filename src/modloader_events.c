@@ -358,6 +358,43 @@ static void push_party(lua_State *L, int gi)
 	}
 }
 
+/* One element of an array global (FA[73]), 0 when it cannot be read. */
+static int garr(int *gi, const char *name, int idx)
+{
+	struct page *arr = NULL;
+	int slot;
+
+	if (*gi == -2)
+		*gi = find_gi_utf(name);
+	if (*gi < 0 || !heap || !heap_size || !heap[0].page)
+		return 0;
+	slot = global_get(*gi).i;
+	if (page_index_valid(slot))
+		arr = heap_get_page(slot);
+	if (!arr || arr->type != ARRAY_PAGE || idx < 0 || idx >= arr->nr_vars)
+		return 0;
+	return arr->values[idx].i;
+}
+
+/* on_start's ambush (2.37.0): ◆奇襲 as the game set it in Ｔ戦闘前初期化, and for a first strike
+ * the ally FA[73] names (the game's notice). */
+static void push_ambush(lua_State *L)
+{
+	static int gi_amb = -2, gi_fa = -2;
+	int v = gint(&gi_amb, "◆奇襲");
+	const char *kind = v == 1 ? "surprise" : v == 2 ? "first_strike" : v == 11 ? "ambushed" : "none";
+
+	lua_pushstring(L, kind);
+	lua_setfield(L, -2, "ambush");
+	if (v == 2) {
+		int iic = garr(&gi_fa, "FA", 73);
+		if (iic > 0) {
+			lua_pushinteger(L, iic);
+			lua_setfield(L, -2, "first_striker");
+		}
+	}
+}
+
 static void run_cbs(const int *refs, int n, int boss, int result, int is_start)
 {
 	lua_State *L = rq_lua();
@@ -387,6 +424,8 @@ static void run_cbs(const int *refs, int n, int boss, int result, int is_start)
 			lua_pushinteger(L, gint(&gi_r, "◆戦闘ランク"));
 			lua_setfield(L, -2, "rank");
 		}
+		if (is_start)
+			push_ambush(L);
 		if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
 			rq_log("battle %s error: %s", is_start ? "on_start" : "on_end", lua_tostring(L, -1));
 			lua_pop(L, 1);

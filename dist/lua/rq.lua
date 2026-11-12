@@ -3846,6 +3846,7 @@ function combat.on_accuracy(fn) end
 ---```
 ---@param fn fun(ctx: rq.CritCtx): boolean|nil Returns true, false, or nil to roll.
 ---@return fun() remove Removes this callback.
+---@see rq.combat.on_stun
 function combat.on_crit(fn) end
 
 ---What `rq.combat.on_magic` gets for one spell.
@@ -3884,6 +3885,187 @@ function combat.on_crit(fn) end
 ---@return fun() remove Removes this callback.
 ---@see rq.combat.on_physical
 function combat.on_magic(fn) end
+
+---What `rq.combat.on_stun` gets where the game works out a stun.
+---
+---Since: 2.37.0
+---@class rq.StunCtx
+---@field attacker integer The attacker's roster slot.
+---@field defender integer The defender's roster slot.
+---@field skill integer The skill number.
+---@field rate integer The stun chance about to be rolled, 0 to 100: the game's, then what the callback before left. 0 when `blocked`.
+---@field base integer The chance of the game's formula (impact, the skill, hiding, a charging target, the target's resilience, at most 75, and its other rules), also where the game does not stun.
+---@field blocked? "skill"|"repeat" Why the game does not stun here: "skill" for the skills that never stun (120, Fortune 448, 152), "repeat" for a target stunned in the turn before. nil when the game rolls.
+---@field forecast boolean true when the game only works out the battle forecast: count nothing and roll no dice then.
+
+---Calls `fn` where the game works out a stun, to change its chance.
+---
+---It runs in `衝撃計算` for each hit of an attack, and for the battle forecast with `ctx.forecast`
+---true. `fn` returns the chance, 0 to 100, or nil to keep it; true is 100 and false is 0, and a
+---number past either end is held there. Each callback sees in `ctx.rate` what the one before left.
+---The game then rolls the last chance with its own roll (`確率演算`): the forecast's "Stun N%" and
+---the log's " (Stun rate = N)" show it.
+---
+---It also runs for the hits the game never stuns with: the skills 120, Fortune (448) and 152, and a
+---target stunned in the turn before (the game's rule against a stun every turn). There `ctx.rate`
+---is 0 and `ctx.blocked` says why; `ctx.base` is what the formula gives, so a mod can let one of
+---them stun.
+---
+---A stunned target loses its next turn and stops charging, as with the game's own stun. A target
+---that is already stunned, or a hit that does no damage, is the game's to judge as before.
+---
+---Raises an error, logged, for a return that is not a number, a boolean or nil.
+---
+---Since: 2.37.0
+---
+---```lua
+---rq.combat.on_stun(function(ctx)
+---  if ctx.skill == FORTUNE and ctx.blocked == "skill" then return ctx.base end -- Fortune stuns
+---end)
+---```
+---@param fn fun(ctx: rq.StunCtx): integer|boolean|nil Returns the chance, true, false or nil.
+---@return fun() remove Removes this callback.
+---@see rq.combat.on_crit
+function combat.on_stun(fn) end
+
+---What `rq.combat.on_poison` gets where the game works out a poison.
+---
+---Since: 2.37.0
+---@class rq.PoisonCtx
+---@field attacker integer The attacker's roster slot.
+---@field defender integer The defender's roster slot.
+---@field skill integer The skill number.
+---@field rate integer The poison chance about to be rolled, 0 to 100: the game's (from the skill, weapon 118 or Poison Attack, 264; 0 for most hits), then what the callback before left.
+
+---Calls `fn` after each hit on a target with no status, to change the chance it is poisoned.
+---
+---It runs in `毒計算`, after the stun, for each hit of an attack on a target that is not poisoned,
+---stunned or down. `fn` returns the chance, 0 to 100, or nil to keep it; true is 100 and false is
+---0. Most hits have a chance of 0 in the game, so a mod can give one to any attack. The log's first
+---line shows " (Poison = N)", as for the game's own poison (the game shows no word when it takes).
+---The game makes no forecast for a poison.
+---
+---Raises an error, logged, for a return that is not a number, a boolean or nil.
+---
+---Since: 2.37.0
+---
+---```lua
+---rq.combat.on_poison(function(ctx)
+---  if rq.item.number(rq.item.equipped(ctx.attacker).weapon or 0) == VENOM_BLADE then return 30 end
+---end)
+---```
+---@param fn fun(ctx: rq.PoisonCtx): integer|boolean|nil Returns the chance, true, false or nil.
+---@return fun() remove Removes this callback.
+---@see rq.combat.on_stun
+function combat.on_poison(fn) end
+
+---What `rq.combat.on_counter` gets after a hit.
+---
+---Since: 2.37.0
+---@class rq.CounterCtx
+---@field attacker integer The attacker's roster slot: who the counter would hit.
+---@field defender integer The roster slot of the character that was hit: who would counter.
+---@field skill integer The skill of the hit.
+---@field rate integer The counter chance about to be rolled, 0 to 100: the game's, then what the callback before left. 0 without the Counter skill, or when `blocked`.
+---@field base integer The chance of the Counter skill (259) the defender learned, before the game's blocks; 0 without it.
+---@field damage integer The damage of the hit.
+---@field guarded boolean Ally Guard took the hit for the one it was aimed at (`FA[77]`).
+---@field blocked? "familiar"|"area"|"stunned"|"guard" Why the game does not counter: the familiar's attack, a skill on more than one target, a stunned defender, a hit Ally Guard took (unless `rq.counter.on_guard_counter` lets it through). nil otherwise.
+---@field counter boolean The hit is itself a counter.
+
+---Calls `fn` after each hit that leaves the character hit standing, to change the chance it counters.
+---
+---It runs in `ダメージ後計算`, for allies, enemies and familiars, whether or not the one hit has the
+---Counter skill (259), a yellow skill of any class that learned it. `fn` returns the chance, 0 to
+---100, or nil to keep it; true is 100 and false is 0. A counter is the game's: the one hit uses
+---Counter Attack (116) on the attacker, with " (counter)" in the log, and `rq.battle.on_hit` and
+---`on_use` see it with `counter` true. A counter can be countered, as in the game; after 10 counters
+---in a row the loader grants no more, so two callbacks that always counter cannot loop.
+---
+---`rq.counter.on_guard_counter` still decides first whether Ally Guard clears the Counter skill's
+---chance; `ctx.rate` is then what it left.
+---
+---Raises an error, logged, for a return that is not a number, a boolean or nil.
+---
+---Since: 2.37.0
+---
+---```lua
+---rq.combat.on_counter(function(ctx)
+---  if thorns[ctx.defender] and not ctx.counter then return math.max(ctx.rate, 50) end
+---end)
+---```
+---@param fn fun(ctx: rq.CounterCtx): integer|boolean|nil Returns the chance, true, false or nil.
+---@return fun() remove Removes this callback.
+---@see rq.counter.on_guard_counter
+function combat.on_counter(fn) end
+
+---What `rq.combat.on_heal` gets for one heal; `amount` is writable.
+---
+---Since: 2.37.0
+---@class rq.HealCtx
+---@field healer integer The roster slot of the one who healed.
+---@field target integer The roster slot that gets the HP.
+---@field skill integer The skill number.
+---@field kind "skill"|"revive"|"absorb" A support skill's heal, a revive of a downed character, or HP absorb from a hit (the attacker gets the damage).
+---@field amount integer The HP given, as the game shows it; write it to change it. Rounded down, 0 or more. The HP stops at the most HP.
+
+---Calls `fn` when a skill gives HP in a fight, to change how much.
+---
+---It runs after a support skill's heal or revive (`Ｔ補助行動`: First Aid, the Healing spells,
+---Recovery Rain, Maiden's Spirit, Bishamonten, Am Powder, Epinephrend, Status Restore, Full Revive,
+---and a mod skill patched to one of them) and after a hit with HP absorb (`ダメージ後計算`), before
+---anything shows. Each callback sees in `ctx.amount` what the one before left. The HP given, the
+---number shown and the number in the log's " recovered N HP." follow the last amount. A revive
+---gives at least 1 HP. A heal the game makes 0 (a downed target, Medicine on Suzume, skill 366) is
+---not reported.
+---
+---Regeneration at a turn start is not a skill: give or take it with `rq.battle.on_turn`'s
+---`ctx:heal`. Outside fights the game's heals are `rq.chara.heal` and `rq.party.heal`.
+---
+---Since: 2.37.0
+---
+---```lua
+---rq.combat.on_heal(function(ctx)
+---  if cursed[ctx.target] then ctx.amount = ctx.amount // 2 end -- a curse halves healing
+---end)
+---```
+---@param fn fun(ctx: rq.HealCtx) Gets the heal; writes `ctx.amount` to change it.
+---@return fun() remove Removes this callback.
+---@see rq.battle.on_turn
+function combat.on_heal(fn) end
+
+---What `rq.combat.on_escape` gets.
+---
+---Since: 2.37.0
+---@class rq.EscapeCtx
+---@field iic integer The roster slot of the ally who used the skill.
+---@field skill integer 211 for Escape, 217 for "Relax, relax".
+---@field rate integer The chance it works, 0 to 100: for Escape the fight's escape chance (`rq.battle.escape`), for 217 100 or 0; then what the callback before left. 0 when `blocked`.
+---@field blocked? "enemy"|"rank"|"quest" Why the game says no: an enemy standing with skill 437 (Escape), fight rank 2 or the quest's rule (217). nil otherwise.
+
+---Calls `fn` when an ally uses Escape or "Relax, relax", to change the chance it ends the fight.
+---
+---Escape (211) flees the fight (the result "fled"): the game rolls the fight's escape chance. "Relax,
+---relax" (217) ends it as the enemies leave (the game's result 6), always, but not at fight rank 2
+---or under the quest's rule. `fn` returns the chance, 0 to 100, or nil to keep it; true is 100 and
+---false is 0. When the last chance differs from the game's, the loader rolls it with the game's
+---roll. A failed Escape still raises the chance by 5, as the game does.
+---
+---It does not run in a boss fight, where nothing ends the fight but a win or a loss.
+---
+---Raises an error, logged, for a return that is not a number, a boolean or nil.
+---
+---Since: 2.37.0
+---
+---```lua
+---rq.combat.on_escape(function(ctx)
+---  if ctx.skill == 211 and has_smoke_bomb(ctx.iic) then return 100 end
+---end)
+---```
+---@param fn fun(ctx: rq.EscapeCtx): integer|boolean|nil Returns the chance, true, false or nil.
+---@return fun() remove Removes this callback.
+---@see rq.battle.set_escape
+function combat.on_escape(fn) end
 
 ---What `rq.counter.on_guard_counter` gets.
 ---@class rq.CounterGuardCtx
@@ -3932,6 +4114,7 @@ function counter.install() end
 ---Changed: 2.35.0 Places the patch itself; before, it needed `rq.counter.install`.
 ---@param fn fun(ctx: rq.CounterGuardCtx): boolean|nil Returns true to keep the Counter rate.
 ---@return fun() remove Removes this callback.
+---@see rq.combat.on_counter
 function counter.on_guard_counter(fn) end
 
 ---Adds stock to Frostbuy, the item shop, and reports purchases.
@@ -4138,6 +4321,8 @@ function battle.on_select_key(fn) end
 ---@field enemies integer[] The enemies' slots, below 20.
 ---@field group integer The fight group (`◆戦闘グループ`). Since 0.9.0.
 ---@field rank integer The fight rank (`◆戦闘ランク`). Since 0.9.0.
+---@field ambush "none"|"surprise"|"first_strike"|"ambushed" The ambush the game decided: none, the party's surprise attack, a first strike, or the enemies' ambush. Change it with `rq.battle.set_ambush`. Since 2.37.0.
+---@field first_striker? integer With "first_strike", the ally the game's notice names. Since 2.37.0.
 
 ---What `rq.battle.on_end` gets.
 ---@class rq.BattleEndCtx
@@ -4154,8 +4339,12 @@ function battle.on_select_key(fn) end
 ---it: change how they are built with `rq.monster.on_create`. In a fight of `rq.battle.start`, its
 ---`escape` is written before the first callback.
 ---
+---The ambush is decided by then (`ctx.ambush`); `rq.battle.set_ambush` changes it here, before the
+---turn list is built. The escape chance is `rq.battle.escape` and `set_escape`.
+---
 ---Since: 0.5.0
 ---Changed: 0.23.0 Returns a remover.
+---Changed: 2.37.0 `ctx.ambush` and `first_striker`.
 ---
 ---```lua
 ---rq.battle.on_start(function(ctx)
@@ -4391,6 +4580,7 @@ function BattleTurnCtx:skip() end
 ---
 ---Since: 2.1.0
 ---@param text string The text to add.
+---@see rq.battle.on_log
 function BattleTurnCtx:log(text) end
 
 ---Calls `fn` at the start of every turn in a fight, for allies, enemies and familiars.
@@ -4447,6 +4637,7 @@ local BattleHitCtx = {}
 ---
 ---Since: 2.1.0
 ---@param text string The text to add.
+---@see rq.battle.on_log
 function BattleHitCtx:log(text) end
 
 ---Calls `fn` after each attack or special skill on a target, with its result.
@@ -4508,6 +4699,242 @@ function battle.on_hit(fn) end
 ---@return fun() remove Removes this callback.
 ---@see rq.combat.on_physical
 function battle.on_forecast(fn) end
+
+---One unit of a fight, as `rq.battle.on_order` lists it.
+---
+---Since: 2.37.0
+---@class rq.OrderUnit
+---@field iic integer The unit's roster slot: an ally's, 1 to 5 for an enemy, 10 for the familiar.
+---@field side "ally"|"enemy"|"familiar" Its side.
+---@field rank integer Its rank, 1 to 5; 0 for the familiar.
+---@field spd integer The speed the game reads for the turn list (in `on_order`, after the earlier callbacks' `ctx:speed`).
+---@field out boolean true when the game gives it no turns now: down, or an ally with no skill use left.
+---@field owner? integer The familiar's owner, an ally's roster slot.
+---@field item? integer The familiar's item instance; nil when it cannot be found.
+---@field own_spd? integer The familiar's speed as built, before the game holds it to the party's top speed.
+
+---What `rq.battle.on_order` gets before the game builds the turn list.
+---
+---Since: 2.37.0
+---@class rq.BattleOrderCtx
+---@field rebuild boolean false at the fight's start, true when the game builds the list again after a switch, a shuffle (skill 530) or a revive.
+---@field units rq.OrderUnit[] Every unit in the fight: the allies by rank, the enemies by rank, then the familiar.
+local BattleOrderCtx = {}
+
+---Sets one unit's speed for this build of the turn list only.
+---
+---The game reads it in place of the unit's own; the own speed comes back right after the build,
+---so the status screens and the next build show it. The game counts a speed of 0 as 1.
+---
+---Raises an error for a unit not in the fight or a speed that is not whole, 0 to 9999.
+---
+---Since: 2.37.0
+---@param iic integer The unit's roster slot, from `ctx.units`.
+---@param n integer The speed, 0 to 9999.
+function BattleOrderCtx:speed(iic, n) end
+
+---What `rq.battle.on_order_after` gets after the game built the turn list.
+---
+---Since: 2.37.0
+---@class rq.BattleOrderAfterCtx
+---@field rebuild boolean false at the fight's start, true after a switch, a shuffle or a revive.
+---@field units rq.OrderUnit[] Every unit in the fight, with their own speeds.
+---@field order integer[] The list, up to 50 roster slots in the order they act; after `ctx:set_order`, the list set.
+local BattleOrderAfterCtx = {}
+
+---Replaces the turn list the game built.
+---
+---The fight goes through the list from the first entry and starts again at the first after the
+---last. A unit that cannot act when its entry comes (down, stunned, an ally with no skill use left)
+---is passed over, as in the game's list. A unit left out never acts until the list is built again.
+---The turn icons show the new list.
+---
+---Raises an error for a list that is empty or longer than 50, or an entry that is not a unit of the
+---fight.
+---
+---Since: 2.37.0
+---@param list integer[] Roster slots, 1 to 50 of them, from `ctx.units`.
+function BattleOrderAfterCtx:set_order(list) end
+
+---Calls `fn` each time the game builds the turn list, to change the speeds it is built from.
+---
+---The game builds the whole list of a fight's turns at its start (`Ｔ順番生成`) and again after a
+---switch, a shuffle or a revive, reading each unit's speed there and nowhere else in a fight.
+---`ctx:speed` sets a speed for that build only. Each round of the list every unit takes its speed,
+---with chance, from a box of 300 and gets an entry when it is empty; a unit far faster gets
+---several entries a round. The game's other rules stay: Head Start, the first entries of an ambush,
+---the catch-up of a unit with no turn yet, an enemy far slower than the party sped up half the time.
+---
+---The familiar's unit has `owner`, `item` and `own_spd`: the game holds a familiar's speed to the
+---party's top speed when it builds it, and `own_spd` is the speed before that.
+---
+---Since: 2.37.0
+---
+---```lua
+---rq.battle.on_order(function(ctx)
+---  for _, u in ipairs(ctx.units) do
+---    if hasted[u.iic] then ctx:speed(u.iic, u.spd * 6 // 5) end -- a fifth faster
+---  end
+---end)
+---```
+---@param fn fun(ctx: rq.BattleOrderCtx) Gets the units before the build.
+---@return fun() remove Removes this callback.
+---@see rq.battle.on_order_after
+function battle.on_order(fn) end
+
+---Calls `fn` each time the game has built the turn list, to read or replace it.
+---
+---It runs after `rq.battle.on_order`'s build, before the turn icons are made from the list. Each
+---callback sees in `ctx.order` the list the one before left.
+---
+---Since: 2.37.0
+---
+---```lua
+---rq.battle.on_order_after(function(ctx)
+---  if not ctx.rebuild and first_mover then
+---    local list = ctx.order
+---    table.insert(list, 1, first_mover) -- one more turn for them, first
+---    if #list > 50 then list[51] = nil end
+---    ctx:set_order(list)
+---  end
+---end)
+---```
+---@param fn fun(ctx: rq.BattleOrderAfterCtx) Gets the list.
+---@return fun() remove Removes this callback.
+---@see rq.battle.on_order
+function battle.on_order_after(fn) end
+
+---The familiar of a fight, as `rq.battle.familiar` returns it.
+---
+---Since: 2.37.0
+---@class rq.BattleFamiliar
+---@field iic integer Its roster slot, 10.
+---@field no integer Its monster number.
+---@field owner integer The roster slot of the ally it fights beside.
+---@field item? integer The familiar item's instance: the owner's held item, or the vault's for one that jumped in. nil when it cannot be found.
+---@field joined boolean true for a strong familiar from the vault that jumped in beside an ally (one fight in 50), false for one its owner called.
+---@field spd integer Its speed now.
+---@field own_spd integer Its speed as built, before the game held it to the party's top speed. From a fight that started after the first call to `rq.battle.familiar`, `on_order` or `on_order_after`; before, its speed now.
+---@field growth? integer The item's growth, 0 to 5000 (the game's "LV"); the familiar's attack and magic are 100% plus a tenth of it, at most 600%.
+
+---Returns the familiar in the current fight.
+---
+---An ally holding a familiar item may call its familiar at a fight's start (the item's class,
+---Familiar Knowledge), and a strong familiar from the vault sometimes jumps in. It is built from its
+---monster in slot 10, with its attack and magic raised by its growth.
+---
+---Since: 2.37.0
+---
+---```lua
+---local f = rq.battle.familiar()
+---if f then rq.log("familiar " .. f.no .. " beside " .. rq.chara.get(f.owner).name) end
+---```
+---@return rq.BattleFamiliar|nil familiar The familiar, or nil outside a fight or with none.
+function battle.familiar() end
+
+---Returns the escape chance of the current fight.
+---
+---The game sets it at a fight's start to 20, or the party's Escape Boost (268) if higher, 0 in a
+---boss fight. It grows by 5 at each ally's turn while it is not 0, and by 5 after a failed Escape,
+---up to 100. Escape (211) works when a roll of 1 to 100 is at most the chance.
+---
+---Since: 2.37.0
+---@return integer|nil chance 0 to 100; nil outside a fight.
+---@see rq.battle.set_escape
+---@see rq.combat.on_escape
+function battle.escape() end
+
+---Sets the escape chance of the current fight.
+---
+---It is the game's own setter: a boss fight keeps 0. A chance of 0 stays 0, as the game's growth
+---adds only to a chance that is not 0. Set it from `rq.battle.on_start` for the whole fight, or any
+---time in it. `rq.battle.start`'s `escape` sets it too, before every `on_start` callback.
+---
+---Raises an error for a chance that is not whole, 0 to 100, or outside a fight.
+---
+---Since: 2.37.0
+---
+---```lua
+---rq.battle.on_start(function(ctx)
+---  if has_smoke_bomb() then rq.battle.set_escape(80) end
+---end)
+---```
+---@param n integer The chance, 0 to 100.
+---@return integer chance The chance now, after the game's rule.
+---@see rq.battle.escape
+function battle.set_escape(n) end
+
+---Changes the fight's ambush, from `rq.battle.on_start`.
+---
+---The game decides the ambush before `on_start` (`ctx.ambush`): "surprise" gives every ally the
+---first entries of the turn list, "first_strike" gives the Gunners of the party two first entries
+---each and names the ally in the notice, "ambushed" gives every enemy the first entries. The notice
+---shows after the setup. The game's other effects of an ambush it rolled stay (an ambush by the
+---enemies gives the fight one more action per enemy).
+---
+---Raises an error for an unknown kind, an ally not in the fight, an ally with another kind, or a
+---call outside the setup of a fight (`rq.battle.on_start`).
+---
+---Since: 2.37.0
+---
+---```lua
+---rq.battle.on_start(function(ctx)
+---  if ctx.ambush == "ambushed" and has_lookout() then rq.battle.set_ambush("none") end
+---end)
+---```
+---@param kind "none"|"surprise"|"first_strike"|"ambushed" The ambush.
+---@param iic? integer For "first_strike", the ally the notice names. Default: the first ally.
+function battle.set_ambush(kind, iic) end
+
+---What `rq.battle.on_log` gets for one line of the battle log.
+---
+---Since: 2.37.0
+---@class rq.BattleLogCtx
+---@field text string The line; after a callback that replaced it, the new text.
+---@field color integer The game's color number (5 for every line the game writes).
+---@field last boolean true for the fight's end message (Victory, Defeat, Time exceeded, the flight).
+
+---Calls `fn` for each line before it goes into the battle log, to drop or change it.
+---
+---Every line goes through it: a turn's two lines (with the text of `rq.battle.on_turn`'s and
+---`on_hit`'s `ctx:log` in them), the game's notices at a fight's start (terrain, a familiar called,
+---Cough-Cough Disease), a familiar's cut-in, the end message, and `rq.battle.log`. `fn` returns false
+---to drop the line, a string to put in its place, or nil to keep it. After a false the later
+---callbacks do not see the line. A line added with `rq.battle.log` from inside `fn` goes into the
+---log without passing through `on_log` again. An empty line is never added.
+---
+---Raises an error, logged, for a return that is not false, a string or nil.
+---
+---Since: 2.37.0
+---
+---```lua
+---rq.battle.on_log(function(ctx)
+---  return (ctx.text:gsub("Poison", "Venom")) -- the game's word in this mod's world
+---end)
+---```
+---@param fn fun(ctx: rq.BattleLogCtx): string|false|nil Returns false, a new line, or nil.
+---@return fun() remove Removes this callback.
+---@see rq.battle.log
+function battle.on_log(fn) end
+
+---Adds a line to the battle log now.
+---
+---It goes through `rq.battle.on_log` as the game's lines do, in the game's color. Write a whole
+---line; the game's own start with the turn's number or "→".
+---
+---Raises an error for a value that is not a string, or outside a fight.
+---
+---Since: 2.37.0
+---
+---```lua
+---rq.battle.on_start(function()
+---  rq.battle.log("→The air is thick with spores.")
+---end)
+---```
+---@param text string The line. An empty line adds nothing.
+---@return boolean added false when the game added nothing.
+---@see rq.battle.on_log
+function battle.log(text) end
 
 ---Installs the hooks the flame, the buffs and the marks need.
 ---
@@ -6750,7 +7177,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.36.0"
+rq.version = "2.37.0"
 
 rq.units = units
 rq.items = items

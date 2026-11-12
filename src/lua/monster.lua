@@ -298,12 +298,19 @@ local function install()
       b.base.level = okl and int(level) and level or 0
       b.base.lines = read_lines(iic)
       if capturing and iic == SPARE then return end
-      if #create_list == 0 then return end
+      local watch = iic == FAMILIAR and priv.familiar_built
+      if #create_list == 0 and not watch then return end
       local who = caller()
       local familiar = iic == FAMILIAR and who == "Ｔ戦闘前初期化"
-      if (iic >= 1 and iic <= 5 and who == "ＰＴＢ登録") or familiar then
+      if #create_list > 0 and ((iic >= 1 and iic <= 5 and who == "ＰＴＢ登録") or familiar) then
         local ok2, err2 = pcall(fire_create, iic, b.no, b.base, familiar)
         if not ok2 then logf("rq.monster.on_create: %s", tostring(err2)) end
+      end
+      -- combat.lua (2.37.0): the familiar's speed as built, before the game holds it to the
+      -- party's top speed, for rq.battle.familiar and on_order.
+      if familiar and watch then
+        local ok3, err3 = pcall(priv.familiar_built, b.no)
+        if not ok3 then logf("rq.battle.familiar: %s", tostring(err3)) end
       end
     end,
   })
@@ -408,6 +415,9 @@ function monster.on_create(fn)
 end
 
 -- For rq.battle.start (basics.lua): whether the list has a number.
+-- combat.lua (2.37.0) places the hooks to watch the familiar being built.
+priv.monster_install = install
+
 priv.monster_exists = function(no)
   return monster.get(no) ~= nil
 end

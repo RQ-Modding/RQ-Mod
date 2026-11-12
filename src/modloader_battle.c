@@ -2130,6 +2130,8 @@ extern const char rq_timers_lua[];
 extern const unsigned rq_timers_lua_len;
 extern const char rq_monster_lua[];
 extern const unsigned rq_monster_lua_len;
+extern const char rq_combat_lua[];
+extern const unsigned rq_combat_lua_len;
 
 /* The loader's private table (2.36.0): calls its own Lua parts share with each other and with
  * the C side, given to them as the chunk's second argument and never to a mod. */
@@ -2190,6 +2192,10 @@ void rq_battle_lua_open(lua_State *L, int rq_index)
 	run_embedded(L, rq_index, rq_basics_lua, rq_basics_lua_len, "=basics");
 	/* rq.after, every, spawn, wait and wait_until (lua/timers.lua, loader 2.33.0). */
 	run_embedded(L, rq_index, rq_timers_lua, rq_timers_lua_len, "=timers");
+	/* rq.battle.on_order, familiar, escape, set_ambush, on_log and log; rq.combat.on_stun,
+	 * on_poison, on_counter, on_heal and on_escape (lua/combat.lua, loader 2.37.0). After monster,
+	 * which builds the familiar. */
+	run_embedded(L, rq_index, rq_combat_lua, rq_combat_lua_len, "=combat");
 }
 
 #endif /* RQ_MODLOADER */
