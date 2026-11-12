@@ -10,6 +10,10 @@
 --   rq.quests.define, no                 a mod's own quest with no map: a number from 303 to 500 in
 --                                        the save, its data, its script (run) and how it opens
 --   the quest calls take a defined quest's id; get's text_id and main; the callbacks' ctx.id
+-- Loader 2.42.0 (notes/plans/plan-new-dungeons.md):
+--   rq.quests.define's map              areas on the game's 4 by 4 grid, each a stock room of one
+--                                        of its tilesets or one of its fixed maps, set up as its
+--                                        quest scripts set theirs; get's map; set_run's progress
 --
 -- Built only on public calls: rq.ain.call, global, set_global, global_len, hook and stack.
 --   Ｑ[no]                    a quest: 名前, 説明文[1..5], 発生場所, 特殊な条件, 状態, 種類, 難易度,
@@ -30,7 +34,14 @@
 --   イベント処理              a map event: the cell's number, the object removed
 --   クエスト処理(9, no, 4)    the quest's handling of map event `no`
 --   トラップ処理, トラップ確定, RAND(100)   a trap: the kind drawn, then the disarm roll
-local rq = ...
+--   クエスト処理(7, area)     an area entered (ＱＭ登録): the quest's settings, ＭＡＰ読み込み (on the
+--                             dispatcher: ＱＭ登録 runs inside the hook on 基本's moments 8 and 9)
+--   ＭＡＰ読み込み            the area's room (drawn from the tileset's stock rooms by the exits, or
+--                             the one kept in Ｑ[no].Ｍ固有番号記憶), its exits and counted objects
+--   発生ＭＸ/ＭＹ/ＭＰ, 広域…  the room's spots (mapd), 1 free, 2 taken; ＭＤランダム takes them
+--   クエスト処理／基本(9, …, fg)  the map's moments; 割り込み２(fg) the game's own answer
+--   Ｔマップ割り込み          the map hands over to the quest's script (a fight, a touch, the menu)
+local rq, priv = ...
 local call, hook, g, set = rq.ain.call, rq.ain.hook, rq.ain.global, rq.ain.set_global
 local quests, dungeon = rq.quests, rq.dungeon
 
@@ -97,6 +108,9 @@ local function load_rank()
   end
   return rank
 end
+
+-- A mod's quest's map (2.42.0), in the section at the end of the file.
+local map_view, norm_map, map_objects, map_moment
 
 -- The function that called `name`, from the AIN stack (the hooked function may be on it).
 local function caller_of(name)
@@ -312,9 +326,12 @@ function quests.get(no)
   local kind = gint("Ｑ", no, "種類")
   local edited = {}
   for _, p in ipairs(ordered(key_of(no)) or {}) do edited[#edited + 1] = p.mod end
+  local text_id = id_at(no)
+  local def = text_id and defs[text_id]
   return {
     id = no,
-    text_id = (id_at(no)),
+    map = def and def.map and map_view(def.map) or nil,
+    text_id = text_id,
     main = gint("Ｑ", no, "メイン") == 1,
     name = d.name,
     description = desc,
@@ -663,7 +680,7 @@ end
 
 local DEF = { id = true, name = true, text = true, place = true, fights = true, main = true,
   difficulty = true, fame = true, conditions = true, condition = true, open = true, after = true,
-  run = true }
+  run = true, map = true }
 local RESULT = { clear = 1, fail = 2, abandon = 3, escape = 4 }
 local FAME_MAX = 9999999
 local TITLE = "rq: the game went to the title"
@@ -703,7 +720,12 @@ local function check_def(def)
     end
     if def.open then return "open and after: give one or the other" end
   end
-  if type(def.run) ~= "function" then return "run must be a function" end
+  if def.map == nil then
+    if type(def.run) ~= "function" then return "run must be a function" end
+  else
+    if def.run ~= nil and type(def.run) ~= "function" then return "run must be a function" end
+    if def.fights then return "fights and map: a quest with a map has the map's mark" end
+  end
   return nil
 end
 
@@ -722,7 +744,7 @@ end
 local function write_def(id, no)
   local def = defs[id]
   if gstr("Ｑ", no, "名前") == "" then set("Ｑ", no, "名前", def.raw.name) end
-  set("Ｑ", no, "種類", def.fights and 2 or 3)
+  set("Ｑ", no, "種類", def.map and 0 or def.fights and 2 or 3)
   set("Ｑ", no, "メイン", def.main and 1 or 9)
   set("Ｑ", no, "キット", 0)
   if gint("Ｑ", no, "取得名声値") == 0 and gint("Ｑ", no, "クリア回数") == 0 then
@@ -812,7 +834,8 @@ hook("Ｑ起動時登録", { after = register_all })
 hook("ワールド切り替え処理", { after = transfer })
 
 -- The script: kit 0's moment 8 for a mod's number, so rq.quests.on_event's start (on クエスト処理,
--- the dispatcher) runs first, as for a game quest.
+-- the dispatcher) runs first, as for a game quest. With a map (2.42.0) run is the prologue, and nil
+-- goes on to the map.
 local function run_quest(def, id, no)
   local q = { id = id, no = no, tries = gint("Ｑ", no, "参加回数"), clears = gint("Ｑ", no, "クリア回数") }
   q.first = q.clears == 0
@@ -822,7 +845,7 @@ local function run_quest(def, id, no)
     logf("rq.quests.define (%s) %s: run: %s; the quest is given up", def.mod, id, tostring(r))
     return RESULT.abandon
   end
-  if r == nil then return RESULT.clear end
+  if r == nil then return not def.map and RESULT.clear or nil end
   local code = RESULT[r]
   if not code then
     logf("rq.quests.define (%s) %s: run returned %s, not clear, fail, abandon or escape; the quest is given up",
@@ -837,12 +860,28 @@ local function hook_run()
   if run_hooked then return end
   run_hooked = true
   hook("クエスト処理／基本", { before = function(h)
-    if h.args[1] ~= 8 then return end
+    local moment = h.args[1]
+    if moment ~= 8 and moment ~= 9 then return end
     local no = quest_now()
     local id = id_at(no)
     local def = id and defs[id]
     if not def then return end
-    h.skip, h.result = true, run_quest(def, id, no)
+    if def.map then
+      h.skip, h.result = true, map_moment(def, id, no, moment, h.args[2], h.args[3], run_quest)
+    elseif moment == 8 then
+      h.skip, h.result = true, run_quest(def, id, no)
+    end
+  end })
+  -- Moment 7 (an area entered) comes through ＱＭ登録 from inside moment 8 and 9, while the hook
+  -- above runs: a hook's callbacks do not run for a nested call of the same function, so the area
+  -- is answered on the dispatcher, whose hook has ended by then (its skip keeps 基本 out).
+  hook("クエスト処理", { before = function(h)
+    if h.args[1] ~= 7 then return end
+    local no = quest_now()
+    local id = id_at(no)
+    local def = id and defs[id]
+    if not def or not def.map then return end
+    h.skip, h.result = true, map_moment(def, id, no, 7, h.args[2], h.args[3], run_quest)
   end })
 end
 
@@ -873,9 +912,15 @@ function quests.define(def)
   end
   local why = check_def(def)
   if why then error("rq.quests.define: " .. id .. ": " .. why, 2) end
+  local map
+  if def.map ~= nil then
+    map, why = norm_map(def.map)
+    if not map then error("rq.quests.define: " .. id .. ": map" .. why, 2) end
+  end
   local mod = mod_id()
   local old = defs[id]
   if old and old.mod ~= mod then error("rq.quests.define: " .. id .. " is defined by " .. old.mod, 2) end
+  if map then map_objects(map, mod) end
   local raw = { name = def.name, place = def.place or "", special = "", difficulty = def.difficulty or 0,
     desc = {}, conds = {} }
   local text = lines_of(def.text)
@@ -886,7 +931,7 @@ function quests.define(def)
     if c and c.kind == "special" and c.text then raw.special = c.text end
   end
   defs[id] = {
-    id = id, mod = mod, raw = raw, run = def.run,
+    id = id, mod = mod, raw = raw, run = def.run, map = map,
     fights = def.fights == true, main = def.main == true, fame = def.fame or 0,
     open = def.open == true, after = def.after,
     condition = def.condition and { text = def.condition.text, ok = def.condition.ok } or nil,
@@ -995,11 +1040,15 @@ function quests.run()
   return r
 end
 
-local RUN = { fame = true, exp_bonus = true, bonuses = true, party_change = true, no_area_map = true, no_warp = true }
+local RUN = { fame = true, exp_bonus = true, bonuses = true, party_change = true, no_area_map = true, no_warp = true,
+  progress = true }
 
 local function check_run(f)
   for k in pairs(f) do
     if not RUN[k] then return "no field " .. tostring(k) .. " to write" end
+  end
+  if f.progress ~= nil and (not int(f.progress) or f.progress < 0 or f.progress > 100) then
+    return "progress must be a whole number from 0 to 100"
   end
   if f.fame ~= nil and (not int(f.fame) or f.fame < 0 or f.fame > 9999999) then
     return "fame must be a whole number from 0 to 9999999"
@@ -1054,6 +1103,8 @@ function quests.set_run(f)
   if why then error("rq.quests.set_run: " .. why, 2) end
   if f.fame ~= nil then set("◆クエスト名声", f.fame) end
   if f.exp_bonus ~= nil then set("◆クエストＥＸＰボーナス", f.exp_bonus) end
+  -- The game's クエスト進行率書き換え only raises it; a mod's quest may also lower it.
+  if f.progress ~= nil then set("◆クエスト進行率", f.progress) end
   local full = {}
   for _, name in ipairs(BONUS_ORDER) do
     local b = f.bonuses and f.bonuses[name]
@@ -1273,8 +1324,10 @@ local function run_object(n, xx, yy, tv)
     local put, err = pcall(call, "ＭＤ固定", xx, yy, CUSTOM_CODE, n, prop + (tv >= KEEP and KEEP or 0))
     if not put then logf("rq.dungeon.on_object %s: putting it back: %s", id, tostring(err)) end
   end
+  if type(r) == "string" and RESULT[r] then r = RESULT[r] end -- 2.42.0
   if r ~= nil and not int(r) then
-    logf("rq.dungeon.on_object (%s) %s: the result must be a whole number or nil", h.mod, id)
+    logf("rq.dungeon.on_object (%s) %s: the result must be clear, fail, abandon, escape, a whole number or nil",
+      h.mod, id)
     r = nil
   end
   return r or 0
@@ -1454,3 +1507,552 @@ function dungeon.on_trap(fn)
   install_traps()
   return add_trap(fn)
 end
+
+-- ======================================================================================
+-- A mod's quest's map (2.42.0): areas on the game's 4 by 4 grid, each a stock room of one of the
+-- game's tilesets or one of its fixed maps, set up at each entry as the game's quest scripts set
+-- theirs (moment 7), entered after the prologue (moment 8), its moments answered (9)
+-- ======================================================================================
+
+local GRID = 16
+-- The tilesets with stock rooms: the map number of their room 0 (ＭＡＰ読み込み) and the map music
+-- their quests use most.
+local TILESET = { [1] = { 1000, 1 }, [2] = { 2000, 11 }, [3] = { 3000, 1 }, [4] = { 4000, 2 },
+  [5] = { 5000, 4 }, [6] = { 6000, 2 }, [7] = { 7000, 12 }, [9] = { 10000, 1 }, [10] = { 11000, 5 },
+  [13] = { 14000, 2 }, [14] = { 15000, 6 }, [20] = { 16000, 6 }, [21] = { 17000, 6 } }
+-- The others' music, for a fixed map.
+local MUSIC = { [8] = 1, [11] = 10, [12] = 2, [15] = 2, [16] = 3, [17] = 73, [18] = 4, [19] = 14, [22] = 1 }
+local MALGRID = { [14] = true, [20] = true, [21] = true }
+local KINDS_MAX = 22
+-- The stock rooms (mapd by 汎用番号): { spots, wide spots }. 401 to 409 are Malgrid's only. The
+-- game's draw can give any of the first ten, so a drawn room counts on 17 spots and 1 wide one.
+local ROOMS = { [1] = { 17, 1 }, [2] = { 20, 2 }, [101] = { 19, 1 }, [102] = { 21, 1 },
+  [201] = { 20, 1 }, [202] = { 20, 1 }, [203] = { 20, 1 }, [204] = { 20, 1 }, [301] = { 18, 1 },
+  [302] = { 20, 1 }, [401] = { 25, 1 }, [402] = { 25, 1 }, [403] = { 24, 1 }, [404] = { 25, 1 },
+  [405] = { 25, 1 }, [406] = { 20, 1 }, [407] = { 24, 1 }, [408] = { 25, 1 }, [409] = { 25, 1 } }
+local DRAW_SPOTS, DRAW_WIDE = 17, 1
+-- The fixed maps the game's quests load that have their mapd: exits/wide spots/spots.
+local FIXED_DATA = "11:NSEW/3/16 12:NSEW/5/25 13:S/1/25 14:NS/1/21 15:EW/5/25 16:NSEW/3/17 17:E/4/25 " ..
+  "18:NSEW/4/25 19:NSEW/0/20 20:NS/0/14 21:NS/0/0 22:EW/0/0 23:NSEW/4/18 24:NS/1/25 25:SEW/1/18 26:NW/1/14 " ..
+  "27:EW/4/19 28:EW/4/20 29:NW/3/19 30:-/1/20 31:S/1/8 34:NSEW/2/17 35:N/1/21 36:-/1/20 37:-/1/20 " ..
+  "38:SEW/1/22 39:NSEW/1/21 40:EW/1/12 41:NSEW/1/21 42:NSEW/2/11 43:S/1/19 44:N/1/20 45:W/1/20 46:E/1/20 " ..
+  "47:NSEW/1/17 48:NSEW/1/19 49:NSEW/1/21 54:NSEW/1/19 55:-/1/20 61:NSEW/1/20 62:E/0/20 63:N/1/25 " ..
+  "64:S/1/20 65:NS/1/20 66:NE/1/22 67:EW/1/25 68:SW/1/23 69:-/0/0 70:N/0/0 71:-/1/23 72:NEW/1/25 " ..
+  "73:-/2/25 74:NS/1/25 75:-/0/25 76:EW/1/21 77:NSEW/1/17 78:NSEW/2/20 83:NSEW/5/25 101:NSEW/5/25 " ..
+  "103:NSEW/5/21 104:NSEW/5/25 105:NSEW/5/25 106:NSEW/5/24 121:NSEW/4/25 122:NSEW/1/20 123:NSEW/5/21 " ..
+  "124:NSEW/5/25 125:NSEW/5/25 141:NSEW/3/21 142:NSEW/5/25 143:NSEW/5/25 144:NSEW/5/25 161:NSEW/5/25 " ..
+  "162:NSEW/5/25 163:NSEW/5/25 240:NSEW/4/25 301:NSEW/0/25 302:NSEW/1/18 307:W/1/25 308:-/1/21 " ..
+  "311:NSE/1/25 313:NSEW/1/18 315:NSEW/1/10 317:NSEW/1/18 322:NSEW/1/25 323:NSEW/1/25 328:E/0/0"
+local FIXED = {}
+for n, e, w, s in FIXED_DATA:gmatch("(%d+):([NSEW%-]+)/(%d+)/(%d+)") do
+  FIXED[tonumber(n)] = { exits = e == "-" and "" or e, wide = tonumber(w), spots = tonumber(s) }
+end
+-- What the chests hold (クエスト基本登録's chest type): rank C, B or A, with an item bonus (+), with a
+-- superior item (A++); nil, the game's 0, by Rance's level.
+local LOOT = { C = 11, B = 21, A = 31, ["C+"] = 13, ["B+"] = 23, ["A+"] = 33, ["A++"] = 40 }
+local LOOT_NO = { [0] = true, [11] = true, [12] = true, [13] = true, [14] = true, [21] = true, [22] = true,
+  [23] = true, [24] = true, [31] = true, [32] = true, [33] = true, [34] = true, [40] = true }
+local GOLD_DEFAULT, NAME_MAP_MAX, COUNT_MAX = 50, 40, 25
+local STEP = { N = -4, S = 4, E = 1, W = -1 }
+local BACK = { N = "S", S = "N", E = "W", W = "E" }
+local MAP_FIELD = { tileset = true, name = true, gold = true, loot = true, music = true, background = true,
+  traps = true, groups = true, bonuses = true, start = true, chatter = true, areas = true }
+local AREA_FIELD = { exits = true, room = true, fixed = true, enemies = true, chests = true, traps = true,
+  feats = true, objects = true, setup = true, tileset = true, name = true, gold = true, loot = true,
+  music = true, background = true, groups = true }
+local OBJ_FIELD = { kind = true, spot = true, item = true, id = true, look = true, keep = true, run = true }
+local BONUS_NAME = { feats = true, enemies = true, level_ups = true }
+local SAVE_MOD, SAVE_KEY = "rq:loader", "quest_maps"
+
+local function whole(v, low, high)
+  return int(v) and v >= low and v <= high
+end
+
+-- The settings the map gives and an area may give again; nil or why not.
+local function check_settings(t, at)
+  if t.tileset ~= nil and not whole(t.tileset, 1, KINDS_MAX) then
+    return at .. "tileset must be a map kind, 1 to " .. KINDS_MAX .. " (rq.ids.map_kind)"
+  end
+  if t.name ~= nil and (type(t.name) ~= "string" or not chars(t.name) or chars(t.name) > NAME_MAP_MAX) then
+    return at .. "name must be a text of up to " .. NAME_MAP_MAX .. " characters"
+  end
+  if t.gold ~= nil and not whole(t.gold, 0, 999999) then return at .. "gold must be a whole number from 0 to 999999" end
+  if t.loot ~= nil and not LOOT[t.loot] and not LOOT_NO[t.loot] then
+    return at .. "loot must be \"C\", \"B\", \"A\", \"C+\", \"B+\", \"A+\", \"A++\" or one of the game's chest types"
+  end
+  if t.music ~= nil and not whole(t.music, 0, 9999) then return at .. "music must be one of the game's map tracks" end
+  if t.background ~= nil and not whole(t.background, 1, 9999) then
+    return at .. "background must be a fight background's number (rq.battle.backgrounds)"
+  end
+  local gr = t.groups
+  if gr ~= nil then
+    if type(gr) ~= "table" or #gr < 1 or #gr > 5 then return at .. "groups must be a list of 1 to 5 groups" end
+    for k, v in pairs(gr) do
+      if not int(k) or k < 1 or k > #gr then return at .. "groups must be a list of 1 to 5 groups" end
+      if not whole(v, 1, math.maxinteger) and (type(v) ~= "string" or v == "") then
+        return at .. "groups[" .. k .. "] must be a group's number or a mod's group id"
+      end
+    end
+  end
+  return nil
+end
+
+local function check_object(o, at)
+  if type(o) ~= "table" then return at .. " must be a table" end
+  for k in pairs(o) do
+    if not OBJ_FIELD[k] then return at .. " has no field " .. tostring(k) end
+  end
+  local custom = o.kind == "custom"
+  if not custom and not PLACE[o.kind] then
+    return at .. ".kind must be chest, red-chest, enemy, trap, achievement, spring, escape, gold, exp or custom"
+  end
+  local s = o.spot
+  if s ~= nil and s ~= "any" and s ~= "wide" then
+    local x, z = type(s) == "table" and (s.x or s[1]), type(s) == "table" and (s.z or s[2])
+    if not whole(x, 0, MAP - 1) or not whole(z, 0, MAP - 1) then
+      return at .. ".spot must be \"any\", \"wide\" or a cell { x, z } of 0 to " .. (MAP - 1)
+    end
+  end
+  if o.item ~= nil then
+    if o.kind ~= "chest" and o.kind ~= "red-chest" then return at .. ".item is for a chest" end
+    if not whole(o.item, 1, math.maxinteger) and (type(o.item) ~= "string" or o.item == "") then
+      return at .. ".item must be an item number or a mod's item id"
+    end
+  end
+  if custom then
+    if type(o.id) ~= "string" or o.id == "" or #o.id > 64 then return at .. ".id must be a text of 1 to 64 bytes" end
+    if o.look ~= nil and not LOOKS[o.look] then return at .. ".look: no look " .. tostring(o.look) .. " (rq.dungeon.looks())" end
+    if o.keep ~= nil and type(o.keep) ~= "boolean" then return at .. ".keep must be true or false" end
+    if type(o.run) ~= "function" then return at .. ".run must be a function" end
+    local n = number_of(o.id)
+    if known[n] and known[n] ~= o.id then
+      return string.format("%s: the ids %q and %q share a number; rename one", at, known[n], o.id)
+    end
+  else
+    for _, k in ipairs({ "id", "look", "keep", "run" }) do
+      if o[k] ~= nil then return at .. "." .. k .. " is for a custom object" end
+    end
+  end
+  return nil
+end
+
+local function exits_of(e)
+  local out = ""
+  for _, l in ipairs({ "N", "S", "E", "W" }) do
+    if e:find(l, 1, true) then out = out .. l end
+  end
+  return out
+end
+
+-- The objects of one area checked and copied, against the room's spots; or nil and why not.
+local function area_objects(ar, at, spots, wide)
+  local counted = 0
+  for _, k in ipairs({ "enemies", "chests", "traps", "feats" }) do
+    if ar[k] ~= nil and not whole(ar[k], 0, COUNT_MAX) then return nil, at .. "." .. k .. " must be 0 to " .. COUNT_MAX end
+    counted = counted + (ar[k] or 0)
+  end
+  local objs, at_any, at_wide = {}, 0, 0
+  if ar.objects ~= nil then
+    if type(ar.objects) ~= "table" then return nil, at .. ".objects must be a list" end
+    for k in pairs(ar.objects) do
+      if not int(k) or k < 1 or k > #ar.objects then return nil, at .. ".objects must be a list" end
+    end
+    for i, o in ipairs(ar.objects) do
+      local why = check_object(o, at .. ".objects[" .. i .. "]")
+      if why then return nil, why end
+      local s = o.spot
+      local cell = type(s) == "table" and { x = s.x or s[1], z = s.z or s[2] } or nil
+      if s == "wide" then at_wide = at_wide + 1 elseif not cell then at_any = at_any + 1 end
+      objs[i] = { kind = o.kind, spot = cell or s or "any", item = o.item, id = o.id, look = o.look or "event",
+        keep = o.keep == true, run = o.run }
+    end
+  end
+  if counted + at_any > spots then
+    return nil, string.format("%s: %d objects for the room's %d spots (enemies, chests, traps, feats and the " ..
+      "objects at \"any\")", at, counted + at_any, spots)
+  end
+  if at_wide > wide then
+    return nil, string.format("%s: %d objects at \"wide\" for the room's %d wide spot%s", at, at_wide, wide,
+      wide == 1 and "" or "s")
+  end
+  return objs
+end
+
+-- One area checked and copied, its settings resolved; or nil and why not.
+local function norm_area(m, a, ar)
+  local at = ".areas[" .. a .. "]"
+  if type(ar) ~= "table" then return nil, at .. " must be a table" end
+  for k in pairs(ar) do
+    if not AREA_FIELD[k] then return nil, at .. " has no field " .. tostring(k) end
+  end
+  local why = check_settings(ar, at .. ".")
+  if why then return nil, why end
+  local e = ar.exits
+  if e == nil then e = "" end
+  if type(e) ~= "string" or e:find("[^NSEW]") then return nil, at .. ".exits must be letters among N, S, E and W" end
+  for l in e:gmatch(".") do
+    local _, n = e:gsub(l, "")
+    if n > 1 then return nil, at .. ".exits: " .. l .. " twice" end
+  end
+  local tileset = ar.tileset or m.tileset
+  if not tileset then return nil, at .. ": no tileset (the map's tileset, or the area's)" end
+  if ar.room ~= nil and ar.fixed ~= nil then return nil, at .. ": room or fixed, not both" end
+  local spots, wide
+  if ar.fixed ~= nil then
+    local f = FIXED[ar.fixed]
+    if not f then return nil, at .. ".fixed: " .. tostring(ar.fixed) .. " is not one of the game's fixed maps" end
+    for l in e:gmatch(".") do
+      if not f.exits:find(l, 1, true) then
+        return nil, at .. ".exits: fixed map " .. ar.fixed .. " has no " .. l .. " exit (it has " ..
+          (f.exits == "" and "none" or f.exits) .. ")"
+      end
+    end
+    spots, wide = f.spots, f.wide
+  else
+    if not TILESET[tileset] then
+      return nil, at .. ": tileset " .. tileset .. " has no stock rooms; give the area a fixed map"
+    end
+    if ar.room ~= nil then
+      local r = ROOMS[ar.room]
+      if not r then
+        return nil, at .. ".room must be a stock room: 1, 2, 101, 102, 201 to 204, 301, 302, 401 to 409"
+      end
+      if ar.room >= 401 and not MALGRID[tileset] then
+        return nil, at .. ".room: rooms 401 to 409 are Malgrid's (tilesets 14, 20, 21)"
+      end
+      spots, wide = r[1], r[2]
+    else
+      spots, wide = DRAW_SPOTS, DRAW_WIDE
+    end
+  end
+  local objs
+  objs, why = area_objects(ar, at, spots, wide)
+  if not objs then return nil, why end
+  if ar.setup ~= nil and type(ar.setup) ~= "function" then return nil, at .. ".setup must be a function" end
+  local groups = ar.groups or m.groups
+  if not groups then return nil, at .. ": no groups (the map's groups, or the area's)" end
+  local copy_groups = {}
+  for i, v in ipairs(groups) do copy_groups[i] = v end
+  local loot = ar.loot or m.loot
+  return {
+    exits = exits_of(e), room = ar.room, fixed = ar.fixed,
+    enemies = ar.enemies or 0, chests = ar.chests or 0, traps = ar.traps or 0, feats = ar.feats or 0,
+    objects = objs, setup = ar.setup,
+    tileset = tileset, name = ar.name or m.name or "", gold = ar.gold or m.gold or GOLD_DEFAULT,
+    loot = LOOT[loot] or loot or 0,
+    music = ar.music or m.music or (TILESET[tileset] and TILESET[tileset][2]) or MUSIC[tileset] or 1,
+    background = ar.background or m.background, groups = copy_groups,
+  }
+end
+
+-- Each exit leads to an area of the map that has the way back, and every area can be reached from
+-- the start; nil or why not.
+local function check_ways(areas, start)
+  for a, ar in pairs(areas) do
+    for l in ar.exits:gmatch(".") do
+      local col = (a - 1) % 4 + 1
+      local to = a + STEP[l]
+      if to < 1 or to > GRID or (l == "E" and col == 4) or (l == "W" and col == 1) then
+        return string.format(".areas[%d].exits: %s leads off the 4 by 4 grid", a, l)
+      end
+      local other = areas[to]
+      if not other then return string.format(".areas[%d].exits: %s leads to area %d, which the map does not have", a, l, to) end
+      if not other.exits:find(BACK[l], 1, true) then
+        return string.format(".areas[%d].exits: %s leads to area %d, which has no %s exit back", a, l, to, BACK[l])
+      end
+    end
+  end
+  local seen, queue = { [start] = true }, { start }
+  while #queue > 0 do
+    local a = table.remove(queue)
+    for l in areas[a].exits:gmatch(".") do
+      local to = a + STEP[l]
+      if not seen[to] then
+        seen[to] = true
+        queue[#queue + 1] = to
+      end
+    end
+  end
+  local list = {}
+  for a in pairs(areas) do list[#list + 1] = a end
+  table.sort(list)
+  for _, a in ipairs(list) do
+    if not seen[a] then return string.format(".areas[%d]: no way to it from the start, area %d", a, start) end
+  end
+  return nil
+end
+
+-- The map checked and copied, with each area's settings resolved; or nil and why not (after
+-- "map", as define's error writes it).
+norm_map = function(m)
+  if type(m) ~= "table" then return nil, " must be a table" end
+  for k in pairs(m) do
+    if not MAP_FIELD[k] then return nil, " has no field " .. tostring(k) end
+  end
+  local why = check_settings(m, ".")
+  if why then return nil, why end
+  local tr = m.traps
+  if tr ~= nil then
+    if type(tr) ~= "table" then return nil, ".traps must be a table { shroom, shock, alarm, pit }" end
+    for k, v in pairs(tr) do
+      if not TRAP[k] then return nil, ".traps: no trap kind " .. tostring(k) .. " (shroom, shock, alarm, pit)" end
+      if not whole(v, 0, 10) then return nil, ".traps." .. k .. " must be 0 to 10" end
+    end
+  end
+  local bo = m.bonuses
+  if bo ~= nil then
+    if type(bo) ~= "table" then return nil, ".bonuses must be a table { feats, enemies, level_ups }" end
+    for k, v in pairs(bo) do
+      if not BONUS_NAME[k] then return nil, ".bonuses: no bonus " .. tostring(k) .. " (feats, enemies, level_ups)" end
+      if not whole(v, 0, 99) then return nil, ".bonuses." .. k .. " must be 0 to 99" end
+    end
+  end
+  if m.chatter ~= nil and type(m.chatter) ~= "boolean" then return nil, ".chatter must be true or false" end
+  if type(m.areas) ~= "table" then return nil, ".areas must be a table of areas, 1 to 16" end
+  local areas, low = {}, nil
+  for a in pairs(m.areas) do
+    if not whole(a, 1, GRID) then return nil, ".areas: an area is a number from 1 to 16 (" .. tostring(a) .. ")" end
+  end
+  for a = 1, GRID do
+    if m.areas[a] ~= nil then
+      local ar
+      ar, why = norm_area(m, a, m.areas[a])
+      if not ar then return nil, why end
+      areas[a] = ar
+      low = low or a
+    end
+  end
+  if not low then return nil, ".areas: no area" end
+  local start = m.start
+  if start == nil then start = low end
+  if not whole(start, 1, GRID) or not areas[start] then return nil, ".start: " .. tostring(start) .. " is not an area of the map" end
+  why = check_ways(areas, start)
+  if why then return nil, why end
+  local t, b, sig = tr or {}, bo or {}, {}
+  for a = 1, GRID do
+    local ar = areas[a]
+    if ar then
+      sig[#sig + 1] = a .. ":" .. ar.tileset .. "/" .. (ar.fixed and ("f" .. ar.fixed) or ar.room or 0) .. "/" .. ar.exits
+    end
+  end
+  return {
+    areas = areas, start = start, chatter = m.chatter ~= false, tileset = m.tileset,
+    traps = { t.shroom or 0, t.shock or 0, t.alarm or 0, t.pit or 0 },
+    bonuses = { b.feats or 0, b.enemies or 0, b.level_ups or 0 },
+    sig = table.concat(sig, ";"),
+  }
+end
+
+-- The custom objects' functions, registered as rq.dungeon.on_object registers one.
+map_objects = function(m, mod)
+  for _, ar in pairs(m.areas) do
+    for _, o in ipairs(ar.objects) do
+      if o.kind == "custom" then
+        known[number_of(o.id)] = o.id
+        on_obj[o.id] = { fn = o.run, mod = mod }
+      end
+    end
+  end
+end
+
+-- What get's map shows: the map's shape.
+map_view = function(m)
+  local areas = {}
+  for a, ar in pairs(m.areas) do
+    areas[a] = { exits = ar.exits, room = ar.room, fixed = ar.fixed, tileset = ar.tileset }
+  end
+  return { start = m.start, tileset = m.tileset, areas = areas }
+end
+
+-- ---- Moment 7: an area entered ----
+
+-- An item's number from a number or a mod's item id (items' text ids: 1000 + FNV-1a % 9000).
+local function item_no(v)
+  if int(v) then return v end
+  local h = 2166136261
+  for i = 1, #v do h = ((h ~ v:byte(i)) * 16777619) & 0xffffffff end
+  local no = 1000 + h % 9000
+  local ok, id = pcall(rq.item.id_of, no)
+  if ok and id == v then return no end
+  return nil
+end
+
+-- A free spot of the room (as ＭＤランダム takes one, or a counted object's spot when none is free):
+-- its index, cell and array.
+local function free_spot(wide, a)
+  local P, X, Y, n = "発生ＭＰ", "発生ＭＸ", "発生ＭＹ", 25
+  if wide then P, X, Y, n = "広域ＭＰ", "広域ＭＸ", "広域ＭＹ", 5 end
+  for i = 1, n do
+    if gint(P, i) == 1 then return i, gint(X, i), gint(Y, i), P end
+  end
+  for i = 1, n do
+    local xx, yy = gint(X, i), gint(Y, i)
+    if gint(P, i) == 2 and xx > 0 and gint("Ｍ", a, "mapnn", xx, yy) == 0 then return i, xx, yy, P end
+  end
+  return nil
+end
+
+local function place_object(o, a, what)
+  local code, tz, tv = PLACE[o.kind], 0, 0
+  if o.kind == "custom" then
+    code, tz, tv = CUSTOM_CODE, number_of(o.id), LOOKS[o.look] + (o.keep and KEEP or 0)
+  elseif o.item ~= nil then
+    tz = item_no(o.item)
+    if not tz then
+      logf("%s: no item %s; the chest holds the map's loot", what, tostring(o.item))
+      tz = 0
+    end
+  end
+  local spot = o.spot
+  if type(spot) == "table" then
+    local xx, yy = spot.x + 1, MAP - spot.z
+    if yes(call("Ｒ８床確認", xx, yy)) and gint("Ｍ", a, "maptt", xx, yy) == 0 then
+      return call("ＭＤ固定", xx, yy, code, tz, tv) == 1
+    end
+    logf("%s: cell %d,%d is not free floor; the object goes to a free spot", what, spot.x, spot.z)
+    spot = "any"
+  end
+  local wide = spot == "wide"
+  if o.kind ~= "custom" then
+    if call("ＭＤランダム", wide and 1 or 0, code, tz, tv, 1) == 1 then return true end
+  else
+    -- ＭＤランダム has no prop for the loader's code: its way to a spot, then ＭＤ固定.
+    local i, xx, yy, P = free_spot(wide, a)
+    if i then
+      set(P, i, 2)
+      return call("ＭＤ固定", xx, yy, code, tz, tv) == 1
+    end
+  end
+  logf("%s: no free %s left in the room", what, wide and "wide spot" or "spot")
+  return false
+end
+
+local CAME_FROM = { [10] = "N", [11] = "S", [12] = "E", [13] = "W" }
+
+local function rethrow_title(err)
+  if tostring(err):find(TITLE, 1, true) then error(err, 0) end
+end
+
+local function area_settings(m, ar, what)
+  local ok, err = pcall(function()
+    call("ＭＡＰ基礎型登録", ar.tileset)
+    if ar.background then set("◆戦闘背景番号", ar.background) end
+    set("◆ＭＡＰ名前", ar.name)
+    call("クエスト基本登録", ar.gold, ar.loot, ar.music)
+    local t = m.traps
+    call("トラップ確率登録", t[1], t[2], t[3], t[4])
+    local nos = { 0, 0, 0, 0, 0 }
+    for i, v in ipairs(ar.groups) do
+      local n, why = priv.group_check(v)
+      if n then nos[i] = n else logf("%s: groups: %s", what, tostring(why)) end
+    end
+    call("エンカウント中身登録", nos[1], nos[2], nos[3], nos[4], nos[5])
+    local b = m.bonuses
+    call("ボーナス登録", b[1], b[2], b[3])
+  end)
+  if not ok then
+    rethrow_title(err)
+    logf("%s: the settings: %s", what, tostring(err))
+  end
+end
+
+local function enter_area(def, id, no, a)
+  local m = def.map
+  local ar = m.areas[a]
+  local what = string.format("rq.quests.define (%s) %s: area %d", def.mod, id, a)
+  if not ar then
+    -- An area the map does not have (a save from another version of the mod): the start's
+    -- settings, a drawn room and the way back.
+    local s = m.areas[m.start]
+    ar = setmetatable({ exits = CAME_FROM[gint("◆キャラ位置")] or "", enemies = 0, chests = 0, traps = 0,
+      feats = 0, objects = {}, setup = false }, { __index = s })
+    logf("%s is not on the map; a drawn room with the way back", what)
+  end
+  area_settings(m, ar, what)
+  local first = gint("Ｍ", a, "初登録") == 0
+  local base = TILESET[ar.tileset]
+  local mapno = 0
+  if m.areas[a] then mapno = ar.fixed or (ar.room and base and base[1] + ar.room) or 0 end
+  local e = ar.exits
+  local function bit(l) return e:find(l, 1, true) and 1 or 0 end
+  call("ＭＡＰ読み込み", a, mapno, bit("N"), bit("S"), bit("E"), bit("W"), ar.enemies, ar.chests, ar.traps, ar.feats)
+  if first then
+    for i, o in ipairs(ar.objects) do
+      local fine, why = pcall(place_object, o, a, what .. ": objects[" .. i .. "]")
+      if not fine then
+        rethrow_title(why)
+        logf("%s: objects[%d]: %s", what, i, tostring(why))
+      end
+    end
+  end
+  if ar.setup then
+    local ctx = { quest = no, id = id, area = a, row = (a - 1) // 4 + 1, col = (a - 1) % 4 + 1, first = first }
+    local fine, why = pcall(ar.setup, ctx)
+    if not fine then
+      rethrow_title(why)
+      logf("%s: setup: %s", what, tostring(why))
+    end
+  end
+  return 0
+end
+
+-- ---- Moment 8: the prologue, the rooms kept, the first area ----
+
+-- The rooms drawn are kept in the quest's entry (Ｑ[no].Ｍ固有番号記憶) as the game keeps its own; a
+-- new shape of the map (an area's tileset, room or exits) draws them anew. The shape is kept in the
+-- loader's part of rq.savedata, by the quest's id.
+local function keep_rooms(def, id, no)
+  local ok, all = pcall(priv.as_mod, SAVE_MOD, function() return rq.savedata.get(SAVE_KEY) end)
+  if not ok or type(all) ~= "table" then all = {} end
+  if all[id] == def.map.sig then return end
+  call("Ｑ初期化／エリア情報", no)
+  all[id] = def.map.sig
+  local fine, err = pcall(priv.as_mod, SAVE_MOD, function() rq.savedata.set(SAVE_KEY, all) end)
+  if not fine then logf("rq.quests.define %s: keeping the map's shape: %s", id, tostring(err)) end
+end
+
+local function start_map(def, id, no, run_quest)
+  if def.run then
+    local r = run_quest(def, id, no)
+    if r then return r end
+  end
+  keep_rooms(def, id, no)
+  local ok, err = pcall(call, "ＱＭ登録", def.map.start)
+  if not ok then
+    rethrow_title(err)
+    logf("rq.quests.define (%s) %s: entering the map: %s; the quest is given up", def.mod, id, tostring(err))
+    return RESULT.abandon
+  end
+  return 0
+end
+
+map_moment = function(def, id, no, moment, area, fg, run_quest)
+  if moment == 8 then return start_map(def, id, no, run_quest) end
+  if moment == 7 then return enter_area(def, id, no, area) end
+  -- Moment 9: a mod's objects never reach here (the hook on クエスト処理 answers them), and a mod's
+  -- map has no events of the game's. The rest gets the game's own answer, with its party lines
+  -- after new areas held back when chatter is false (the count they wait on; the rules it keeps
+  -- after a fight or a warp still run).
+  if fg == 4 then return 0 end
+  if not def.map.chatter and fg == 5 then set("◆ＢＭＡＰ新規読み込み回数", 0) end
+  return call("割り込み２", fg)
+end
+
+-- ---- A save on a mod's map whose mod is gone ----
+
+-- Placed at the loader's start: with no mod defining the quest, no hook of a mod's would run. The
+-- first time the map hands over to the quest (a fight, a touch, the menu key) it ends as with the
+-- escape device, the quest storage's items kept.
+hook("Ｔマップ割り込み", { before = function(h)
+  local no = gint("◆iiq")
+  if not mod_no(no) or gint("◆ＭＡＰ実装") ~= 1 then return end
+  local id = id_at(no)
+  if not id then return end
+  local def = defs[id]
+  if def and def.map then return end
+  logf("rq.quests: quest %d (%s): on a map no loaded mod defines; it ends as with the escape device", no, id)
+  call("クエスト終了処理", RESULT.escape)
+  call("Ｒ８リザルト画面", RESULT.escape)
+  set("◆iiq", 0)
+  h.skip, h.result = true, 1
+end })

@@ -547,7 +547,7 @@ function dungeon.place(kind, x, z, opts) end
 ---@field z integer The cell, north.
 ---@field kind "chest"|"red-chest"|"warp"|"achievement"|"trap"|"event"|"spring"|"escape"|"enemy"|"gold"|"exp"|"custom"|"other" What it is.
 ---@field code integer The game's object code (`maptt`).
----@field number integer The game's number on it (`maptz`): a chest's fixed item, a map event's number, a warp's direction.
+---@field number integer The game's number on it (`maptz`): a chest's fixed item (with `rq.loot.install` in place, as Loot Preview puts it, 10000 + the item instance rolled for the chest when it was placed), a map event's number, a warp's direction.
 ---@field rank? integer The game's third number (`maptv`): a chest's rank. nil on a `custom` object.
 ---@field id? string A `custom` object's id; nil when no loaded mod placed it or registered its id.
 ---@field look? string A `custom` object's look.
@@ -596,8 +596,8 @@ function dungeon.remove(x, z) end
 ---Registers the function that runs when the party steps on a mod's own object.
 ---
 ---It runs in place of the quest's own handling of a map event. What it returns ends the quest or not:
----nil or 0 go on, 1 clears the quest, 4 ends it as the escape device does (the items kept), 2 and 3
----as a defeat and a give-up. The object is taken off its cell before the function runs, as the game
+---nil or 0 go on; `"clear"` or 1 clears the quest; `"escape"` or 4 ends it as the escape device does
+---(the items kept); `"fail"` or 2 and `"abandon"` or 3 as a defeat and a give-up. The object is taken off its cell before the function runs, as the game
 ---does with its events; with `ctx.keep` it is put back after. The function may wait as a quest moment
 ---does: `rq.ui.confirm`, `rq.ui.notice`, `rq.battle.start`. `rq.quests.on_event` does not see these
 ---events.
@@ -610,6 +610,7 @@ function dungeon.remove(x, z) end
 ---id, or a value that is not a function.
 ---
 ---Since: 2.39.0
+---Changed: 2.42.0 The function may return the result as a text, as `rq.QuestDef.run` does.
 ---
 ---```lua
 ---rq.dungeon.on_object("mymod:altar", function(ctx)
@@ -628,7 +629,7 @@ function dungeon.remove(x, z) end
 ---end)
 ---```
 ---@param id string The object's id, 1 to 64 bytes, such as `"mymod:altar"`.
----@param fn fun(ctx: rq.ObjectCtx): integer|nil Returns nil to go on, or how the quest ends.
+---@param fn fun(ctx: rq.ObjectCtx): ("clear"|"fail"|"abandon"|"escape"|integer|nil) Returns nil to go on, or how the quest ends.
 ---@return fun() remove Removes this function.
 ---@see rq.dungeon.place
 function dungeon.on_object(id, fn) end
@@ -6103,6 +6104,13 @@ function quests.on_take(fn) end
 ---@field conditions rq.QuestCondition[] Its conditions to take part, up to 3; empty for none.
 ---@field can_take boolean Take would be lit for it now (`rq.quests.can_take`).
 ---@field edited string[] The ids of the mods whose `rq.quests.edit` patch is on it, in load order.
+---@field map? rq.QuestMapShape The shape of the map of a mod's quest with a map (`rq.QuestDef.map`); nil for the others. Since 2.42.0.
+
+---The shape of a mod's quest's map, in `rq.QuestData.map`.
+---@class rq.QuestMapShape
+---@field start integer The area the party enters first.
+---@field tileset? integer The map's tileset (`rq.ids.map_kind`); nil when each area gives its own.
+---@field areas table<integer, {exits: string, room?: integer, fixed?: integer, tileset: integer}> The areas by number, 1 to 16: the exits as letters in the order N, S, E, W; the stock room or the fixed map asked for (both nil for the game's draw); the area's tileset.
 
 ---Returns a quest's data, as the quest list shows it.
 ---
@@ -6115,6 +6123,7 @@ function quests.on_take(fn) end
 ---Since: 2.39.0
 ---Changed: 2.41.0 Takes a mod's quest's id; gives `text_id` and `main`. The description of `kind`'s
 ---`menu` was corrected: the game's kind 3 is any quest with no map and no fights.
+---Changed: 2.42.0 Gives `map` for a mod's quest with a map.
 ---
 ---```lua
 ---local q = rq.quests.get(126)
@@ -6178,13 +6187,13 @@ function quests.get(no) end
 ---@see rq.quests.get
 function quests.edit(no, patch) end
 
----What `rq.quests.define` takes: a quest of the mod's own, with no map.
+---What `rq.quests.define` takes: a quest of the mod's own, with a map or with none.
 ---@class rq.QuestDef
 ---@field id string The quest's id, such as "mymod:lotion", 1 to 64 bytes. The calls that take a quest number take it.
 ---@field name string The name the list shows, 1 to 40 characters.
 ---@field text? string|string[] The quest's text, up to 5 lines: a list of lines, or one text with line breaks. Default none.
 ---@field place? string Where it takes place, up to 100 characters. Default "".
----@field fights? boolean The quest has fights: the list's battle mark (the game's kind 2). false (the default) shows no mark (kind 3, a story or a menu).
+---@field fights? boolean The quest has fights: the list's battle mark (the game's kind 2). false (the default) shows no mark (kind 3, a story or a menu). Not with `map`, which has its own mark.
 ---@field main? boolean A main quest, in the list's main tab. false (the default) is a side quest.
 ---@field difficulty? integer The difficulty, 0 to 999, before the world's addition (+2 per world after the first, when not 0). Default 0.
 ---@field fame? integer The fame of the first clear, 0 to 9999999. The game halves it after each clear, and after the first for a quest with no fights. Default 0.
@@ -6192,7 +6201,72 @@ function quests.edit(no, patch) end
 ---@field condition? {text: string, ok: fun(no: integer): boolean} A condition of the mod's own, as `rq.quests.edit`'s: while `ok(no)` returns false or nil, Take is greyed and the list shows `text` (1 to 50 characters).
 ---@field open? boolean Available from the moment a save first has the quest. false (the default) keeps it locked until `rq.quests.unlock` or `after`.
 ---@field after? integer|string A quest, by number or id, whose clear opens this one. When a save first has the quest and that one is already cleared, it opens at once. Not with `open`.
----@field run fun(q: rq.QuestRunCtx): ("clear"|"fail"|"abandon"|"escape"|nil) The quest's script, run when the quest starts. It may wait: scenes, fights, choices, dialogs. It returns how the quest ends; nil is "clear".
+---@field run? fun(q: rq.QuestRunCtx): ("clear"|"fail"|"abandon"|"escape"|nil) The quest's script, run when the quest starts. It may wait: scenes, fights, choices, dialogs. It returns how the quest ends; nil is "clear". Needed for a quest with no map. With a map it is the prologue, played before the map: nil goes on to the map, and a result ends the quest without it.
+---@field map? rq.QuestMap The quest's map: areas on the game's 4 by 4 grid, set up as the game's quests set theirs. With it the list shows the map mark (`rq.QuestData.kind` `"quest"`). Since 2.42.0.
+
+---A mod's quest's map, in `rq.QuestDef.map`.
+---
+---The areas are cells of the game's 4 by 4 grid: area 1 at the north-west, 4 at the north-east, 13
+---at the south-west, 16 at the south-east. An exit to the north leads to the area 4 below in number,
+---south 4 above, east 1 above, west 1 below. Each area is a room of the tileset: drawn by the game from
+---the area's exits (`room` left out), one of the tileset's stock rooms by number, or one of the game's
+---fixed maps. The settings from `tileset` to `groups` are the map's, and an area may give its own.
+---@class rq.QuestMap
+---@field tileset? integer The tileset, a map kind (`rq.ids.map_kind`): the rooms' look, the fight background and the map music. The game's stock rooms are in 13 of them: Cave 1, Forest 2, Building 3, Snow 4, Castle 5, Field 6, Mountain 7, Water Cave 9, Burning Forest 10, Waterside 13, Malgrid 14, Malgrid X 20 and Malgrid X Deep 21; the others serve an area on a fixed map. Needed here or in each area.
+---@field name? string The name on the map panel, up to 40 characters (about 15 fit). Default "".
+---@field gold? integer The gold of a fight: the base the game draws from, 0 to 999999. Default 50.
+---@field loot? "C"|"B"|"A"|"C+"|"B+"|"A+"|"A++"|integer What the chests hold: equipment of rank C, B or A; with `+` also an item bonus; `"A++"` rank A with a superior item; or one of the game's chest types (0, 11 to 14, 21 to 24, 31 to 34, 40). The appraisal fee per item follows: 100, 300, 600 or 800 gold. Default: by Rance's level (the game's 0, a fee of 99).
+---@field music? integer The map's music, one of the game's map tracks (`◆マップ曲`). Default: the track the game's quests on that tileset use most.
+---@field background? integer The fight background (`rq.battle.backgrounds`). Default: the tileset's.
+---@field traps? {shroom?: integer, shock?: integer, alarm?: integer, pit?: integer} The weights, 0 to 10, of the kinds a trap draws (`rq.dungeon.set_traps`). Default all 0: every trap is a shock, as in the game.
+---@field groups? (integer|string)[] The enemy groups of the random fights and the placed enemies, 1 to 5: the game's numbers or a mod's group ids (`rq.monster.group`). Needed here or in each area.
+---@field bonuses? {feats?: integer, enemies?: integer, level_ups?: integer} The quest bonuses' goals, 0 to 99 (0 or left out: no such bonus): the achievements found, the placed enemies beaten, the levels gained (`rq.QuestBonus`).
+---@field start? integer The area the party enters first, at the room's start. Default: the lowest area.
+---@field chatter? boolean false holds back the game's party lines after new areas (a member's remark, a special event). Default true: they come as in the game's quests, but never on the Building, Snow, Water Cave, Burning Forest, Tower and Waterside tilesets.
+---@field areas table<integer, rq.QuestArea> The areas by number, 1 to 16. Each exit leads to an area of the map that has the way back, and every area can be reached from `start`.
+
+---An area of a mod's quest's map, in `rq.QuestMap.areas`.
+---
+---The room's spots hold its objects: first the counted ones (`enemies`, `chests`, `traps`, `feats`),
+---each on a spot the game draws, then `objects`. A room the game draws has 17 spots and 1 wide spot at
+---least. The stock rooms: 1 has 17 spots, 2 has 20 and 2 wide spots, 101 has 19, 102 has 21, 201 to
+---204 and 302 have 20, 301 has 18, and 401 to 409 have 24 or 25; each other one wide spot.
+---@class rq.QuestArea
+---@field exits? string The exits, as letters among N, S, E and W, such as "ES". Default none.
+---@field room? integer A stock room of the tileset: 1 and 2 (east-west corridors), 101 and 102 (north-south rooms), 201 to 204, 301 and 302, or 401 to 409 (the Malgrid tilesets only). Left out, the game draws one from the exits, as for its own quests. Every stock room has the cells of the four exits, so any exits fit any room.
+---@field fixed? integer One of the game's fixed maps, by the number its quests load it with (11 to 328), in place of a stock room: its own look and layout. The area's exits must be among the fixed map's. Not with `room`.
+---@field enemies? integer Placed enemies, 0 to 25, on spots the game draws: each a fight of the area's groups.
+---@field chests? integer Chest draws, 0 to 25, as the game draws them for its own rooms: each one a red chest or nothing, half and half (one more draw with Tomato in the party; all green, and no traps, when Biscutta cleans the area). They hold the map's `loot`. For a set number of chests, use `objects`.
+---@field traps? integer Traps, 0 to 25.
+---@field feats? integer Adventure achievements, 0 to 25.
+---@field objects? rq.QuestObject[] Objects placed on the area's first entry in a run, after the counted ones.
+---@field setup? fun(ctx: rq.QuestAreaCtx) Runs at each entry, after the area is set up and before it shows: for what the fields do not say, such as `rq.dungeon.place` or `rq.encounters.set_steps`.
+---@field tileset? integer The area's own tileset.
+---@field name? string The area's own name.
+---@field gold? integer The area's own gold.
+---@field loot? "C"|"B"|"A"|"C+"|"B+"|"A+"|"A++"|integer The area's own loot.
+---@field music? integer The area's own music.
+---@field background? integer The area's own fight background.
+---@field groups? (integer|string)[] The area's own groups.
+
+---An object of a mod's quest's area, in `rq.QuestArea.objects`.
+---@class rq.QuestObject
+---@field kind "chest"|"red-chest"|"enemy"|"trap"|"achievement"|"spring"|"escape"|"gold"|"exp"|"custom" One of the game's objects, as `rq.dungeon.place` places it, or `"custom"`, an object of the mod's own with a function.
+---@field spot? "any"|"wide"|{x: integer, z: integer} Where: a free spot of the room (the default); its wide spot, in the open middle of a large room, for a boss or a treasure; or a cell, as `rq.dungeon.grid` counts them (`{ 25, 25 }` or `{ x = 25, z = 25 }`). A cell that is not free floor in the room drawn gives a free spot, with a line in the log.
+---@field item? integer|string A chest's item: a number, or a mod's item id (`rq.item.define`). Default: the map's `loot`. It may come out unidentified, as any chest's item (the game identifies a set item 1 time in 3, more with a member's skill), and then the appraisal at the end keeps it only when the player pays for it.
+---@field id? string A custom object's id, 1 to 64 bytes.
+---@field look? string A custom object's look, one of `rq.dungeon.looks()`. Default "event".
+---@field keep? boolean A custom object stays on its cell after each step, as `rq.dungeon.place`'s `keep`.
+---@field run? fun(ctx: rq.ObjectCtx): ("clear"|"fail"|"abandon"|"escape"|integer|nil) A custom object's function, registered as `rq.dungeon.on_object` registers one: nil goes on, a result ends the quest.
+
+---What an area's `setup` gets (`rq.QuestArea.setup`).
+---@class rq.QuestAreaCtx
+---@field id string The quest's id.
+---@field quest integer The quest's number in this save.
+---@field area integer The area, 1 to 16.
+---@field row integer The area's row, 1 (north) to 4.
+---@field col integer The area's column, 1 (west) to 4.
+---@field first boolean The party enters the area for the first time in this run.
 
 ---What a quest's `run` gets (`rq.QuestDef.run`).
 ---@class rq.QuestRunCtx
@@ -6202,7 +6276,7 @@ function quests.edit(no, patch) end
 ---@field clears integer How many times it was cleared before.
 ---@field first boolean It was never cleared (`clears` is 0).
 
----Adds a quest of the mod's own, with no map: a story, fights, a menu.
+---Adds a quest of the mod's own: a story, fights, a menu, or a map of the game's rooms.
 ---
 ---The quest list shows it as one of the game's, and Take starts it through the game's own flow (the
 ---autosave, the try counted, the quest storage emptied). Then `run(q)` runs in place of a game
@@ -6217,6 +6291,17 @@ function quests.edit(no, patch) end
 ---
 ---An error in `run` is written to the log and the quest is given up. `rq.quests.on_event`'s `start`
 ---runs before `run`, and `on_end` after it, with `id` in their ctx.
+---
+---**A map** (`map`) makes it a quest with the map mark, played as the game's: `run`, if any, is a
+---prologue; then the party enters the area `start`. Each area is set up as the game's quest scripts
+---set theirs, at each entry: the tileset, name, gold, loot, music, traps, groups and bonuses, then the
+---room with its exits and counted objects; on its first entry in a run, its `objects`; then `setup`.
+---A custom object's `run` is its `rq.dungeon.on_object` function, and the quest ends when one returns
+---a result, as the boss or the goal of the game's quests do; the escape device and a lost fight end
+---it too. `rq.quests.set_run`'s `progress` fills the panel's bar. The rooms drawn are kept in the
+---save, so every try has the same rooms; a new shape of the map (an area's tileset, room or exits)
+---draws them anew. A save made on the map of a mod that is gone ends the quest as with the escape
+---device the first time the map hands over to the quest (a fight, a touch, the menu key).
 ---
 ---**The number.** The first time a save has the quest (a new game, a load, a world transfer), it
 ---takes the first free number from 303 to 500 and keeps it in that save, marked with its id; another
@@ -6239,9 +6324,13 @@ function quests.edit(no, patch) end
 ---
 ---Call it at the mod's top level. Calling it again with the same id from the same mod replaces the
 ---definition. Raises an error for an id another mod defined, an unknown field, a value of the wrong
----kind or too long, more than 3 conditions, `open` with `after`, or no `run`.
+---kind or too long, more than 3 conditions, `open` with `after`, or no `run` and no `map`. For a map:
+---`fights`; an exit off the grid or with no way back; an area `start` does not reach; an area with no
+---tileset or no groups; a room, fixed map or exit the tileset or the fixed map does not have; more
+---objects than the room's spots; an object's field of the wrong kind.
 ---
 ---Since: 2.41.0
+---Changed: 2.42.0 Takes `map`; `run` is then the prologue and may be left out.
 ---
 ---```lua
 ---rq.item.define({ id = "mymod:lotion", name = "Dancer's Lotion", price = 200, info = "It smells of roses." })
@@ -6263,6 +6352,24 @@ function quests.edit(no, patch) end
 ---    rq.item.give("mymod:lotion", { place = "quest" })
 ---    return "clear"
 ---  end,
+---})
+---
+----- A cave of two areas, its queen at the end.
+---rq.quests.define({
+---  id = "mymod:bat_cave", name = "The Bat Cave", place = "Leazas", difficulty = 12, fame = 60, open = true,
+---  map = {
+---    tileset = rq.ids.map_kind.CAVE, name = "Bat Cave", loot = "B", groups = { 47, 49 },
+---    areas = {
+---      [1] = { exits = "E", enemies = 2, chests = 1 },
+---      [2] = { exits = "W", room = 203, objects = {
+---        { kind = "custom", id = "mymod:bat_queen", look = "event-4", spot = "wide", run = function(ctx)
+---          local r = rq.battle.start({ enemies = { 0, rq.ids.monster.COCKROACH, 0 }, boss = true })
+---          if r ~= "won" then return "fail" end
+---          return "clear"
+---        end },
+---      } },
+---    },
+---  },
 ---})
 ---```
 ---@param def rq.QuestDef The quest.
@@ -6332,6 +6439,7 @@ function quests.run() end
 ---@class rq.QuestRunEdit
 ---@field fame? integer The fame a clear gives, 0 to 9999999.
 ---@field exp_bonus? integer The EXP bonus, 0 to 50 (the game's cap).
+---@field progress? integer The progress bar on the map panel, 0 to 100 (it blinks from 90). Since 2.42.0.
 ---@field bonuses? {feats?: {count?: integer, max?: integer}|false, level_ups?: {count?: integer, max?: integer}|false, enemies?: {count?: integer, max?: integer}|false} Each bonus's count and maximum, 0 to 99. A `max` turns on a bonus the quest does not have; `false` turns one off. A count above the maximum is cut to it.
 ---@field party_change? "normal"|"none"|"free" The party changes during the quest.
 ---@field no_area_map? boolean true hides AREA DISPLAY.
@@ -6341,14 +6449,16 @@ function quests.run() end
 ---
 ---The quest panel on the map is drawn again: the EXP bonus, the bonuses, AREA DISPLAY and the PARTY
 ---button follow. A bonus that reaches its maximum shows the game's flash on the map, as a level-up or
----a placed enemy does. The progress, the fights, the EXP total, the fee and the gold base are read
----only: the game's systems make them. The quest's script sets its rules at the start and in some
+---a placed enemy does. The progress is written as given, up or down; the game's quests raise it at
+---their own moments. The fights, the EXP total, the fee and the gold base are read only: the game's
+---systems make them. The quest's script sets its rules at the start and in some
 ---areas, so a rule written early can be written again by the quest; set it from `rq.dungeon.on_area`
 ---to keep it.
 ---
 ---Raises an error outside a quest, for a field it does not write, or a value out of range.
 ---
 ---Since: 2.39.0
+---Changed: 2.42.0 Writes `progress`.
 ---
 ---```lua
 ----- Every quest gives twice the fame and starts with 10 more EXP bonus.
@@ -8029,7 +8139,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.41.0"
+rq.version = "2.42.0"
 
 rq.units = units
 rq.items = items
