@@ -2134,6 +2134,8 @@ extern const char rq_combat_lua[];
 extern const unsigned rq_combat_lua_len;
 extern const char rq_choices_lua[];
 extern const unsigned rq_choices_lua_len;
+extern const char rq_quests_lua[];
+extern const unsigned rq_quests_lua_len;
 
 /* The loader's private table (2.36.0): calls its own Lua parts share with each other and with
  * the C side, given to them as the chunk's second argument and never to a mod. */
@@ -2201,6 +2203,11 @@ void rq_battle_lua_open(lua_State *L, int rq_index)
 	/* rq.battle.on_choose, taunt and set_taunt (lua/choices.lua, loader 2.38.0). After combat,
 	 * whose callback helpers it shares. */
 	run_embedded(L, rq_index, rq_choices_lua, rq_choices_lua_len, "=choices");
+	/* rq.quests.get, edit, run and set_run; rq.dungeon.objects, remove, the new kinds of place,
+	 * on_object, looks, traps, set_traps and on_trap (lua/quests.lua, loader 2.39.0). After gamedata
+	 * (its refresh and can_take) and scene (place, on_event); its hook on クエスト処理 is placed
+	 * here, before any mod's rq.quests.on_event. */
+	run_embedded(L, rq_index, rq_quests_lua, rq_quests_lua_len, "=quests");
 }
 
 #endif /* RQ_MODLOADER */

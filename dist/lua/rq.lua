@@ -511,22 +511,204 @@ function dungeon.place_player(x, z, opts) end
 
 ---Puts an object on a free floor cell of the current map.
 ---
----Walking onto it works as for the game's own. The game leaves a used "exp" in `grid().events`.
+---Walking onto it works as for the game's own: `trap` is the game's trap (its kind drawn from the
+---area's weights, `rq.dungeon.traps`), `enemy` a placed enemy (the game picks the fight when it is
+---touched, and a fight won counts for the placed-enemy bonus; as with the game's own, the touch may
+---be one of the quest's meetings, such as the adventurers, once a quest), `escape` the escape
+---device. The game leaves a
+---used "exp" in `grid().events`.
 ---
----Raises an error for an unknown kind, a cell that is not free floor, or when not on a map.
+---`custom` puts a mod's own object: a silent map event whose number the loader makes from `opts.id`,
+---shown with one of the game's props (`opts.look`, `rq.dungeon.looks()`). A step on it runs the
+---function `rq.dungeon.on_object` registered for that id. It is used once, as the game's events, unless
+---`opts.keep` is true. It stays for the whole quest, area by area, and in a save made in the quest.
+---
+---Raises an error for an unknown kind or look, `opts` that is not a table, an id that is not a text of
+---1 to 64 bytes or that has the number of another id, a cell that is not free floor, or when not on a
+---map.
 ---
 ---Since: 0.25.0
+---Changed: 2.39.0 The kinds `trap`, `enemy`, `escape` and `custom`, and `opts.id`, `look` and `keep`.
 ---
 ---```lua
 ---local g = rq.dungeon.grid()
 ---if g then rq.dungeon.place("chest", g.player.x + 1, g.player.z, { content = 120 }) end
 ---```
----@param kind "chest"|"red-chest"|"spring"|"achievement"|"exp"|"gold" The object.
+---@param kind "chest"|"red-chest"|"spring"|"achievement"|"exp"|"gold"|"trap"|"enemy"|"escape"|"custom" The object.
 ---@param x integer The cell, east.
 ---@param z integer The cell, north.
----@param opts? {content?: integer, rank?: integer} For a chest: `content`, a fixed item number; `rank`, its rank.
+---@param opts? {content?: integer, rank?: integer, id?: string, look?: string, keep?: boolean} For a chest: `content`, a fixed item number; `rank`, its rank. For `custom`: `id`, the object's id, such as `"mymod:altar"`; `look`, a name from `rq.dungeon.looks()`, default "event"; `keep`, true to put it back after each step, default false.
 ---@return boolean placed true when the object was put down.
 function dungeon.place(kind, x, z, opts) end
+
+---An object on the current map, from `rq.dungeon.objects()`.
+---@class rq.MapObject
+---@field x integer The cell, east, as in `rq.dungeon.grid`.
+---@field z integer The cell, north.
+---@field kind "chest"|"red-chest"|"warp"|"achievement"|"trap"|"event"|"spring"|"escape"|"enemy"|"gold"|"exp"|"custom"|"other" What it is.
+---@field code integer The game's object code (`maptt`).
+---@field number integer The game's number on it (`maptz`): a chest's fixed item, a map event's number, a warp's direction.
+---@field rank? integer The game's third number (`maptv`): a chest's rank. nil on a `custom` object.
+---@field id? string A `custom` object's id; nil when no loaded mod placed it or registered its id.
+---@field look? string A `custom` object's look.
+---@field keep? boolean A `custom` object comes back after each step.
+
+---Lists the objects on the current map.
+---
+---Every object of the area, also those the player cannot reach yet, north to south, then west to
+---east.
+---
+---Since: 2.39.0
+---
+---```lua
+---for _, o in ipairs(rq.dungeon.objects() or {}) do
+---  if o.kind == "trap" then rq.dungeon.remove(o.x, o.z) end
+---end
+---```
+---@return rq.MapObject[]|nil objects nil when not on a map.
+function dungeon.objects() end
+
+---Removes the object on a cell of the current map.
+---
+---The object and its prop go at once, as when the game takes away a used one, for the rest of the
+---quest. A warp cannot be removed: the map would lose its way on.
+---
+---Raises an error for a cell that is not whole numbers or is off the map, a warp, or when not on a
+---map.
+---
+---Since: 2.39.0
+---@param x integer The cell, east.
+---@param z integer The cell, north.
+---@return boolean removed false when the cell has no object.
+function dungeon.remove(x, z) end
+
+---What an `rq.dungeon.on_object` function gets.
+---@class rq.ObjectCtx
+---@field id string The object's id.
+---@field x integer The cell, east.
+---@field z integer The cell, north.
+---@field quest integer The quest being played.
+---@field area integer The area, 1 to 16.
+---@field look string The object's look.
+---@field keep boolean Writable. true puts the object back on its cell after the function. It starts as `place`'s `keep` at every step: a true written here is for this step only.
+---@field remove fun(self: rq.ObjectCtx) Takes the object away for good: the same as `keep = false`.
+
+---Registers the function that runs when the party steps on a mod's own object.
+---
+---It runs in place of the quest's own handling of a map event. What it returns ends the quest or not:
+---nil or 0 go on, 1 clears the quest, 4 ends it as the escape device does (the items kept), 2 and 3
+---as a defeat and a give-up. The object is taken off its cell before the function runs, as the game
+---does with its events; with `ctx.keep` it is put back after. The function may wait as a quest moment
+---does: `rq.ui.confirm`, `rq.ui.notice`, `rq.battle.start`. `rq.quests.on_event` does not see these
+---events.
+---
+---One function per id: calling again replaces it. An object whose id has no function logs a line and
+---does nothing. Register at a mod's top level, so the objects in a save made in a quest answer after
+---a load.
+---
+---Raises an error for an id that is not a text of 1 to 64 bytes or that has the number of another
+---id, or a value that is not a function.
+---
+---Since: 2.39.0
+---
+---```lua
+---rq.dungeon.on_object("mymod:altar", function(ctx)
+---  if rq.ui.confirm("Touch the altar?") then
+---    local r = rq.battle.start({ enemies = { 0, rq.ids.monster.COCKROACH, 0 }, boss = true })
+---    if r ~= "won" then ctx.keep = true end
+---  else
+---    ctx.keep = true
+---  end
+---end)
+---rq.dungeon.on_area(function(ctx)
+---  if ctx.quest == 126 and ctx.area == 1 and ctx.first then
+---    local g = rq.dungeon.grid()
+---    rq.dungeon.place("custom", g.player.x + 2, g.player.z, { id = "mymod:altar", look = "spring" })
+---  end
+---end)
+---```
+---@param id string The object's id, 1 to 64 bytes, such as `"mymod:altar"`.
+---@param fn fun(ctx: rq.ObjectCtx): integer|nil Returns nil to go on, or how the quest ends.
+---@return fun() remove Removes this function.
+---@see rq.dungeon.place
+function dungeon.on_object(id, fn) end
+
+---Lists the looks a mod's object can have: the game's props, by name.
+---
+---`chest` (a green chest), `red-chest`, `spring` (blue rings), `achievement` (a yellow flower),
+---`exp` (a cyan die), `gold` (a coin), `trap` (dark dots on the floor), `enemy` and `enemy-2` (a red
+---star), `escape` (a green frame), `warp` and `warp-2` (a purple frame), `event` and `event-2` (a
+---green star with a yellow "!"), `event-3` (a green star), `event-4` (a red star with a "!") and
+---`hidden` (the game's silent event, which shows nothing). The look is only what is drawn: a step on
+---the cell runs the object's function whatever its look, also for the props the game would
+---otherwise take itself (spring, achievement, EXP, gold).
+---
+---Since: 2.39.0
+---@return string[] looks The names, sorted.
+function dungeon.looks() end
+
+---The weights of the trap kinds, from `rq.dungeon.traps()`: each 0 to 10.
+---@class rq.TrapWeights
+---@field shroom integer Sloth shrooms: a random member leaves the party (never with one member).
+---@field shock integer An electric current: the party loses 25% of its HP.
+---@field alarm integer An alarm: a fight follows.
+---@field pit integer A pitfall: the party falls (a floor down where the quest has floors).
+
+---Returns the trap kinds' weights in the current area.
+---
+---A trap stepped on draws its kind with these weights. The area's script sets them when the party
+---enters it. With all four at 0, every trap is an electric current.
+---
+---Since: 2.39.0
+---@return rq.TrapWeights|nil weights nil outside a quest.
+function dungeon.traps() end
+
+---Sets the trap kinds' weights in the current area.
+---
+---The area's script writes them again when the party enters an area, so set them from
+---`rq.dungeon.on_area` to keep them.
+---
+---Raises an error outside a quest, for an unknown kind, or a weight that is not 0 to 10.
+---
+---Since: 2.39.0
+---
+---```lua
+---rq.dungeon.on_area(function() rq.dungeon.set_traps({ shroom = 0, pit = 0 }) end)
+---```
+---@param weights {shroom?: integer, shock?: integer, alarm?: integer, pit?: integer} The weights to change, 0 to 10; one left out stays.
+function dungeon.set_traps(weights) end
+
+---What an `rq.dungeon.on_trap` callback gets.
+---@class rq.TrapCtx
+---@field x integer The trap's cell, east.
+---@field z integer The trap's cell, north.
+---@field kind "shroom"|"shock"|"alarm"|"pit" Writable. The kind the game drew.
+---@field chance integer Writable. The chance to avoid it, 0 to 100: the game's 20, 50 with a ranger (class 6) in the party, 100 while a member's Trap Evasion (skill 266) rank is above the traps they disarmed, 0 on quest 190.
+---@field who? integer The roster slot (iic) of the member who tries; nil for none.
+---@field cancel boolean Writable. true removes the trap with no scene.
+
+---Registers a function that runs when the party steps on a trap.
+---
+---It runs after the game drew the trap's kind and before the scene. Callbacks run in load order,
+---each seeing what the one before left; a value that is not allowed is logged and the one before kept.
+---A changed chance is rolled with the game's roll; the scene's line still names the game's chance
+---(20%, 50% or Trap Evasion). Sloth shrooms with one member are always avoided, as in the game. The
+---trap is gone after, avoided or not. It runs for the game's traps and for those of
+---`rq.dungeon.place("trap", ...)`.
+---
+---Raises an error when `fn` is not a function.
+---
+---Since: 2.39.0
+---
+---```lua
+---rq.dungeon.on_trap(function(ctx)
+---  if ctx.kind == "pit" then ctx.kind = "alarm" end
+---  ctx.chance = math.max(0, ctx.chance - 10)
+---end)
+---```
+---@param fn fun(ctx: rq.TrapCtx) Changes the trap.
+---@return fun() remove Removes this callback.
+function dungeon.on_trap(fn) end
 
 ---Reads the mouse and keyboard, and drives them for the game.
 ---
@@ -5751,7 +5933,7 @@ function quests.start(no) end
 ---
 ---It hooks the game's `クエスト処理`. Return nothing to let the game handle it, or a number to skip the
 ---game's handling: 0 continues the quest, other values end it (1 returns to town). Do not play a scene
----on `map_load`; the map is not ready.
+---on `map_load`; the map is not ready. A mod's own map objects (`rq.dungeon.on_object`) do not reach it.
 ---
 ---Since: 0.18.0
 ---Changed: 0.23.0 Returns a remover.
@@ -5768,7 +5950,8 @@ function quests.on_event(fn) end
 
 ---Registers a function that runs after the game handled a quest moment.
 ---
----`ev.result` is what the game returned. Return a number to change it, or nothing to keep it.
+---`ev.result` is what the game returned. Return a number to change it, or nothing to keep it. A mod's
+---own map objects (`rq.dungeon.on_object`) do not reach it.
 ---
 ---Since: 0.18.0
 ---Changed: 0.23.0 Returns a remover.
@@ -5795,11 +5978,13 @@ function quests.new_this_run() end
 ---Take button.
 ---
 ---It is true when the party has at least one member, the quest exists and its conditions to take
----part are met (an item it needs, a character, and the like).
+---part are met (an item it needs, a character, and the like). A mod's own condition
+---(`rq.quests.edit`'s `condition`) is asked first.
 ---
 ---Raises an error when `no` is not a quest number.
 ---
 ---Since: 2.23.0
+---Changed: 2.39.0 Asks the mods' own conditions (`rq.quests.edit`) first.
 ---
 ---```lua
 ---if not rq.quests.can_take(80) then rq.log("Gem Lady needs a Jewel") end
@@ -5813,8 +5998,10 @@ function quests.can_take(no) end
 ---After a change that the list shows (an item a quest needs, a state), the rows are made again and
 ---the chosen quest's Take is lit or greyed by `rq.quests.can_take`, as the game does after the
 ---favorite button (`T_Quest::remakeList`, then `T_Quest::lock`). With no quest chosen, only the rows.
+---The mods' own conditions (`rq.quests.edit`'s `condition`) are asked again first.
 ---
 ---Since: 2.23.0
+---Changed: 2.39.0 Asks the mods' own conditions (`rq.quests.edit`) again first.
 ---
 ---```lua
 ---rq.item.remove(jewel)
@@ -5851,6 +6038,182 @@ function quests.refresh() end
 ---@param fn fun(ctx: rq.TakeContext): boolean|nil nil for the game's way, true to take the quest, false not to.
 ---@return fun() remove Removes this callback.
 function quests.on_take(fn) end
+
+---A condition to take part in a quest, from `rq.QuestData.conditions` and for `rq.quests.edit`.
+---
+---`kind` names the game's condition: `party_max` (at most `count` members in the party), `member`
+---(character `chara` in the party), `own` (both `charas` recruited), `member_level` (`chara` in the
+---party at `level` or more), `item` (item `item` owned) and `special` (never met: the quest list
+---shows the quest's special text, the game's way to keep a quest closed until the story allows it).
+---`other` is a number the game does not use, which it counts as met. `text` and `met` are read only
+---and `rq.quests.edit` ignores them, so a condition from `rq.quests.get` can be given back as it is.
+---@class rq.QuestCondition
+---@field kind "party_max"|"member"|"own"|"member_level"|"item"|"special"|"other" The condition.
+---@field count? integer `party_max`: the most members, 1 to 5.
+---@field chara? integer `member` and `member_level`: a character number (`rq.ids.chara`).
+---@field charas? integer[] `own`: two character numbers.
+---@field level? integer `member_level`: the lowest level, 1 or more.
+---@field item? integer `item`: an item number (`rq.ids.item`).
+---@field text? string The line the quest list shows for it. For `special` in `rq.quests.edit`: the special text to show, up to 50 characters; left out, the quest's own stays.
+---@field met? boolean Read only. The condition is met now.
+
+---A quest's data as the quest list shows it, from `rq.quests.get`.
+---@class rq.QuestData
+---@field id integer The quest number.
+---@field name string The name.
+---@field description string[] The quest's text, one entry per line, up to 5; empty lines at the end are left out.
+---@field place string Where it takes place (`発生場所`, `rq.Quest.map`).
+---@field special string The text of its special condition, "" when it has none now.
+---@field state integer 0 locked, 1 available, 2 cleared.
+---@field kind "quest"|"fights"|"menu"|"other" `quest` a quest; `fights` a quest of fights only, whose fights give a half of their EXP after its first clear, a third after the second and a fifth after that; `menu` an entry of the list that is not a quest (Character Relations, the debug entries).
+---@field difficulty integer The difficulty the list shows, with the game's addition for the world (2 per world after the first).
+---@field fame integer The fame the next clear gives, before skill 269 doubles it. The game halves it after each clear.
+---@field tries integer How many times it was taken.
+---@field clears integer How many times it was cleared.
+---@field conditions rq.QuestCondition[] Its conditions to take part, up to 3; empty for none.
+---@field can_take boolean Take would be lit for it now (`rq.quests.can_take`).
+---@field edited string[] The ids of the mods whose `rq.quests.edit` patch is on it, in load order.
+
+---Returns a quest's data, as the quest list shows it.
+---
+---It reads the game's data with every mod's `rq.quests.edit` on it. `rq.quests()` stays the short list
+---of every quest.
+---
+---Raises an error for a number the game does not have (no quest has it, or it has no name), also
+---before a save is loaded.
+---
+---Since: 2.39.0
+---
+---```lua
+---local q = rq.quests.get(126)
+---rq.log(q.name, q.difficulty, q.fame, #q.conditions, q.can_take)
+---```
+---@param no integer The quest number.
+---@return rq.QuestData data The quest's data.
+---@see rq.quests.edit
+function quests.get(no) end
+
+---A patch for `rq.quests.edit`: the fields to change; one left out keeps the game's.
+---@class rq.QuestEdit
+---@field name? string The name, 1 to 40 characters.
+---@field description? string[] The text, up to 5 lines, one entry per line with no line break; lines left out are empty.
+---@field place? string Where it takes place, up to 100 characters.
+---@field difficulty? integer The difficulty the list shows, 0 to 999. The game's addition per world is not added to it.
+---@field conditions? rq.QuestCondition[] Up to 3 conditions, in place of the game's; `{}` for none.
+---@field condition? {text: string, ok: fun(no: integer): boolean} A condition of the mod's own: while `ok(no)` returns false or nil, the quest has the game's special condition with `text` (1 to 50 characters).
+
+---Changes a quest's name, text, place, difficulty or conditions while the mod runs.
+---
+---The game writes every quest's data again when a game starts, after each load and at a world
+---transfer (`Ｑ起動時登録`), and the story's special conditions each time the quest menu opens
+---(`Ｑ特殊な条件の処理`). The patch is put back on top after each, and at once when the call is made
+---with a save loaded; made before (at a mod's top level), it applies when the game first writes its
+---data. Nothing stays in the save: without the mod, the game's next writing brings its own data back.
+---
+---Each mod keeps one patch per quest: calling again replaces that mod's patch, and `nil` removes it,
+---bringing the game's data back. The patches apply in load order, a later mod's field over an
+---earlier one's. The fame a clear gives is not patched, since the game halves it after each clear;
+---to change what a run gives, use `rq.quests.set_run{ fame = ... }`.
+---
+---A mod's own condition (`condition`): `ok(no)` is asked when the quest menu opens, at
+---`rq.quests.refresh` and at `rq.quests.can_take`. While it is not met, the quest takes the game's
+---special condition: the first free condition slot holds it, the quest list greys Take and shows
+---`text`. With the game's special condition already there, or the conditions of several mods, the
+---texts are joined with " / ". An error in `ok` is logged and counts as met. With the quest list open,
+---call `rq.quests.refresh` to show a change.
+---
+---Raises an error for an unknown quest (once a save is loaded), an unknown field, a value of the
+---wrong kind or too long, more than 3 conditions, or `condition` with 3 `conditions`.
+---
+---Since: 2.39.0
+---
+---```lua
+----- A harder quest that needs Kanami in the party and the three shrines found.
+---local function shrines() return rq.store.get("shrines") or 0 end
+---rq.quests.edit(126, {
+---  difficulty = 40,
+---  conditions = { { kind = "member", chara = rq.ids.chara.KANAMI_KENTOU } },
+---  condition = { text = "Find the three shrines", ok = function() return shrines() >= 3 end },
+---})
+---```
+---@param no integer The quest number.
+---@param patch rq.QuestEdit|nil The fields to change; nil removes this mod's patch.
+---@see rq.quests.get
+function quests.edit(no, patch) end
+
+---A quest bonus in `rq.QuestRun.bonuses`.
+---
+---`feats` counts the adventure achievements found, `level_ups` the levels gained in the quest and
+---`enemies` the placed enemies beaten. Each stops at its maximum, and each at its maximum adds one
+---bonus to every rare item appraised at the end.
+---@class rq.QuestBonus
+---@field count integer The count, 0 to `max`.
+---@field max integer The maximum.
+
+---The quest being played, from `rq.quests.run`.
+---@class rq.QuestRun
+---@field quest integer The quest number.
+---@field progress integer The progress bar, 0 to 100 (it blinks from 90).
+---@field fights integer The fights of this run.
+---@field fights_here integer The fights in this area.
+---@field enemies_beaten integer The placed enemies beaten in this run.
+---@field exp integer The EXP of this run's fights so far; the reserve gets a share of it at the end (skill 263).
+---@field fame integer The fame a clear gives now, before skill 269 doubles it. A run that does not clear gives none.
+---@field fee integer The appraisal fee per item at the end, in gold.
+---@field gold_base integer The base of a gold object: each gives a roll up to three times this.
+---@field exp_bonus integer The EXP bonus, a percent added to each fight's EXP, 0 to 50. It starts at 5 per earlier clear (20 at most) and each EXP object adds 3.
+---@field bonuses {feats?: rq.QuestBonus, level_ups?: rq.QuestBonus, enemies?: rq.QuestBonus} The quest's bonuses; one the quest does not have is nil.
+---@field party_change "normal"|"none"|"free" The party changes during the quest: as many as the fame rank gives, none, or as many as wanted.
+---@field no_area_map boolean The quest hides AREA DISPLAY.
+---@field no_warp {north: boolean, south: boolean, east: boolean, west: boolean} The warps closed that way.
+
+---Returns the counters, bonuses and rules of the quest being played.
+---
+---Since: 2.39.0
+---
+---```lua
+---local run = rq.quests.run()
+---if run and run.bonuses.feats then
+---  rq.log("achievements", run.bonuses.feats.count, "of", run.bonuses.feats.max)
+---end
+---```
+---@return rq.QuestRun|nil run nil in town.
+---@see rq.quests.set_run
+function quests.run() end
+
+---What `rq.quests.set_run` writes; a field left out stays.
+---@class rq.QuestRunEdit
+---@field fame? integer The fame a clear gives, 0 to 9999999.
+---@field exp_bonus? integer The EXP bonus, 0 to 50 (the game's cap).
+---@field bonuses? {feats?: {count?: integer, max?: integer}|false, level_ups?: {count?: integer, max?: integer}|false, enemies?: {count?: integer, max?: integer}|false} Each bonus's count and maximum, 0 to 99. A `max` turns on a bonus the quest does not have; `false` turns one off. A count above the maximum is cut to it.
+---@field party_change? "normal"|"none"|"free" The party changes during the quest.
+---@field no_area_map? boolean true hides AREA DISPLAY.
+---@field no_warp? {north?: boolean, south?: boolean, east?: boolean, west?: boolean} true closes the warps that way, false opens them.
+
+---Changes the counters, bonuses and rules of the quest being played.
+---
+---The quest panel on the map is drawn again: the EXP bonus, the bonuses, AREA DISPLAY and the PARTY
+---button follow. A bonus that reaches its maximum shows the game's flash on the map, as a level-up or
+---a placed enemy does. The progress, the fights, the EXP total, the fee and the gold base are read
+---only: the game's systems make them. The quest's script sets its rules at the start and in some
+---areas, so a rule written early can be written again by the quest; set it from `rq.dungeon.on_area`
+---to keep it.
+---
+---Raises an error outside a quest, for a field it does not write, or a value out of range.
+---
+---Since: 2.39.0
+---
+---```lua
+----- Every quest gives twice the fame and starts with 10 more EXP bonus.
+---rq.quests.on_event_after(function(ev)
+---  if ev.kind ~= "start" then return end
+---  local run = rq.quests.run()
+---  rq.quests.set_run({ fame = run.fame * 2, exp_bonus = math.min(50, run.exp_bonus + 10) })
+---end)
+---```
+---@param fields rq.QuestRunEdit The fields to write.
+---@see rq.quests.run
+function quests.set_run(fields) end
 
 ---The world and the game's world transfer.
 ---
@@ -7304,7 +7667,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.38.0"
+rq.version = "2.39.0"
 
 rq.units = units
 rq.items = items
