@@ -6,10 +6,19 @@
 --                                        mod's own object ("custom")
 --   rq.dungeon.on_object, looks          a mod's own object: its callback, the props it can look like
 --   rq.dungeon.traps, set_traps, on_trap the trap kinds' weights, and a trap stepped on
+-- Loader 2.41.0 (notes/plans/plan-new-quests.md):
+--   rq.quests.define, no                 a mod's own quest with no map: a number from 303 to 500 in
+--                                        the save, its data, its script (run) and how it opens
+--   the quest calls take a defined quest's id; get's text_id and main; the callbacks' ctx.id
 --
 -- Built only on public calls: rq.ain.call, global, set_global, global_len, hook and stack.
 --   Ｑ[no]                    a quest: 名前, 説明文[1..5], 発生場所, 特殊な条件, 状態, 種類, 難易度,
---                             参加回数, クリア回数, 取得名声値, 参加条件Ａ/Ｂ/Ｃ[1..3]
+--                             参加回数, クリア回数, 取得名声値, 参加条件Ａ/Ｂ/Ｃ[1..3], メイン, キット,
+--                             チェック (a mod's quest's mark: "rq:" and its id)
+--   Ｑ初期化(no)              the entry as new (the game's own reset of 1 to 301)
+--   Ｑ状態(no, 1)             opens a locked quest, adding it to the victory screen's new quests
+--   クエスト処理／基本(8, …)  kit 0's script at the quest's start: a mod's quest runs its run there
+--   ワールド切り替え処理      the world transfer, which resets quests 1 to 301 only
 --   Ｑ起動時登録              writes every quest's data (the start, after a load, a world transfer)
 --   Ｑ特殊な条件の処理        the story's special conditions, each time the quest menu opens
 --   ◆クエスト…               the run's counters; ◆クエストボーナス有無, ◆クエストボーナス and
@@ -123,6 +132,60 @@ local function data_ready()
   return ok and type(list) == "table" and #list > 0
 end
 
+-- ---- A mod's quests (2.41.0): numbers 303 to 500, each marked in Ｑ[n].チェック ----
+-- The mark is "rq:<id>" for a quest in the list, "rq<state>:<id>" for one whose mod is gone (its
+-- state kept there, the quest at state 0). The game never touches 302 to 500, nor チェック.
+
+local FIRST_NO, LAST_NO = 303, 500
+local defs, def_list = {}, {} -- id -> the definition; the ids in the order they were defined
+local no_cache = {}           -- id -> its number in the loaded save
+
+local function parse_mark(s)
+  local st, id = s:match("^rq(%d?):(.+)$")
+  if not id then return nil end
+  return id, st ~= "" and tonumber(st) or nil
+end
+
+local function mod_no(no)
+  return int(no) and no >= FIRST_NO and no <= LAST_NO and no < quest_count()
+end
+
+-- The id marked on a number (nil for the game's quests), and the state a hidden mark keeps.
+local function id_at(no)
+  if not mod_no(no) then return nil end
+  return parse_mark(gstr("Ｑ", no, "チェック"))
+end
+
+local function scan()
+  no_cache = {}
+  for n = FIRST_NO, math.min(LAST_NO, quest_count() - 1) do
+    local id = id_at(n)
+    if id and not no_cache[id] then no_cache[id] = n end
+  end
+end
+
+-- An id's number in the loaded save, or nil. The marks are read at each registration of the
+-- game's quests (a new game, a load, a world transfer), so a miss there is a miss.
+local function no_of(id)
+  local n = no_cache[id]
+  if not n then return nil end
+  if id_at(n) == id then return n end
+  scan()
+  return no_cache[id]
+end
+
+-- A number or a quest's id as its number; an error names the call.
+local function resolve(v, name)
+  if type(v) ~= "string" then return v end
+  local n = no_of(v)
+  if n then return n end
+  if defs[v] then
+    error(name .. ": quest " .. v .. " has no number: " ..
+      (data_ready() and "no free number from 303 to 500 in this save" or "no save is loaded"), 3)
+  end
+  error(name .. ": no quest " .. v, 3)
+end
+
 -- The fields a patch writes, as the game holds them.
 local function read_raw(no)
   local d = {
@@ -182,12 +245,37 @@ local function cond_table(no, slot, a, b, c)
   return t
 end
 
-local patches = {} -- no -> { { mod, seq, patch }, ... }
-local base = {}    -- no -> the game's own fields (read_raw), while a patch is on the quest
+-- A patch's key: a game quest's number, or a mod's quest's id (its number differs between saves).
+local patches = {} -- key -> { { mod, seq, patch }, ... }
+local base = {}    -- number -> the game's own fields (read_raw), while a patch is on the quest
 local seq = 0
 
-local function ordered(no)
-  local list = patches[no]
+local function key_of(no)
+  local id = id_at(no)
+  if id and defs[id] then return id end
+  return no
+end
+
+local function key_no(key)
+  if type(key) == "string" then return no_of(key) end
+  return key
+end
+
+local function world_add()
+  local w = gint("◆ワールド")
+  return w >= 2 and (w - 1) * 2 or 0
+end
+
+-- A mod's quest's fields as its definition gives them, the world's addition on the difficulty
+-- as Ｑ初期セット adds it to the game's (+2 per world after the first, when not 0).
+local function def_raw(id)
+  local d = copy_raw(defs[id].raw)
+  if d.difficulty ~= 0 then d.difficulty = d.difficulty + world_add() end
+  return d
+end
+
+local function ordered(key)
+  local list = patches[key]
   if not list or #list == 0 then return nil end
   local rank = load_rank()
   local out = {}
@@ -201,7 +289,8 @@ local function ordered(no)
 end
 
 function quests.get(no)
-  if not int(no) or no <= 0 then error("rq.quests.get: expected a quest number", 2) end
+  no = resolve(no, "rq.quests.get")
+  if not int(no) or no <= 0 then error("rq.quests.get: expected a quest number or id", 2) end
   if not has_quest(no) then error("rq.quests.get: no quest " .. no, 2) end
   local d = read_raw(no)
   local desc, last = {}, 0
@@ -222,9 +311,11 @@ function quests.get(no)
   end
   local kind = gint("Ｑ", no, "種類")
   local edited = {}
-  for _, p in ipairs(ordered(no) or {}) do edited[#edited + 1] = p.mod end
+  for _, p in ipairs(ordered(key_of(no)) or {}) do edited[#edited + 1] = p.mod end
   return {
     id = no,
+    text_id = (id_at(no)),
+    main = gint("Ｑ", no, "メイン") == 1,
     name = d.name,
     description = desc,
     place = d.place,
@@ -359,19 +450,26 @@ local function copy_patch(p)
 end
 
 -- A mod's own condition is met: ok() returned a true value. An error counts as met.
-local function custom_met(no, p)
-  local ok, r = pcall(p.patch.condition.ok, no)
+local function custom_met(no, cond, mod, what)
+  local ok, r = pcall(cond.ok, no)
   if not ok then
-    logf("rq.quests.edit (%s): quest %d: condition.ok: %s", p.mod, no, tostring(r))
+    logf("%s (%s): quest %d: condition.ok: %s", what, mod, no, tostring(r))
     return true
   end
   return r ~= nil and r ~= false
 end
 
--- The game's fields with every patch on top, in load order.
-local function compose(no)
-  local d = copy_raw(base[no])
-  local list = ordered(no) or {}
+-- The fields under the patches: the game's own for its quests, the definition's for a mod's.
+local function base_of(key, no)
+  if type(key) == "string" then return def_raw(key) end
+  if not base[key] then base[key] = read_raw(no) end
+  return base[key]
+end
+
+-- The fields with every patch on top, in load order; a mod's quest's own condition first.
+local function compose(key, no)
+  local d = copy_raw(base_of(key, no))
+  local list = ordered(key) or {}
   for _, p in ipairs(list) do
     local patch = p.patch
     if patch.name then d.name = patch.name end
@@ -392,9 +490,13 @@ local function compose(no)
     if p.patch.special_text then d.special = p.patch.special_text end
   end
   local texts = {}
+  local def = type(key) == "string" and defs[key]
+  if def and def.condition and not custom_met(no, def.condition, def.mod, "rq.quests.define") then
+    texts[#texts + 1] = def.condition.text
+  end
   for _, p in ipairs(list) do
     local c = p.patch.condition
-    if c and not custom_met(no, p) then texts[#texts + 1] = c.text end
+    if c and not custom_met(no, c, p.mod, "rq.quests.edit") then texts[#texts + 1] = c.text end
   end
   if #texts > 0 then
     local active, six = d.conds[1][1] ~= 0, nil
@@ -404,7 +506,7 @@ local function compose(no)
       end
     end
     if six then
-      table.insert(texts, 1, d.special)
+      if d.special ~= "" then table.insert(texts, 1, d.special) end
     else
       local free
       if not active then
@@ -427,32 +529,48 @@ local function compose(no)
   return d
 end
 
-local function apply(no)
-  if not base[no] then
-    if not has_quest(no) then return end
-    base[no] = read_raw(no)
-  end
-  local ok, err = pcall(function() write_raw(no, compose(no)) end)
+local function apply(key)
+  local no = key_no(key)
+  if not no or not has_quest(no) then return end
+  local ok, err = pcall(function() write_raw(no, compose(key, no)) end)
   if not ok then logf("rq.quests.edit: quest %d: %s", no, tostring(err)) end
 end
 
-local function unpatch(no)
-  if base[no] and has_quest(no) then
-    local ok, err = pcall(write_raw, no, base[no])
-    if not ok then logf("rq.quests.edit: quest %d: %s", no, tostring(err)) end
+local function unpatch(key)
+  if type(key) == "string" then
+    apply(key) -- the definition's own fields back
+  elseif base[key] and has_quest(key) then
+    local ok, err = pcall(write_raw, key, base[key])
+    if not ok then logf("rq.quests.edit: quest %d: %s", key, tostring(err)) end
   end
-  base[no] = nil
+  base[key] = nil
 end
 
-local function has_custom(no)
-  for _, p in ipairs(patches[no] or {}) do
+local function has_custom(key)
+  local def = type(key) == "string" and defs[key]
+  if def and def.condition then return true end
+  for _, p in ipairs(patches[key] or {}) do
     if p.patch.condition then return true end
   end
   return false
 end
 
+-- The keys whose fields are written again: the patched quests and the mods' quests with a
+-- condition of their own.
+local function live_keys()
+  local out, seen = {}, {}
+  for key, list in pairs(patches) do
+    if #list > 0 then out[#out + 1], seen[key] = key, true end
+  end
+  for _, id in ipairs(def_list) do
+    if defs[id].condition and not seen[id] then out[#out + 1] = id end
+  end
+  return out
+end
+
 -- Before the game writes its data: its own values back, so it runs on them. After: read them
--- again and put the patches on top.
+-- again and put the patches on top. A mod's quest's fields come from its definition, so they are
+-- not read back.
 local edit_hooked = false
 local function install_edit()
   if edit_hooked then return end
@@ -463,10 +581,11 @@ local function install_edit()
     end
   end
   local function after()
-    for no, list in pairs(patches) do
-      if #list > 0 and has_quest(no) then
-        base[no] = read_raw(no)
-        apply(no)
+    for _, key in ipairs(live_keys()) do
+      local no = key_no(key)
+      if no and has_quest(no) then
+        if type(key) ~= "string" then base[key] = read_raw(no) end
+        apply(key)
       end
     end
   end
@@ -475,19 +594,28 @@ local function install_edit()
 end
 
 function quests.edit(no, patch)
-  if not int(no) or no <= 0 then error("rq.quests.edit: expected a quest number", 2) end
+  local key
+  if type(no) == "string" then
+    if not defs[no] then error("rq.quests.edit: no quest " .. no, 2) end
+    key = no
+  elseif not int(no) or no <= 0 then
+    error("rq.quests.edit: expected a quest number or id", 2)
+  end
   if patch ~= nil and type(patch) ~= "table" then
     error("rq.quests.edit: the patch must be a table, or nil to remove it", 2)
   end
   local ready = data_ready()
-  if ready and not has_quest(no) then error("rq.quests.edit: no quest " .. no, 2) end
+  if not key then
+    if ready and not has_quest(no) then error("rq.quests.edit: no quest " .. no, 2) end
+    key = ready and key_of(no) or no
+  end
   if patch then
     local why = check_patch(patch)
     if why then error("rq.quests.edit: quest " .. no .. ": " .. why, 2) end
   end
   local mod = mod_id()
-  local list = patches[no] or {}
-  patches[no] = list
+  local list = patches[key] or {}
+  patches[key] = list
   for i = #list, 1, -1 do
     if list[i].mod == mod then table.remove(list, i) end
   end
@@ -504,10 +632,10 @@ function quests.edit(no, patch)
   end
   if not ready then return end
   if #list == 0 then
-    patches[no] = nil
-    unpatch(no)
+    patches[key] = nil
+    unpatch(key)
   else
-    apply(no)
+    apply(key)
   end
 end
 
@@ -515,16 +643,317 @@ end
 local raw_refresh, raw_can_take = quests.refresh, quests.can_take
 
 function quests.can_take(no)
-  if not int(no) or no <= 0 then error("rq.quests.can_take: expected a quest number", 2) end
-  if base[no] and has_custom(no) then apply(no) end
+  no = resolve(no, "rq.quests.can_take")
+  if not int(no) or no <= 0 then error("rq.quests.can_take: expected a quest number or id", 2) end
+  local key = key_of(no)
+  if has_custom(key) then apply(key) end
   return raw_can_take(no)
 end
 
 function quests.refresh()
-  for no in pairs(base) do
-    if has_custom(no) then apply(no) end
+  for _, key in ipairs(live_keys()) do
+    if has_custom(key) then apply(key) end
   end
   return raw_refresh()
+end
+
+-- ======================================================================================
+-- rq.quests.define and no (2.41.0): a mod's own quest with no map
+-- ======================================================================================
+
+local DEF = { id = true, name = true, text = true, place = true, fights = true, main = true,
+  difficulty = true, fame = true, conditions = true, condition = true, open = true, after = true,
+  run = true }
+local RESULT = { clear = 1, fail = 2, abandon = 3, escape = 4 }
+local FAME_MAX = 9999999
+local TITLE = "rq: the game went to the title"
+
+local function lines_of(text)
+  if type(text) == "string" then
+    local out = {}
+    for line in (text .. "\n"):gmatch("(.-)\n") do out[#out + 1] = line end
+    return out
+  end
+  return text or {}
+end
+
+local function check_def(def)
+  for k in pairs(def) do
+    if not DEF[k] then return "no field " .. tostring(k) end
+  end
+  if def.name == nil then return "name is needed" end
+  if def.text ~= nil and type(def.text) ~= "string" and type(def.text) ~= "table" then
+    return "text must be a text or a list of up to " .. LINES .. " lines"
+  end
+  local why = check_patch({ name = def.name, description = lines_of(def.text), place = def.place,
+    difficulty = def.difficulty, conditions = def.conditions, condition = def.condition })
+  if why then return (why:gsub("^description", "text")) end
+  for _, k in ipairs({ "fights", "main", "open" }) do
+    if def[k] ~= nil and type(def[k]) ~= "boolean" then return k .. " must be true or false" end
+  end
+  if def.fame ~= nil and (not int(def.fame) or def.fame < 0 or def.fame > FAME_MAX) then
+    return "fame must be a whole number from 0 to " .. FAME_MAX
+  end
+  local a = def.after
+  if a ~= nil then
+    if type(a) == "string" then
+      if a == def.id then return "after cannot be the quest itself" end
+    elseif not int(a) or a <= 0 then
+      return "after must be a quest number or a quest's id"
+    end
+    if def.open then return "open and after: give one or the other" end
+  end
+  if type(def.run) ~= "function" then return "run must be a function" end
+  return nil
+end
+
+-- The state a quest starts at: open, after a cleared quest, or locked.
+local function start_state(def)
+  if def.open then return 1 end
+  local a = def.after
+  if a == nil then return 0 end
+  local n = type(a) == "string" and no_of(a) or a
+  if n and has_quest(n) and gint("Ｑ", n, "状態") == 2 then return 1 end
+  return 0
+end
+
+-- The fields the list shows but edit does not write: the kind's marks, main or sub, the script's
+-- kit, and the fame as Ｑ初期セット writes it (only while the quest has none and no clear).
+local function write_def(id, no)
+  local def = defs[id]
+  if gstr("Ｑ", no, "名前") == "" then set("Ｑ", no, "名前", def.raw.name) end
+  set("Ｑ", no, "種類", def.fights and 2 or 3)
+  set("Ｑ", no, "メイン", def.main and 1 or 9)
+  set("Ｑ", no, "キット", 0)
+  if gint("Ｑ", no, "取得名声値") == 0 and gint("Ｑ", no, "クリア回数") == 0 then
+    set("Ｑ", no, "取得名声値", def.fame)
+  end
+  apply(id)
+end
+
+local function free_no()
+  for n = FIRST_NO, math.min(LAST_NO, quest_count() - 1) do
+    if gstr("Ｑ", n, "チェック") == "" and gstr("Ｑ", n, "名前") == "" then return n end
+  end
+  return nil
+end
+
+local full_logged = {}
+
+-- After each registration of the game's quests (a new game, a load, a world transfer): the marks
+-- read, a gone mod's quests hidden, a returning one's state back, new ones numbered, every mod's
+-- quest written.
+local function register_all()
+  if not data_ready() then return end
+  scan()
+  for id, n in pairs(no_cache) do
+    local _, kept = id_at(n)
+    if not defs[id] then
+      if kept == nil then
+        set("Ｑ", n, "チェック", "rq" .. gint("Ｑ", n, "状態") .. ":" .. id)
+        set("Ｑ", n, "状態", 0)
+        logf("rq.quests: quest %d (%s): no mod defines it; hidden until it is defined again", n, id)
+      end
+    elseif kept ~= nil then
+      set("Ｑ", n, "状態", kept)
+      set("Ｑ", n, "チェック", "rq:" .. id)
+    end
+  end
+  local fresh = {}
+  for _, id in ipairs(def_list) do
+    if not no_cache[id] then
+      local n = free_no()
+      if n then
+        call("Ｑ初期化", n)
+        set("Ｑ", n, "チェック", "rq:" .. id)
+        no_cache[id] = n
+        fresh[#fresh + 1] = id
+      elseif not full_logged[id] then
+        full_logged[id] = true
+        logf("rq.quests.define: %s left out: no free number from %d to %d in this save", id, FIRST_NO, LAST_NO)
+      end
+    end
+  end
+  for _, id in ipairs(def_list) do
+    local n = no_cache[id]
+    if n then
+      local ok, err = pcall(write_def, id, n)
+      if not ok then logf("rq.quests.define: %s: %s", id, tostring(err)) end
+    end
+  end
+  -- After every number is known, so after can name a quest numbered in the same pass.
+  for _, id in ipairs(fresh) do set("Ｑ", no_cache[id], "状態", start_state(defs[id])) end
+end
+
+-- The world transfer resets the game's quests 1 to 301; the mods' are reset here, after it: each
+-- defined one as new (tries, clears, fame, its starting state), a gone mod's number freed.
+local function transfer()
+  if not data_ready() then return end
+  scan()
+  for id, n in pairs(no_cache) do
+    call("Ｑ初期化", n)
+    if defs[id] then
+      set("Ｑ", n, "チェック", "rq:" .. id)
+      local ok, err = pcall(write_def, id, n)
+      if not ok then logf("rq.quests.define: %s: %s", id, tostring(err)) end
+    else
+      no_cache[id] = nil
+    end
+  end
+  for _, id in ipairs(def_list) do
+    local n = no_cache[id]
+    if n then set("Ｑ", n, "状態", start_state(defs[id])) end
+  end
+end
+
+-- Placed at the loader's start, before any mod's hook: a gone mod's quests are hidden even when no
+-- loaded mod defines a quest, and edit's after-hook finds the mods' quests already written.
+hook("Ｑ起動時登録", { after = register_all })
+hook("ワールド切り替え処理", { after = transfer })
+
+-- The script: kit 0's moment 8 for a mod's number, so rq.quests.on_event's start (on クエスト処理,
+-- the dispatcher) runs first, as for a game quest.
+local function run_quest(def, id, no)
+  local q = { id = id, no = no, tries = gint("Ｑ", no, "参加回数"), clears = gint("Ｑ", no, "クリア回数") }
+  q.first = q.clears == 0
+  local ok, r = pcall(def.run, q)
+  if not ok then
+    if tostring(r):find(TITLE, 1, true) then error(r, 0) end
+    logf("rq.quests.define (%s) %s: run: %s; the quest is given up", def.mod, id, tostring(r))
+    return RESULT.abandon
+  end
+  if r == nil then return RESULT.clear end
+  local code = RESULT[r]
+  if not code then
+    logf("rq.quests.define (%s) %s: run returned %s, not clear, fail, abandon or escape; the quest is given up",
+      def.mod, id, tostring(r))
+    return RESULT.abandon
+  end
+  return code
+end
+
+local run_hooked = false
+local function hook_run()
+  if run_hooked then return end
+  run_hooked = true
+  hook("クエスト処理／基本", { before = function(h)
+    if h.args[1] ~= 8 then return end
+    local no = quest_now()
+    local id = id_at(no)
+    local def = id and defs[id]
+    if not def then return end
+    h.skip, h.result = true, run_quest(def, id, no)
+  end })
+end
+
+-- after: opened when that quest is cleared, through the game's Ｑ状態(no, 1), so the victory
+-- screen lists it with the game's new quests.
+local raw_on_clear = quests.on_clear
+local after_hooked = false
+local function hook_after()
+  if after_hooked then return end
+  after_hooked = true
+  raw_on_clear(function(ctx)
+    for _, id in ipairs(def_list) do
+      local a = defs[id].after
+      if a ~= nil then
+        local src = type(a) == "string" and no_of(a) or a
+        local n = no_of(id)
+        if src == ctx.quest and n and gint("Ｑ", n, "状態") == 0 then call("Ｑ状態", n, 1) end
+      end
+    end
+  end)
+end
+
+function quests.define(def)
+  if type(def) ~= "table" then error("rq.quests.define: expected a table", 2) end
+  local id = def.id
+  if type(id) ~= "string" or id == "" or #id > 64 then
+    error("rq.quests.define: id must be a text of 1 to 64 bytes", 2)
+  end
+  local why = check_def(def)
+  if why then error("rq.quests.define: " .. id .. ": " .. why, 2) end
+  local mod = mod_id()
+  local old = defs[id]
+  if old and old.mod ~= mod then error("rq.quests.define: " .. id .. " is defined by " .. old.mod, 2) end
+  local raw = { name = def.name, place = def.place or "", special = "", difficulty = def.difficulty or 0,
+    desc = {}, conds = {} }
+  local text = lines_of(def.text)
+  for i = 1, LINES do raw.desc[i] = text[i] or "" end
+  for i = 1, SLOTS do
+    local c = def.conditions and def.conditions[i]
+    raw.conds[i] = c and cond_raw(c, "") or { 0, 0, 0 }
+    if c and c.kind == "special" and c.text then raw.special = c.text end
+  end
+  defs[id] = {
+    id = id, mod = mod, raw = raw, run = def.run,
+    fights = def.fights == true, main = def.main == true, fame = def.fame or 0,
+    open = def.open == true, after = def.after,
+    condition = def.condition and { text = def.condition.text, ok = def.condition.ok } or nil,
+  }
+  if not old then def_list[#def_list + 1] = id end
+  hook_run()
+  if def.after ~= nil then hook_after() end
+  if def.condition then install_edit() end
+  if data_ready() then register_all() end
+end
+
+function quests.no(id)
+  if type(id) ~= "string" then error("rq.quests.no: expected a quest's id", 2) end
+  return no_of(id)
+end
+
+-- ---- The calls that take an id, and the callbacks' ctx.id ----
+
+local function plain(msg)
+  return (tostring(msg):gsub("^[%w_]+:%d+: ", ""))
+end
+
+local raw_state, raw_set_state, raw_unlock, raw_start =
+  quests.state, quests.set_state, quests.unlock, quests.start
+
+-- The C calls read the game's arrays: at a mod's top level (no VM yet) that is a crash pcall cannot
+-- catch, so these say so first, as the loader's guard on the C calls does.
+local function need_game(name)
+  if not pcall(rq.ain.global, "◆金") then
+    error(name .. ": the game is not running yet. Call it from rq.on_frame or a callback, not at the top level of a mod", 3)
+  end
+end
+
+function quests.state(no)
+  need_game("rq.quests.state")
+  return raw_state(resolve(no, "rq.quests.state"))
+end
+
+function quests.set_state(no, state)
+  need_game("rq.quests.set_state")
+  no = resolve(no, "rq.quests.set_state")
+  local ok, err = pcall(raw_set_state, no, state)
+  if not ok then error(plain(err), 2) end
+end
+
+function quests.unlock(no)
+  need_game("rq.quests.unlock")
+  return raw_unlock(resolve(no, "rq.quests.unlock"))
+end
+
+function quests.start(no)
+  no = resolve(no, "rq.quests.start")
+  local ok, err = pcall(raw_start, no)
+  if not ok then error(plain(err), 2) end
+end
+
+for _, name in ipairs({ "on_clear", "on_end", "on_take" }) do
+  local raw = quests[name]
+  if type(raw) == "function" then
+    quests[name] = function(fn)
+      if type(fn) ~= "function" then return raw(fn) end
+      return raw(function(ctx)
+        if type(ctx) == "table" and ctx.id == nil then ctx.id = (id_at(ctx.quest)) end
+        return fn(ctx)
+      end)
+    end
+  end
 end
 
 -- ======================================================================================
@@ -894,7 +1323,8 @@ hook("ＭＤ固定", { after = function(h)
   end
 end })
 
--- rq.quests.on_event and on_event_after do not see a mod's objects.
+-- rq.quests.on_event and on_event_after do not see a mod's objects; their ev has a mod's quest's
+-- id (2.41.0).
 for _, name in ipairs({ "on_event", "on_event_after" }) do
   local raw = quests[name]
   if type(raw) == "function" then
@@ -902,6 +1332,7 @@ for _, name in ipairs({ "on_event", "on_event_after" }) do
       if type(fn) ~= "function" then return raw(fn) end
       return raw(function(ev)
         if ev.code == 9 and ev.fg == 4 and is_custom(ev.no) then return nil end
+        ev.id = (id_at(ev.quest))
         return fn(ev)
       end)
     end

@@ -1359,12 +1359,12 @@ static void guard_game_calls(lua_State *L)
 			" number get set skill_points add_skill_points forget" },
 		{ "item", "number get set give transform equipped remove equip" },
 		{ "shop", "in_stock stock" },
-		{ "battle", "set_flame set_buff buffs get_drop set_drop skill_usable start" },
+		{ "battle", "set_flame set_buff buffs get_drop set_drop skill_usable" }, /* start: Lua since 2.36.0 */
 		{ "party", "get set" },
 		{ "dungeon", "grid" },
 		{ "sprite", "new scene" },
 		{ "random", "seed" },
-		{ "quests", "state set_state unlock _debug_clear new_this_run current" },
+		{ "quests", "_debug_clear new_this_run current" }, /* state, set_state, unlock: Lua since 2.41.0 */
 	};
 	size_t i;
 

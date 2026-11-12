@@ -1384,7 +1384,7 @@ static int sn_party, sn_status, sn_storeitem, sn_select, sn_storestock, sn_party
 static int sn_shop, sn_equipdrag, sn_skillpoint;
 static int sn_quest, sn_storequest, sn_mapparts, sn_player;
 static int sn_battlesel, sn_bchara, sn_bmon;
-static int sn_castle;
+static int sn_castle, sn_resultitem;
 static int snos_ready;
 
 static void snos_init(void)
@@ -1438,6 +1438,7 @@ static void snos_init(void)
 	sn_bchara = sn_get("T_BattleCharaManager");
 	sn_bmon = sn_get("T_BattleMonsterManager");
 	sn_castle = sn_get("T_Castle");
+	sn_resultitem = sn_get("T_ResultItem");
 	snos_ready = 1;
 }
 
@@ -5342,6 +5343,32 @@ static int fill_storequest(struct page *st)
 	return 1;
 }
 
+/* The appraisal after a quest's success (T_ResultItem, リザルト鑑定, 2.41.0): its Finish button
+ * (100001, bottom right) and its close button (100009). The items' buttons are not listed. */
+static int fill_appraisal(struct page *ri)
+{
+	struct page *arr;
+	int i, n0 = g_nctrls;
+	arr = fpage(fpage(ri, "m_sButton"), "m_asButton");
+	if (arr && arr->type == ARRAY_PAGE) {
+		for (i = 0; i < arr->nr_vars; i++) {
+			struct page *btn = arr_at(arr, i);
+			struct tbtn b;
+			if (!tbtn_read(btn, &b) || !b.show)
+				continue;
+			if (b.id == 100001)
+				emit_named_btn(btn, i, "finish", "Finish", "appraisal", "", 0);
+			else if (b.id == 100009)
+				emit_named_btn(btn, i, "close", "Close", "appraisal", "", 0);
+		}
+	}
+	if (g_nctrls == n0)
+		return 0;
+	snprintf(g_screen, sizeof g_screen, "appraisal");
+	hover_from_rects();
+	return 1;
+}
+
 static const char *map_btn_name(int id, const char **label)
 {
 	switch (id) {
@@ -5726,7 +5753,7 @@ static int vm_fill(void)
 static int vm_fill_screen(void)
 {
 	struct page *view = NULL, *title = NULL, *cfg = NULL, *pstatus = NULL, *menu, *town;
-	struct page *party, *status;
+	struct page *party, *status, *appr = NULL;
 	int i, view_at = 99, title_at = 99, cfg_at = 99, kind = CFG_NONE;
 	snos_init();
 	if (!ain)
@@ -5737,6 +5764,8 @@ static int vm_fill_screen(void)
 			continue;
 		if (p->index == sn_pstatus && !pstatus && sprite_live(fpage(p, "m_spBase")))
 			pstatus = p;
+		if (sn_resultitem >= 0 && p->index == sn_resultitem && !appr && sprite_live(fpage(p, "m_spBase")))
+			appr = p;
 		if (is_config_view(p->index) && i < view_at) {
 			view = p;
 			view_at = i;
@@ -5766,6 +5795,9 @@ static int vm_fill_screen(void)
 		if (sel && sprite_live(fpage(sel, "m_spBase")) && fill_select(sel))
 			return 1;
 	}
+	/* The appraisal after a quest's success (2.41.0); its dialogs are `select` above. */
+	if (appr && fill_appraisal(appr))
+		return 1;
 	/* Before the screens under it: since 2.20.1 the footer's SYSTEM opens it from Quests, the
 	 * status page and the vault too. */
 	menu = global_struct(&gi_menu, "g_sSystemMenu", sn_sysmenu);
