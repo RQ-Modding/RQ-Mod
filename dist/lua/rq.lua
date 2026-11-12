@@ -4486,7 +4486,8 @@ function battle.on_switch(fn) end
 ---Calls `fn` each time a skill is carried out, before its effects.
 ---
 ---It runs for allies, enemies and summons, once per hit of a multi-hit skill, and for a counter
----too. It only reports: it cannot change or stop the skill.
+---too. It only reports: it cannot change or stop the skill. To choose an enemy's or the familiar's
+---skill and target, use `rq.battle.on_choose`.
 ---
 ---Since: 0.25.0
 ---
@@ -4935,6 +4936,129 @@ function battle.on_log(fn) end
 ---@return boolean added false when the game added nothing.
 ---@see rq.battle.on_log
 function battle.log(text) end
+
+---A skill in `rq.ChooseCtx.skills`: one slot of the actor's list as it is now.
+---
+---Since: 2.38.0
+---@class rq.ChooseSkill
+---@field slot integer Its position in the list, 1 to 20 (a monster's own skills first).
+---@field id integer The skill number (`rq.skill.get`).
+---@field text string The text the fight shows when the actor uses it.
+---@field motion integer The motion an enemy plays for it.
+---@field chance integer The game's draw threshold: the draw (0 to 99) takes the first slot whose chance is at least the number, so 50 then 100 is half each. 0 for a once-only skill already used; below 5 on an ability, its rank.
+---@field added boolean true for a skill a mod's `on_choose` put in the list in this fight.
+
+---What `rq.battle.on_choose` gets on an enemy's or the familiar's turn.
+---
+---Since: 2.38.0
+---@class rq.ChooseCtx
+---@field iic integer The actor's roster slot: 1 to 5 for an enemy, 10 for the familiar.
+---@field unit integer The actor's battle number.
+---@field side "enemy"|"familiar" Whose turn it is.
+---@field rank integer The enemy's rank, 1 to 5; 0 for the familiar.
+---@field turn integer The fight's action count (`◆戦闘ターン`), as `rq.battle.on_turn`'s.
+---@field skill integer The skill about to be used: the game's choice, then what the callback before left. Write a skill number to change it.
+---@field target? integer The target's roster slot: the game's roll, then what the callback before left. Write a slot to change it, or nil to let the game pick. nil for a skill with no single target (all, a row, all allies); the actor for a self skill.
+---@field rolled integer The skill the game's draw gave, before its Standby rule.
+---@field standby boolean true when `skill` is Standby (384) because of the game's rule: a skill that reaches only the front row, from the back row, while an enemy stands in the front row.
+---@field charged boolean true on the turn a skill charged the turn before is released: only `target` can change then.
+---@field skills rq.ChooseSkill[] The actor's list as it is now.
+local ChooseCtx = {}
+
+---The units a skill may aim at from this actor, by the rules `on_choose` checks a target with.
+---
+---A unit standing on the side the skill's target kind names (the other side for melee, ranged and
+---random targets; the actor's own for an ally skill), with no hidden ally (a hiding rate, as Stealth
+---gives) and, for a melee skill, only the front row (ranks 1 to 3) while one stands there. The
+---actor alone for a self skill; empty for a skill with no single target.
+---
+---Since: 2.38.0
+---
+---```lua
+---local t = ctx:targets(FIREBALL)
+---if #t > 0 then ctx.skill, ctx.target = FIREBALL, t[1] end
+---```
+---@param skill? integer The skill. Default: `ctx.skill`.
+---@return integer[] targets The roster slots, in rank order.
+function ChooseCtx:targets(skill) end
+
+---Calls `fn` on each turn of an enemy or the familiar, after the game chose a skill and a target and
+---before it acts, to change them.
+---
+---The game draws an enemy's skill from its list's chances (see `rq.ChooseSkill.chance`) and turns a
+---front-row skill from the back row into Standby while the front row stands; the familiar always
+---uses its first skill. The target is the game's random roll for that skill, with its own taunt
+---rules (`rq.battle.taunt`, Easy Target). `fn` reads them in `ctx` and writes `ctx.skill` and
+---`ctx.target`; each callback sees what the one before left.
+---
+---A new skill is checked: a skill number the game has, that acts (physical, magic, special or
+---support; not an ability), not Escape (211) or "Relax, relax" (217). It goes through the game's
+---Standby rule. A skill the actor does not have is put at the end of its list for the rest of the
+---fight, with chance 0 (the game never draws it), the motion of its first skill and the skill's own
+---text for the log. When a callback writes a new skill and leaves `target`, the loader rolls the
+---game's target for the new skill, unless a mod set the target and it still fits.
+---
+---A new target is checked by `ctx:targets`' rules: a unit standing on the right side, not a hidden
+---ally, the front row for melee while one stands there. An attack on the actor's own side is
+---refused. A target a callback writes is a target a mod set, also when it is the unit the game
+---rolled. For a multi-hit skill a target a mod set takes every hit while it stands; then the game
+---picks for each hit, as it does for its own targets. On the turn a charged skill is released
+---(`ctx.charged`) only the target can change.
+---
+---A write that fails a check keeps the value before it and logs a line naming the mod; an error in
+---`fn` keeps both. The allies' turns (their menu, AUTO) do not come here.
+---
+---Since: 2.38.0
+---
+---```lua
+---rq.battle.on_choose(function(ctx) -- a boss that heals when low, and a taunt state
+---  local me = rq.chara.get(ctx.iic)
+---  if ctx.side == "enemy" and me.hp * 3 < me.hp_max then ctx.skill = HEAL_SKILL end
+---  for _, iic in ipairs(ctx:targets()) do
+---    if rq.status.get(iic, "mymod:taunt") then ctx.target = iic end
+---  end
+---end)
+---```
+---@param fn fun(ctx: rq.ChooseCtx) Reads and writes the choice.
+---@return fun() remove Removes this callback.
+---@see rq.battle.on_use
+---@see rq.monster.edit
+function battle.on_choose(fn) end
+
+---The ally the game's taunt names now, or nil.
+---
+---The game sets it when a skill like that ("X got the enemy's attention") lands, and clears it at a
+---fight's start. While that ally stands, is not hidden and is in the rows the enemy's skill
+---reaches, the enemies' rolls take it first. nil outside a fight.
+---
+---Since: 2.38.0
+---
+---```lua
+---local who = rq.battle.taunt()
+---```
+---@return integer|nil iic The ally's roster slot.
+---@see rq.battle.set_taunt
+function battle.taunt() end
+
+---Names the ally the enemies aim at, as the game's taunt does, or clears it with nil.
+---
+---It is the game's own taunt: hiding still wins, a melee skill still takes the front row when the
+---taunting ally stands in the back row, and it lasts until it is changed or the fight ends. A mod's
+---`rq.battle.on_choose` sees the target it gave and may still change it.
+---
+---Raises an error outside a fight, for a slot that is not an ally in this fight, or for an ally who
+---is down.
+---
+---Since: 2.38.0
+---
+---```lua
+---rq.battle.on_turn(function(ctx) -- a state that draws the enemies' attacks
+---  if ctx.side == "ally" and rq.status.get(ctx.iic, "mymod:taunt") then rq.battle.set_taunt(ctx.iic) end
+---end)
+---```
+---@param iic integer|nil The ally's roster slot, or nil to clear it.
+---@see rq.battle.taunt
+function battle.set_taunt(iic) end
 
 ---Installs the hooks the flame, the buffs and the marks need.
 ---
@@ -6824,7 +6948,7 @@ local monster = {}
 ---@field id integer The skill number (`rq.skill.get`).
 ---@field text string The text the fight shows when the monster uses it.
 ---@field motion integer The motion it plays.
----@field chance integer How often the monster chooses it, as the game weighs it.
+---@field chance integer How often the monster chooses it, as the game weighs it: the draw (0 to 99) takes the first skill whose chance is at least the number, so 50 then 100 is half each; below 5 on an ability, its rank.
 
 ---A monster's data, as `rq.monster.get` returns it. The names are `rq.chara.get`'s.
 ---@class rq.Monster
@@ -6952,7 +7076,9 @@ function monster.get(no) end
 ---
 ---Each mod keeps one patch per monster: calling again replaces that mod's patch, and `nil` removes
 ---it. The patches apply in load order, a later mod's field over an earlier one's. A change applies
----from the next build; an enemy already in a fight keeps its numbers.
+---from the next build; an enemy already in a fight keeps its numbers. A skill's `chance` changes how
+---often the game draws it in every fight; to choose a skill or a target turn by turn, use
+---`rq.battle.on_choose`.
 ---
 ---Raises an error for an unknown monster, an unknown field, a value of the wrong kind, or a skill
 ---position outside 1 to 5.
@@ -6968,6 +7094,7 @@ function monster.get(no) end
 ---```
 ---@param no integer The monster number (`rq.ids.monster`).
 ---@param patch rq.MonsterEdit|nil The fields to change; nil removes this mod's patch.
+---@see rq.battle.on_choose
 function monster.edit(no, patch) end
 
 ---Calls `fn` after the game builds each enemy of a fight and the party's familiar, before the fight
@@ -7177,7 +7304,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.37.0"
+rq.version = "2.38.0"
 
 rq.units = units
 rq.items = items

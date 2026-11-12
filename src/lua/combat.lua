@@ -859,3 +859,6 @@ function battle.log(text)
   local r = call("戦闘ログ_追加", text, 5, false)
   return r == true or r == 1
 end
+
+-- choices.lua (2.38.0) runs after this file and shares the callback lists' helpers.
+priv.callbacks = { handlers = handlers, run = run, report = report }
