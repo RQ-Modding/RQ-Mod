@@ -7,8 +7,15 @@
 -- The small lists (element, race, chara_type, item_kind, target, class, state) come from the
 -- game's own name functions, called for 0 to 99.
 -- Only names and numbers leave the game: no descriptions or other text.
+-- ids-pictures.tsv gives the file browser (rq-browser) a picture for a name: a character's face and
+-- standing picture, an item's icon. Each line: kind, number, CG, use. It is not part of rq.ids.
 local t = _G.t
 local out = {}
+local pictures = {}
+
+local function picture(kind, no, cg, use)
+  if type(cg) == "number" and cg > 0 then pictures[#pictures + 1] = { kind, no, math.floor(cg), use } end
+end
 
 local function clean(s)
   return (tostring(s or ""):gsub("[\t\r\n]", " "))
@@ -42,6 +49,8 @@ for no = 1, 999 do
     local it = rq.item.get(ii)
     if it and it.name ~= "" then items[#items + 1] = { no, it.name, it.type_name } end
     rq.item.remove(ii)
+    local okinfo, info = pcall(rq.item.info, no)
+    if it and it.name ~= "" and okinfo and info then picture("item", no, info.icon, "icon") end
   end
 end
 write("item", items)
@@ -56,6 +65,8 @@ for no = 1, 999 do
     local c = rq.chara.get(iic)
     if c and c.name ~= "" and c.name ~= "NoName" then
       charas[#charas + 1] = { no, c.name, c.class }
+      picture("chara", no, c.face, "face")
+      picture("chara", no, c.portrait, "standing picture")
     else
       skipped = skipped + 1
     end
@@ -112,9 +123,20 @@ end
 rq.ain.call("Ｃ初期化", 1)
 write("monster", monsters)
 
--- Quests: the game's quest list.
+-- Quests: the game's quest list. 303 and up are mods' quests (rq.quests.define), such as the Lab's.
 local quests = {}
-for _, q in ipairs(rq.quests()) do quests[#quests + 1] = { q.id, q.name, "" } end
+for _, q in ipairs(rq.quests()) do
+  if q.id < 303 then quests[#quests + 1] = { q.id, q.name, "" } end
+end
 write("quest", quests)
+
+do
+  local f = assert(io.open("ids-pictures.tsv", "wb"))
+  f:write("# The game's pictures for rq.ids' names, for the file browser (rq-browser's Names tab). Not part of rq.ids.\n")
+  f:write("# Written by tools/ids/extract.lua (scripts\\ids-extract.ps1). kind, number, CG, use.\n")
+  for _, r in ipairs(pictures) do f:write(r[1], "\t", r[2], "\t", r[3], "\t", r[4], "\n") end
+  f:close()
+  out[#out + 1] = "pictures " .. #pictures
+end
 
 t.log(table.concat(out, ", "))

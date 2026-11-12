@@ -112,11 +112,15 @@ jobs:
         run: |
           pkg=RQ-MOD
           mkdir -p $pkg/xsystem4 $pkg/mods
-          cp build/src/xsystem4.exe build/tools/rqmod-ctl/rqmod-ctl.exe /mingw64/bin/glew32.dll $pkg/xsystem4/
+          cp build/src/xsystem4.exe build/tools/rqmod-ctl/rqmod-ctl.exe build/tools/rq-browser/rq-browser.exe /mingw64/bin/glew32.dll $pkg/xsystem4/
           cp -r fonts shaders $pkg/xsystem4/
           cp -r dist/. $pkg/
           cp README.md CHANGELOG.md CREDITS.md COPYING $pkg/xsystem4/
           mkdir -p $pkg/xsystem4/licenses && cp -r /mingw64/share/licenses/. $pkg/xsystem4/licenses/
+          # RQ Browser: Dear ImGui and cimgui (MIT), built in from third_party/cimgui.
+          mkdir -p $pkg/xsystem4/licenses/imgui $pkg/xsystem4/licenses/cimgui
+          cp third_party/cimgui/imgui/LICENSE.txt $pkg/xsystem4/licenses/imgui/
+          cp third_party/cimgui/LICENSE $pkg/xsystem4/licenses/cimgui/
           # Symbol list for crash reports: "RVA name", with the exe size first.
           size=$(stat -c %s build/src/xsystem4.exe)
           { echo "# exe-size $size"

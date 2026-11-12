@@ -53,6 +53,7 @@ libsys4_dep = libsys4_proj.get_variable('libsys4_dep')
 subdir('src')
 if host_machine.system() == 'windows' and get_option('modloader')
     subdir('tools/rqmod-ctl')
+    subdir('tools/rq-browser')
 endif
 
 install_subdir('shaders', install_dir : get_option('datadir') / 'xsystem4')
