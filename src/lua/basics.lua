@@ -3,6 +3,7 @@
 --   rq.game.gold, set_gold, add_gold                 the money
 --   rq.game.charisma, add_charisma, set_charisma     the rank and points of the system bar
 --   rq.encounters.info, hold, set_steps, on_steps, on_encounter   random fights on a quest's map
+--   rq.encounters.set_groups (2.40.0)                the area's groups, a mod's among them
 --   rq.chara.add_exp, level_up, on_level_up          EXP and levels, as the game gives them
 --   (rq.chara.get's uncapped is in C, modloader_roster.c, as the rest of get)
 -- And a fight's rewards (loader 2.34.0, notes/plans/plan-rewards-savedata.md):
@@ -20,6 +21,7 @@
 --   名声_ランク設定, 名声_ポイント＋ / －, 名声_ランクアップ, Ｔ名声最大書き換え   charisma
 --   ランダムエンカウント_あり               true while the area has groups; the walk and the bar ask it
 --   エンカウント再計算(条件)               the steps of a full bar, after each fight and area change
+--   エンカウント中身登録(a1..a5)           the area's groups (◆エンカウント中身[1..5]), 0 none (2.40.0)
 --   雑魚戦闘処理(配置敵)                   a fight from the map: 0 random, 1 an enemy on the map
 --   キャラ_レベルアップ(iic)               a level that takes its EXP (a fight's result)
 --   レベルアップ処理(iic)                  a free level: EXP back to 0 (story, training, the reserve)
@@ -307,6 +309,31 @@ function encounters.on_steps(fn)
     end })
   end
   return add_steps(fn)
+end
+
+-- The area's groups (2.40.0): the game's numbers and a mod's (rq.monster.group, in monster.lua,
+-- which builds a mod's group after 雑魚セット生成), written as the area's script writes them.
+function encounters.set_groups(list)
+  need_game("rq.encounters.set_groups")
+  if type(list) ~= "table" then error("rq.encounters.set_groups: expected a list of groups", 2) end
+  local n = #list
+  if n > 5 then error("rq.encounters.set_groups: at most 5 groups", 2) end
+  for k in pairs(list) do
+    if not int(k) or k < 1 or k > n then error("rq.encounters.set_groups: expected a list of groups", 2) end
+  end
+  local nos = {}
+  for i = 1, 5 do
+    if i <= n then
+      local no, err = priv.group_check(list[i])
+      if not no then error("rq.encounters.set_groups: " .. err, 2) end
+      nos[i] = no
+    else
+      nos[i] = 0
+    end
+  end
+  if not on_map() then error("rq.encounters.set_groups: not on a quest's map", 2) end
+  call("エンカウント中身登録", nos[1], nos[2], nos[3], nos[4], nos[5])
+  bar_show()
 end
 
 local enc_list, add_enc = handlers()
@@ -860,7 +887,7 @@ end
 local NONE = -2147483648
 local TITLE_ERROR = "rq: the game went to the title" -- modloader_unwind.c
 local OPTS = { enemies = true, exp = true, boss = true, strong = true, double_hp = true, names = true,
-  background = true, music = true, escape = true, gold = true }
+  background = true, music = true, escape = true, gold = true, group = true }
 local HOW = { [1] = "won", [2] = "lost", [3] = "draw", [4] = "time", [5] = "fled", [6] = "fled" }
 
 local start_hooked = false
@@ -948,17 +975,32 @@ local function read_opts(opts)
   for k in pairs(opts) do
     if not OPTS[k] then error("rq.battle.start: no option " .. tostring(k), 3) end
   end
-  local en = opts.enemies
-  if type(en) ~= "table" then error("rq.battle.start: enemies must be a list of monster numbers", 3) end
-  if #en > 5 then error("rq.battle.start: at most 5 ranks", 3) end
   local o = { m = {} }
-  for i = 1, 5 do
-    local v = en[i]
-    if v == nil or v == false then v = 0 end
-    if not int(v) then error(string.format("rq.battle.start: rank %d is not a monster number", i), 3) end
-    o.m[i] = v
+  local group_exp
+  if opts.group ~= nil then
+    -- A mod's group (2.40.0): a line-up drawn as the game draws one, and the group's EXP.
+    if opts.enemies ~= nil then error("rq.battle.start: enemies or group, not both", 3) end
+    local m, exp = priv.group_pick(opts.group)
+    if not m then error("rq.battle.start: group must be a group from rq.monster.group, not " .. tostring(opts.group), 3) end
+    o.m, group_exp = m, exp
+  else
+    local en = opts.enemies
+    if type(en) ~= "table" then error("rq.battle.start: enemies must be a list of monster numbers", 3) end
+    if #en > 5 then error("rq.battle.start: at most 5 ranks", 3) end
+    for i = 1, 5 do
+      local v = en[i]
+      if v == nil or v == false then v = 0 end
+      -- A mod's monster by its text id (2.40.0).
+      if type(v) == "string" then
+        local no = priv.monster_no(v)
+        if not no then error(string.format("rq.battle.start: rank %d: no monster with the id %s", i, v), 3) end
+        v = no
+      end
+      if not int(v) then error(string.format("rq.battle.start: rank %d is not a monster number", i), 3) end
+      o.m[i] = v
+    end
   end
-  o.exp = opts.exp == nil and 0 or opts.exp
+  o.exp = opts.exp == nil and (group_exp or 0) or opts.exp
   if not int(o.exp) then error("rq.battle.start: exp must be a whole number", 3) end
   o.boss = check_bool(opts, "boss")
   o.strong = check_bool(opts, "strong")

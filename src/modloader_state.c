@@ -142,6 +142,51 @@ static int l_in_battle(lua_State *L)
 	return 1;
 }
 
+/* The model table (hll/MonsterInfo.c) for rq.monster.models and model (lua/monster.lua, 2.40.0).
+ * models_count() -> count, file count (nil when the table cannot be read). */
+static int l_models_count(lua_State *L)
+{
+	int file = 0, n = rq_models_count(&file);
+	if (n < 0)
+		return 0;
+	lua_pushinteger(L, n);
+	lua_pushinteger(L, file);
+	return 2;
+}
+
+/* model_info(i) -> name, poly, scale, x, y, z, motions; nothing for no entry. */
+static int l_model_info(lua_State *L)
+{
+	char *name = NULL, *poly = NULL;
+	float scale, x, y, z;
+	int motions;
+
+	if (!rq_model_info((int)luaL_checkinteger(L, 1), &name, &poly, &scale, &x, &y, &z, &motions))
+		return 0;
+	lua_pushstring(L, name);
+	lua_pushstring(L, poly);
+	lua_pushnumber(L, scale);
+	lua_pushnumber(L, x);
+	lua_pushnumber(L, y);
+	lua_pushnumber(L, z);
+	lua_pushinteger(L, motions);
+	free(name);
+	free(poly);
+	return 7;
+}
+
+/* model_derive(slot, base, scale, x, y, z) -> index, or nil. slot -1 adds one. */
+static int l_model_derive(lua_State *L)
+{
+	int at = rq_model_derive((int)luaL_checkinteger(L, 1), (int)luaL_checkinteger(L, 2),
+		(float)luaL_checknumber(L, 3), (float)luaL_checknumber(L, 4), (float)luaL_checknumber(L, 5),
+		(float)luaL_checknumber(L, 6));
+	if (at < 0)
+		return 0;
+	lua_pushinteger(L, at);
+	return 1;
+}
+
 void rq_state_private(lua_State *L, int priv)
 {
 	lua_pushcfunction(L, l_fight_mark);
@@ -150,6 +195,17 @@ void rq_state_private(lua_State *L, int priv)
 	lua_setfield(L, priv, "in_battle");
 	lua_pushcfunction(L, rq_lua_battle_on_start_first);
 	lua_setfield(L, priv, "on_start_first");
+	lua_pushcfunction(L, rq_lua_battle_on_end_first);
+	lua_setfield(L, priv, "on_end_first");
+	/* 2.40.0: the stores and rq.savedata under a key of the loader's own (lua/monster.lua). */
+	lua_pushcfunction(L, rq_lua_as_mod);
+	lua_setfield(L, priv, "as_mod");
+	lua_pushcfunction(L, l_models_count);
+	lua_setfield(L, priv, "models_count");
+	lua_pushcfunction(L, l_model_info);
+	lua_setfield(L, priv, "model_info");
+	lua_pushcfunction(L, l_model_derive);
+	lua_setfield(L, priv, "model_derive");
 }
 
 int rq_lua_random_seed(lua_State *L)

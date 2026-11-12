@@ -819,6 +819,25 @@ int rq_lua_battle_on_start_first(lua_State *L)
 	return 0;
 }
 
+/* priv.on_end_first (2.40.0, the monsters' drops): an on_end callback put before every other, so
+ * each mod's on_end sees the drop. */
+int rq_lua_battle_on_end_first(lua_State *L)
+{
+	int ref;
+
+	luaL_checktype(L, 1, LUA_TFUNCTION);
+	if (!ain || !rq_events_install(ain))
+		return luaL_error(L, "battle events install failed (see logs/rqmod.log)");
+	if (g_nend >= CB_MAX)
+		return luaL_error(L, "too many battle callbacks registered");
+	lua_pushvalue(L, 1);
+	ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	memmove(g_end_cb + 1, g_end_cb, (size_t)g_nend * sizeof g_end_cb[0]);
+	g_end_cb[0] = ref;
+	g_nend++;
+	return 0;
+}
+
 int rq_lua_battle_on_end(lua_State *L)
 {
 	return add_cb(L, g_end_cb, &g_nend);

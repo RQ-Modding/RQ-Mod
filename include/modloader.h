@@ -160,6 +160,8 @@ void rq_uikit_open(struct lua_State *L, int rq_index);
 void rq_ids_open(struct lua_State *L, int rq_index);
 int rq_lua_battle_on_start(struct lua_State *L);
 int rq_lua_battle_on_start_first(struct lua_State *L);
+/* priv.on_end_first (2.40.0): an on_end callback before every other, for the monsters' drops. */
+int rq_lua_battle_on_end_first(struct lua_State *L);
 int rq_lua_battle_on_end(struct lua_State *L);
 int rq_lua_battle_on_down(struct lua_State *L);
 int rq_lua_battle_on_support(struct lua_State *L);
@@ -516,7 +518,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.39.0"
+#define RQ_VERSION "2.40.0"
 
 struct rq_qbattle_skill {
 	int id;
@@ -553,6 +555,11 @@ void rq_state_private(struct lua_State *L, int priv);
 int rq_lua_random_seed(struct lua_State *L);
 int rq_lua_random_fix(struct lua_State *L);
 /* hll/Math.c: every roll of the game and the loader. A negative value stops fixing. */
+/* hll/MonsterInfo.c (2.40.0): the model table for rq.monster.models and model. count returns the
+ * entries (the file's in *file_count), or -1 when the table cannot be read. */
+int rq_models_count(int *file_count);
+bool rq_model_info(int i, char **name, char **poly, float *scale, float *x, float *y, float *z, int *motions);
+int rq_model_derive(int slot, int base, float scale, float x, float y, float z);
 void rq_random_seed(int seed);
 void rq_random_fix(int value);
 int rq_random_int(int max);

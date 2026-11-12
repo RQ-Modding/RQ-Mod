@@ -27,6 +27,10 @@
 #include "hll.h"
 #include "xsystem4.h"
 
+#ifdef RQ_MODLOADER
+#include "modloader.h"
+#endif
+
 enum motion_type {
 	MOTION_UNSPECIFIED = 0,
 	MOTION_LOOP = 2
@@ -60,6 +64,22 @@ struct monster {
 
 static unsigned nr_monsters = 0;
 static struct monster *monsters = NULL;
+
+#ifdef RQ_MODLOADER
+/* rq.monster.models and rq.monster.model (loader 2.40.0): the table read once, and a mod's models,
+ * each a copy of a game model at another scale and offset, appended after the file's entries. The
+ * loader may read the table before the game asks for it (a mod's model at load); the game's own
+ * Load of the same file then keeps it. After each read the mod's models are put back. */
+struct rq_derived {
+	int base;
+	float scale, x, y, z;
+};
+static struct rq_derived *rq_derived = NULL;
+static unsigned rq_nderived = 0;
+static unsigned rq_file_count = 0; /* the file's entries: the mod's models start here */
+static char *rq_loaded_name = NULL;
+static void rq_apply_derived(void);
+#endif
 
 static void return_string(struct string **out, const char *s)
 {
@@ -117,6 +137,10 @@ static bool parse_monster_info(char *text)
 			if (!*text) { // EOF
 				return true;
 			} else if (MATCH("モンスター [ %u ] = {", &n)) {
+#ifdef RQ_MODLOADER
+				if (n + 1 > rq_file_count)
+					rq_file_count = n + 1;
+#endif
 				if (n >= nr_monsters) {
 					monsters = xrealloc_array(monsters, nr_monsters, n + 1, sizeof(struct monster));
 					nr_monsters = n + 1;
@@ -206,6 +230,11 @@ static bool parse_monster_info(char *text)
 
 static bool MonsterInfo_Load(struct string *filename)
 {
+#ifdef RQ_MODLOADER
+	if (rq_loaded_name && !strcmp(rq_loaded_name, filename->text))
+		return true;
+	rq_file_count = 0;
+#endif
 	char *path = gamedir_path("Data/ReignData.red");
 	int error = ARCHIVE_SUCCESS;
 	struct archive *aar = (struct archive *)aar_open(path, MMAP_IF_64BIT, &error);
@@ -234,28 +263,149 @@ static bool MonsterInfo_Load(struct string *filename)
 	free(sjis_text);
 	archive_free_data(dfile);
 	archive_free(aar);
+#ifdef RQ_MODLOADER
+	if (ok) {
+		free(rq_loaded_name);
+		rq_loaded_name = strdup(filename->text);
+		rq_apply_derived();
+	}
+#endif
 	return ok;
+}
+
+static void free_monster(struct monster *m)
+{
+	free(m->name);
+	free(m->poly_name);
+	free(m->wear_effect_name);
+	for (unsigned j = 0; j < m->nr_motions; j++) {
+		struct motion *mot = &m->motions[j];
+		free(mot->name);
+		free(mot->data_name);
+		free(mot->effect_name);
+	}
+	free(m->motions);
+	memset(m, 0, sizeof *m);
 }
 
 static void MonsterInfo_Release(void)
 {
-	for (unsigned i = 0; i < nr_monsters; i++) {
-		struct monster *m = &monsters[i];
-		free(m->name);
-		free(m->poly_name);
-		free(m->wear_effect_name);
-		for (unsigned j = 0; j < m->nr_motions; j++) {
-			struct motion *mot = &m->motions[j];
-			free(mot->name);
-			free(mot->data_name);
-			free(mot->effect_name);
-		}
-		free(m->motions);
-	}
+	for (unsigned i = 0; i < nr_monsters; i++)
+		free_monster(&monsters[i]);
 	free(monsters);
 	monsters = NULL;
 	nr_monsters = 0;
+#ifdef RQ_MODLOADER
+	free(rq_loaded_name);
+	rq_loaded_name = NULL;
+	rq_file_count = 0;
+#endif
 }
+
+#ifdef RQ_MODLOADER
+static char *dup_or_null(const char *s)
+{
+	return s ? strdup(s) : NULL;
+}
+
+static void copy_monster(struct monster *dst, const struct monster *src)
+{
+	*dst = *src;
+	dst->name = dup_or_null(src->name);
+	dst->poly_name = dup_or_null(src->poly_name);
+	dst->wear_effect_name = dup_or_null(src->wear_effect_name);
+	dst->motions = NULL;
+	if (src->nr_motions) {
+		dst->motions = xcalloc(src->nr_motions, sizeof(struct motion));
+		for (unsigned j = 0; j < src->nr_motions; j++) {
+			dst->motions[j] = src->motions[j];
+			dst->motions[j].name = dup_or_null(src->motions[j].name);
+			dst->motions[j].data_name = dup_or_null(src->motions[j].data_name);
+			dst->motions[j].effect_name = dup_or_null(src->motions[j].effect_name);
+		}
+	}
+}
+
+static void rq_apply_one(unsigned k)
+{
+	struct rq_derived *d = &rq_derived[k];
+	unsigned at = rq_file_count + k;
+	struct monster *m;
+
+	if (d->base < 0 || (unsigned)d->base >= rq_file_count)
+		return;
+	if (at >= nr_monsters) {
+		monsters = xrealloc_array(monsters, nr_monsters, at + 1, sizeof(struct monster));
+		nr_monsters = at + 1;
+	}
+	m = &monsters[at];
+	free_monster(m);
+	copy_monster(m, &monsters[d->base]);
+	m->scale = d->scale;
+	m->pos_x = d->x;
+	m->pos_y = d->y;
+	m->pos_z = d->z;
+}
+
+static void rq_apply_derived(void)
+{
+	for (unsigned k = 0; k < rq_nderived; k++)
+		rq_apply_one(k);
+}
+
+/* The table, read from the game's file when the game has not read it yet. */
+static bool rq_models_ensure(void)
+{
+	if (rq_loaded_name)
+		return true;
+	struct string *name = cstr_to_string("Data\\MonsterInfo.txt");
+	bool ok = MonsterInfo_Load(name);
+	free_string(name);
+	return ok;
+}
+
+int rq_models_count(int *file_count)
+{
+	if (!rq_models_ensure())
+		return -1;
+	if (file_count)
+		*file_count = rq_file_count;
+	return nr_monsters;
+}
+
+/* Entry i's fields; the texts are UTF-8 copies the caller frees. */
+bool rq_model_info(int i, char **name, char **poly, float *scale, float *x, float *y, float *z, int *motions)
+{
+	if (!rq_models_ensure() || i < 0 || (unsigned)i >= nr_monsters)
+		return false;
+	struct monster *m = &monsters[i];
+	*name = m->name ? sjis2utf(m->name, 0) : strdup("");
+	*poly = m->poly_name ? sjis2utf(m->poly_name, 0) : strdup("");
+	*scale = m->scale;
+	*x = m->pos_x;
+	*y = m->pos_y;
+	*z = m->pos_z;
+	*motions = m->nr_motions;
+	return true;
+}
+
+/* A mod's model: slot -1 adds one, else changes that one (0-based among the mod's models).
+ * Returns the entry's index, or -1 for a base that is not one of the file's entries. */
+int rq_model_derive(int slot, int base, float scale, float x, float y, float z)
+{
+	if (!rq_models_ensure() || base < 0 || (unsigned)base >= rq_file_count)
+		return -1;
+	if (slot < 0) {
+		rq_derived = xrealloc_array(rq_derived, rq_nderived, rq_nderived + 1, sizeof *rq_derived);
+		slot = rq_nderived++;
+	} else if ((unsigned)slot >= rq_nderived) {
+		return -1;
+	}
+	rq_derived[slot] = (struct rq_derived){ base, scale, x, y, z };
+	rq_apply_one(slot);
+	return rq_file_count + slot;
+}
+#endif
 
 static int MonsterInfo_GetNumof(void)
 {
