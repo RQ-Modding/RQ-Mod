@@ -293,6 +293,106 @@ function item.info(no)
   return hit.row and copy(hit.row) or nil
 end
 
+-- ---- rq.item.on_can_equip (2.46.0, notes/plans/plan-new-mods.md in the workspace, step 2) ----
+--
+-- アイテム_装備可能(ii, iic) is the one check of the vault, the status page, the shop, the storage
+-- screen's filters and the equip list (T_EquipList). Its order: the item's level (Ｉ装備ＬＶ, 0 for
+-- none) against the character's (キャラ_レベル); then the item's character list
+-- (アイテム_装備キャラ 1 to アイテム_装備キャラ数, by Ｃ番号), which decides alone when it names
+-- anyone; else the class (アイテム_装備職業 of キャラ_職業). The callbacks run in an after hook; the
+-- reasons are worked out only when a callback reads them.
+
+local can_list = {}
+local can_hooked = false
+
+local function can_why(ii, iic)
+  local reasons = {}
+  local lv = call("アイテム_装備レベル", ii)
+  local clv = call("キャラ_レベル", iic)
+  if lv > 0 and clv < lv then reasons[#reasons + 1] = "level" end
+  local named, listed = false, false
+  local no = call("キャラ_番号", iic)
+  for i = 1, call("アイテム_装備キャラ数") do
+    local x = call("アイテム_装備キャラ", ii, i)
+    if x > 0 then
+      listed = true
+      if x == no then named = true end
+    end
+  end
+  if listed then
+    if not named then reasons[#reasons + 1] = "chara" end
+  elseif call("アイテム_装備職業", ii, call("キャラ_職業", iic)) <= 0 then
+    reasons[#reasons + 1] = "class"
+  end
+  return { reasons = reasons, reason = reasons[1], level = lv, chara_level = clv }
+end
+
+local CAN_LAZY = { reasons = true, reason = true, level = true, chara_level = true }
+
+local function can_ctx(ii, iic, allowed)
+  local ctx = { ii = ii, iic = iic, allowed = allowed }
+  return setmetatable(ctx, { __index = function(t, k)
+    if k == "no" then
+      local v = call("Ｉ固有番号", ii, -1)
+      rawset(t, "no", v)
+      return v
+    end
+    if k == "chara" then
+      local v = call("キャラ_番号", iic)
+      rawset(t, "chara", v)
+      return v
+    end
+    if CAN_LAZY[k] then
+      local why = can_why(ii, iic)
+      for f in pairs(CAN_LAZY) do rawset(t, f, why[f]) end
+      return why[k]
+    end
+  end })
+end
+
+local function can_install()
+  if can_hooked then return end
+  can_hooked = true
+  rq.ain.hook("アイテム_装備可能", { after = function(h)
+    if #can_list == 0 then return end
+    local ii, iic = h.args[1], h.args[2]
+    if math.type(ii) ~= "integer" or math.type(iic) ~= "integer" or ii <= 0 or iic <= 0 then return end
+    local okc, real = pcall(call, "アイテム_確認", ii)
+    if not okc or not real then return end
+    local ctx = can_ctx(ii, iic, h.result == true)
+    for _, x in ipairs({ table.unpack(can_list) }) do
+      local ok, r = pcall(x.fn, ctx)
+      if not ok then
+        r = tostring(r)
+        if not x.seen[r] then
+          x.seen[r] = true
+          rq.log(("rq.item.on_can_equip (%s): %s"):format(x.mod, r))
+        end
+      elseif r == true or r == false then
+        rawset(ctx, "allowed", r)
+      elseif r ~= nil and not x.seen["return"] then
+        x.seen["return"] = true
+        rq.log(("rq.item.on_can_equip (%s): expected true, false or nil"):format(x.mod))
+      end
+    end
+    h.result = rawget(ctx, "allowed") == true
+  end })
+end
+
+function item.on_can_equip(fn)
+  if type(fn) ~= "function" then error("rq.item.on_can_equip: expected a function", 2) end
+  local id = "?"
+  pcall(function() id = rq.mod.id() or "?" end)
+  local x = { fn = fn, mod = id, seen = {} }
+  can_list[#can_list + 1] = x
+  can_install()
+  return function()
+    for i, y in ipairs(can_list) do
+      if y == x then table.remove(can_list, i) return end
+    end
+  end
+end
+
 rq.on_reset(function()
   asking = false
   infos = {}

@@ -142,6 +142,14 @@ static int l_in_battle(lua_State *L)
 	return 1;
 }
 
+/* Whether the code runs in an rq.on_frame callback itself, not in a game function it called
+ * (modloader_hud.c). rq.battle.reveal_weakness waits for the next turn then (2.46.0). */
+static int l_frame_direct(lua_State *L)
+{
+	lua_pushboolean(L, rq_frame_direct());
+	return 1;
+}
+
 /* The model table (hll/MonsterInfo.c) for rq.monster.models and model (lua/monster.lua, 2.40.0).
  * models_count() -> count, file count (nil when the table cannot be read). */
 static int l_models_count(lua_State *L)
@@ -193,6 +201,8 @@ void rq_state_private(lua_State *L, int priv)
 	lua_setfield(L, priv, "fight_mark");
 	lua_pushcfunction(L, l_in_battle);
 	lua_setfield(L, priv, "in_battle");
+	lua_pushcfunction(L, l_frame_direct);
+	lua_setfield(L, priv, "frame_direct");
 	lua_pushcfunction(L, rq_lua_battle_on_start_first);
 	lua_setfield(L, priv, "on_start_first");
 	lua_pushcfunction(L, rq_lua_battle_on_end_first);

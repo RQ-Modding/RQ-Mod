@@ -2138,6 +2138,8 @@ extern const char rq_quests_lua[];
 extern const unsigned rq_quests_lua_len;
 extern const char rq_skills_lua[];
 extern const unsigned rq_skills_lua_len;
+extern const char rq_combat_more_lua[];
+extern const unsigned rq_combat_more_lua_len;
 
 /* The loader's private table (2.36.0): calls its own Lua parts share with each other and with
  * the C side, given to them as the chunk's second argument and never to a mod. */
@@ -2214,6 +2216,9 @@ void rq_battle_lua_open(lua_State *L, int rq_index)
 	 * purchase record in a skill row's cost field (lua/skills.lua, loader 2.45.0). After combat,
 	 * whose callback helpers it shares. */
 	run_embedded(L, rq_index, rq_skills_lua, rq_skills_lua_len, "=skills");
+	/* rq.combat.on_cap and on_element, rq.battle.on_study and reveal_weakness
+	 * (lua/combat_more.lua, loader 2.46.0). After combat, whose callback helpers it shares. */
+	run_embedded(L, rq_index, rq_combat_more_lua, rq_combat_more_lua_len, "=combat_more");
 }
 
 #endif /* RQ_MODLOADER */

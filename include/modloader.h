@@ -497,6 +497,8 @@ void rq_ui_on_present(void);
 void rq_stall_watch(void);
 void rq_stall_watch_text(char *buf, size_t n);
 void rq_stall_watch_reset(void);
+/* True in an rq.on_frame callback itself, not in a game function it called (2.46.0). */
+int rq_frame_direct(void);
 /* The AIN functions on the game's call stack, innermost first, as one line of names. */
 void rq_ain_stack_line(char *buf, size_t n, int max);
 void rq_ui_on_parts_input(void);
@@ -524,7 +526,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.45.1"
+#define RQ_VERSION "2.46.0"
 
 struct rq_qbattle_skill {
 	int id;

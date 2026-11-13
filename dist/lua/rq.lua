@@ -3134,6 +3134,36 @@ function chara.on_forget(fn) end
 ---@see rq.chara.on_forget
 function chara.on_learn(fn) end
 
+---What `rq.chara.on_skill_reset` gets.
+---
+---Since: 2.46.0
+---@class rq.SkillResetCtx
+---@field iic integer The character's roster slot.
+---@field no integer The character number (`Ｃ番号`).
+---@field points integer The free skill points after the reset: the game's own count (`rq.chara.skill_points_max`).
+
+---Calls `fn` after the game resets a character's skills, to give back what a mod gave.
+---
+---The game resets them (`Ｃスキルドレイン`) for Morurun's reset and when Skill Again (item 306) is
+---equipped: the skills become the starting set (`rq.chara.base_skills`) and the free points the
+---game's own count, so the skills and points a mod gave are gone. `fn` can give the points back
+---with `rq.chara.add_skill_points`; skills from `edit`'s `learn` come back by themselves at the
+---next recalculation.
+---
+---A callback's error is logged once per mod.
+---
+---Since: 2.46.0
+---
+---```lua
+---rq.chara.on_skill_reset(function(ctx)
+---  if ctx.no == 27 then rq.chara.add_skill_points(ctx.iic, rq.savedata.get("given", 0)) end
+---end)
+---```
+---@param fn fun(ctx: rq.SkillResetCtx) Gets the character. Its return value is not used.
+---@return fun() remove Removes this callback.
+---@see rq.chara.base_skills
+function chara.on_skill_reset(fn) end
+
 ---Returns the skills a character starts with, as Morurun's reset would give them back.
 ---
 ---The game rebuilds a character's skills for that reset (`Ｃスキルドレイン`) from the character's
@@ -3951,6 +3981,49 @@ function item.on_create(fn) end
 ---@return rq.ItemInfo? info The data, or nil for 0 or a number the game does not have.
 function item.info(no) end
 
+---What `rq.item.on_can_equip` gets for one item and one character.
+---
+---Since: 2.46.0
+---@class rq.CanEquipCtx
+---@field ii integer The item instance.
+---@field no integer The item number (`Ｉ固有番号`).
+---@field iic integer The character's roster slot.
+---@field chara integer The character number (`Ｃ番号`).
+---@field allowed boolean The answer so far: the game's, then what the callback before returned.
+---@field reason? "level"|"chara"|"class" The first reason the game says no, in its order; nil when it says yes. "level": the character's level is below the item's. "chara": the item names the characters who may wear it, and not this one. "class": it names none, and the character's class may not wear it.
+---@field reasons ("level"|"chara"|"class")[] Every reason the game says no, in its order: "level" first, then "chara" or "class". Empty when it says yes.
+---@field level integer The level the item needs (`Ｉ装備ＬＶ`); 0 for none.
+---@field chara_level integer The character's level.
+
+---Calls `fn` where the game decides whether a character can equip an item, to change the answer.
+---
+---It runs in `アイテム_装備可能`, the one check behind the vault, the status page, the shop, the
+---storage screen's filters, the list of who can wear an item, and `rq.item.buy` with a `chara`.
+---`fn` returns true to let the character equip it, false to refuse, or nil to keep the answer. Each
+---callback sees in `ctx.allowed` what the one before left.
+---
+---The game checks the level first and stops there, so `ctx.reasons` says whether the item's
+---characters or class would refuse it too: a mod that lifts only the level returns true only when
+---"level" is the one reason. `reason`, `reasons` and the levels are worked out when a callback
+---first reads them.
+---
+---A callback's error, or a return that is not a boolean or nil, is logged once and changes nothing.
+---
+---Since: 2.46.0
+---
+---```lua
+---rq.item.on_can_equip(function(ctx)
+---  -- Athena 2.0 (27) wears any bow (subtype 5) whatever its level.
+---  if ctx.chara == 27 and #ctx.reasons == 1 and ctx.reason == "level"
+---    and rq.item.get(ctx.ii).subtype == 5 then
+---    return true
+---  end
+---end)
+---```
+---@param fn fun(ctx: rq.CanEquipCtx): boolean|nil Returns true, false or nil.
+---@return fun() remove Removes this callback.
+function item.on_can_equip(fn) end
+
 ---What `rq.item.find` and `rq.item.count` take.
 ---
 ---A place is `"vault"` (7), `"storage"` (11), `"quest"` (8, quest storage), `"worn"` (on a
@@ -4542,6 +4615,93 @@ function combat.rules(skill) end
 ---@return rq.CombatRules|nil rules What the skill can do now; nil before the game runs, or for no such skill.
 ---@see rq.combat.rules
 function combat.set_rules(skill, rules) end
+
+---What `rq.combat.on_cap` gets for one hit.
+---
+---Since: 2.46.0
+---@class rq.CapCtx
+---@field attacker integer The attacker's roster slot.
+---@field defender integer The defender's roster slot.
+---@field skill integer The skill number.
+---@field magic boolean true for a spell (action kind 2), false for a physical hit.
+---@field base integer The skill's own limit (`ダメージ上限`), in damage points; 0 for none.
+---@field damage_max integer The percent Damage Maximum (289) adds to it, by the attacker's rank in it; 0 without it or with no limit.
+---@field limit integer The limit the hit is held to, in damage points: `base` raised by `damage_max` as the game raises it, then what the callback before left. 0 for none.
+---@field forecast boolean true when the game only works out the battle forecast, not a real hit.
+
+---Calls `fn` where the game holds a hit's damage to the skill's limit, to change the limit.
+---
+---It runs in `最終ダメージ計算`, for every physical hit and spell and for the battle forecast. The
+---limit is the skill's (500 for Ranged Attack 1), raised by the attacker's Damage Maximum. Damage over
+---the limit is halved, and over twice the limit quartered, as before. `fn` returns the new limit in
+---damage points, 0 for none, or nil to keep it; a negative number is 0. Each callback sees in
+---`ctx.limit` what the one before left.
+---
+---A skill with no limit (`base` 0) gets one when a callback returns a number above 0. Skill 460 in
+---world 3 still has no limit on half its hits, as in the game.
+---
+---A callback's error, or a return that is not a number or nil, is logged once and changes nothing.
+---
+---Since: 2.46.0
+---
+---```lua
+---rq.combat.on_cap(function(ctx)
+---  -- +100% more, added to Damage Maximum's percent
+---  if ctx.base > 0 and has_mark(ctx.attacker) then
+---    return ctx.base * (100 + ctx.damage_max + 100) // 100
+---  end
+---end)
+---```
+---@param fn fun(ctx: rq.CapCtx): integer|nil Returns the limit, or nil.
+---@return fun() remove Removes this callback.
+---@see rq.combat.on_physical
+function combat.on_cap(fn) end
+
+---What `rq.combat.on_element` gets for one physical hit.
+---
+---Since: 2.46.0
+---@class rq.ElementCtx
+---@field attacker integer The attacker's roster slot.
+---@field defender integer The defender's roster slot.
+---@field skill integer The skill number.
+---@field element integer The hit's element (`rq.ids.element`: 0 none, 1 light, 2 darkness, 3 electric, 4 ice, 5 fire): the game's, then what the callback before left.
+---@field weapon integer The element of the attacker's weapon; 0 for none.
+---@field weakness integer The defender's weak element; 0 for none.
+---@field known boolean The player knows the defender's weakness (`weakness_known`).
+---@field guarded boolean A guard took the hit (`FA[77]`); the game's arrows then do not take the weakness.
+---@field basic boolean The skill is a basic attack (`基本技` 1), as Ranged Attack and Melee Attack are.
+---@field forecast boolean true when the game only works out the battle forecast, not a real hit.
+
+---Calls `fn` where the game picks a physical hit's element, to change it.
+---
+---It runs in `物理属性計算` for each physical hit and for the battle forecast, once the game has
+---picked: the weapon's element, the skill's over it, then the game's arrows over both (Fire, Ice and
+---Electric Arrows on a basic attack, and skill 145's five, which take the weakness when it is known
+---and no guard took the hit). `fn` returns an element 0 to 5, or nil to keep it. Each callback sees
+---in `ctx.element` what the one before left.
+---
+---The game then goes on with the element: a hit on the weakness gets +50% damage, " (Attribute
+---weakness)" in the log and the big number; the effect gets the element's look; the knowledges
+---(Fire Knowledge and the rest) add their percent. A spell's element is the spell's and does not go
+---through here.
+---
+---A callback's error, or a return that is not a whole number 0 to 5 or nil, is logged once and
+---changes nothing.
+---
+---Since: 2.46.0
+---
+---```lua
+---rq.combat.on_element(function(ctx)
+---  -- like the game's arrows: the weakness, when it is known and no guard took the hit
+---  if ctx.basic and ctx.known and not ctx.guarded and ctx.weakness ~= 0 and has_arrows(ctx.attacker) then
+---    return ctx.weakness
+---  end
+---end)
+---```
+---@param fn fun(ctx: rq.ElementCtx): integer|nil Returns the element, or nil.
+---@return fun() remove Removes this callback.
+---@see rq.ids
+function combat.on_element(fn) end
 
 ---What `rq.counter.on_guard_counter` gets.
 ---@class rq.CounterGuardCtx
@@ -5412,6 +5572,73 @@ function battle.on_log(fn) end
 ---@return boolean added false when the game added nothing.
 ---@see rq.battle.on_log
 function battle.log(text) end
+
+---What `rq.battle.on_study` gets for one Study that fired.
+---
+---Since: 2.46.0
+---@class rq.StudyCtx
+---@field iic integer Athena 2.0's roster slot.
+---@field ally integer The roster slot of the ally she studied: the one diagonally in front of her.
+---@field stat "attack"|"accuracy"|"speed"|"hp"|"critical" The stat the Study raises.
+---@field skill integer The Study's skill number, 336 to 340 in the order of `stat`'s names.
+---@field base integer The game's gain: 3 attack, 2 accuracy, 1 speed, 5 HP, 1 critical.
+---@field gain integer The gain the stat gets: the game's, then what the callback before left.
+
+---Calls `fn` for each of Athena 2.0's Studies that fired after a fight, to change its gain.
+---
+---Athena 2.0 (character 27) has five Studies (336 to 340). After a fight's EXP, with her in rank 4
+---or 5 and the ally diagonally in front of her standing, each Study on her hotbar adds to her stat
+---when that ally's stat is higher than hers: the game's rule decides which fire, and `fn` runs only
+---for those. `fn` returns the gain, 0 or more, or nil to keep it. Each callback sees in `ctx.gain`
+---what the one before left.
+---
+---The gains add to counters kept in the save, so they stay; her stats are recalculated after the
+---last callback. Accuracy stops at 200, and speed and critical at 100, as the game holds them.
+---
+---A callback's error, or a return that is not a number or nil, is logged once and changes nothing.
+---
+---Since: 2.46.0
+---
+---```lua
+---rq.battle.on_study(function(ctx)
+---  if ctx.stat == "attack" then return 100 * rq.world.current() end
+---end)
+---```
+---@param fn fun(ctx: rq.StudyCtx): integer|nil Returns the gain, or nil.
+---@return fun() remove Removes this callback.
+function battle.on_study(fn) end
+
+---Options for `rq.battle.reveal_weakness`.
+---@class rq.RevealOpts
+---@field effect? boolean false shows the marks without the game's Weakness Search effect and blinking. Default true.
+---@field log? string A line for the battle log, added as the reveal plays.
+
+---Shows enemies' weaknesses as the game's Weakness Search does.
+---
+---Each standing enemy given (every enemy for nil) gets its weakness known: the hits see it at once,
+---as Fire Arrows and `rq.combat.on_element` do, and the game keeps it for the monster at the fight's
+---end, as after Weakness Search. The game's Weakness Search effect plays over the enemies and their
+---weakness marks blink together.
+---
+---Called before the fight shows, from `rq.battle.on_start`, it plays when the fight first shows,
+---after the ambush notice and before the first turn. Called from the game's flow in a fight, as from
+---`rq.battle.on_turn` or `on_hit`, it plays at once, also in a fight `rq.battle.start` opened from a
+---button or a timer; called from `rq.on_frame` or a timer itself, at the start of the next turn.
+---Several calls play one after another.
+---
+---Raises an error outside a fight, for an enemy that is not a slot from 1 to 19, or for a bad option.
+---
+---Since: 2.46.0
+---
+---```lua
+---rq.battle.on_start(function(ctx)
+---  rq.battle.reveal_weakness(nil, { log = "→Rebecca observed the enemies' weaknesses." })
+---end)
+---```
+---@param enemies? integer[] The enemies' slots (below 20), or nil for all of them.
+---@param opts? rq.RevealOpts The effect and a log line.
+---@return integer|nil revealed How many enemies were shown, when it played at once; nil when it waits for a moment of the fight.
+function battle.reveal_weakness(enemies, opts) end
 
 ---A skill in `rq.ChooseCtx.skills`: one slot of the actor's list as it is now.
 ---
@@ -8425,7 +8652,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.45.1"
+rq.version = "2.46.0"
 
 rq.units = units
 rq.items = items

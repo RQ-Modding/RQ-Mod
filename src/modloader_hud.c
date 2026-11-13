@@ -154,6 +154,11 @@ static char g_on_frame_mod[HUD_MAX_FRAME_CB][48];
 #define STALL_WATCH_MS 10000
 static volatile uint32_t g_watch_tick, g_watch_round, g_watch_cb_at;
 static volatile int g_watch_cb = -1;
+/* The game's call depth (call_stack_ptr) where the innermost running rq.on_frame callback began;
+ * -1 when none runs. rq_frame_direct() is true when code runs in that callback itself, not in a
+ * game function it called (a fight from rq.battle.start runs its turns deeper). 2.46.0. */
+static int g_frame_depth = -1;
+extern int32_t call_stack_ptr; /* vm.c; vm.h declares it only for VM_PRIVATE */
 static int g_watch_logged;
 static int g_mx, g_my, g_left, g_right, g_left_edge, g_left_up, g_prev_left;
 static int g_scroll, g_wheel_seen;
@@ -1064,6 +1069,11 @@ int rq_hud_install(struct ain *ain)
 	return 1;
 }
 
+int rq_frame_direct(void)
+{
+	return g_frame_depth >= 0 && call_stack_ptr <= g_frame_depth;
+}
+
 int rq_lua_on_frame(lua_State *L)
 {
 	luaL_checktype(L, 1, LUA_TFUNCTION);
@@ -1918,13 +1928,16 @@ int rq_hud_tick(void)
 		 * again inside it: keep the outer callback's place. */
 		int prev_cb = g_watch_cb;
 		uint32_t prev_at = g_watch_cb_at;
+		int prev_depth = g_frame_depth;
 		int bad;
 		g_watch_cb = i;
 		g_watch_cb_at = SDL_GetTicks();
+		g_frame_depth = call_stack_ptr;
 		lua_rawgeti(L, LUA_REGISTRYINDEX, g_on_frame_ref[i]);
 		bad = lua_pcall(L, 0, 0, 0) != LUA_OK;
 		g_watch_cb = prev_cb;
 		g_watch_cb_at = prev_at;
+		g_frame_depth = prev_depth;
 		if (bad) {
 			/* An error in a callback comes back every frame: log each new text once. */
 			static char last[HUD_MAX_FRAME_CB][256];

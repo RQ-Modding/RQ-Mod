@@ -6,6 +6,7 @@
 --                              its older steps priced first (rq.chara.price from its starting
 --                              level). -1 marks a skill a mod gave (rq.chara.grant, edit's learn)
 --   rq.chara.on_learn          each purchase, the game's or rq.chara.learn's
+--   rq.chara.on_skill_reset    after Ｃスキルドレイン, the game's reset of a character's skills (2.46.0)
 --   rq.chara.base_skills       the starting set, as Morurun's reset (Ｃスキルドレイン) rebuilds it:
 --                              Ｃ生成／キャラデータ(iic, 0, "スキル"), then the reset's additions by
 --                              flag, run on the character inside priv.keep, which puts it back
@@ -318,10 +319,27 @@ hook("選択_確認_拡張", { before = function(h)
   end
 end })
 
+-- rq.chara.on_skill_reset (2.46.0): after Ｃスキルドレイン, the game's reset of a character's
+-- skills (Morurun's reset, equipping Skill Again), which sets the free points to the game's own
+-- count (Ｃ最大スキルポイント取得), so points a mod gave are gone.
+local resets, add_reset = cbs.handlers("rq.chara.on_skill_reset")
+
+hook("Ｃスキルドレイン", { after = function(h)
+  if #resets == 0 then return end
+  local iic = h.args[1]
+  if not exists(iic) then return end
+  local ctx = { iic = iic, no = g("Ｃ", iic, "番号"), points = call("Ｃスキルポイント", iic, -1) }
+  for _, r in ipairs({ table.unpack(resets) }) do cbs.run(r, "rq.chara.on_skill_reset", ctx) end
+end })
+
 -- ---- the calls ----
 
 function chara.on_learn(fn)
   return add_learned(fn)
+end
+
+function chara.on_skill_reset(fn)
+  return add_reset(fn)
 end
 
 function chara.base_skills(iic)
