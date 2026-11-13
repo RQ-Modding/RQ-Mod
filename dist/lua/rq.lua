@@ -2843,6 +2843,7 @@ function chara.max_uses(iic, skillId) end
 ---@field rank integer The skill's rank.
 ---@field cost integer The purchase record (since 2.45.0): the skill points paid for the row's bought steps, in the skill window or through `rq.chara.learn`; -1 for a skill a mod gave (`rq.chara.grant`, `edit`'s `learn`, `learn` with `pay = false`); 0 when nothing was recorded (a starting skill, or one bought before loader 2.45.0 and not upgraded since). Before 2.45.0 it was always 0.
 ---@field caller string The AIN function that removed it, or "lua" for `rq.chara.forget`.
+---@field kept boolean Whether the skill is a Boost whose effect the character keeps without it (since 2.48.0), as `rq.BoostRow.kept`: erasing it loses nothing until the game's reset. false for every other skill.
 
 ---Registers a character template.
 ---
@@ -3143,11 +3144,14 @@ function chara.on_create(fn) end
 ---Calls `fn` before a skill row is emptied, to give skill points back.
 ---
 ---The points every callback returns are added up and given to the character. Use `caller` to skip
----the removals the game makes inside its recalculation. Up to 16 callbacks in all.
+---the removals the game makes inside its recalculation. `kept` tells a Boost whose effect the
+---character keeps once it is erased (`rq.chara.boosts`), so its points were not lost. Up to 16
+---callbacks in all.
 ---
 ---Since: 0.4.0
 ---Changed: 0.23.0 Returns a remover.
 ---Changed: 2.45.0 `cost` is the purchase record.
+---Changed: 2.48.0 `kept`.
 ---
 ---```lua
 ---rq.chara.on_forget(function(ctx)
@@ -3181,6 +3185,25 @@ function chara.on_forget(fn) end
 ---@field points integer The price of its next step in skill points; 0 when the list shows it but does not sell it now.
 ---@field n integer The character's level in it now (as `rq.SkillLevel.n`); 0 when the character does not have it.
 ---@field why? string The game's reason it is not for sale, as "Cannot learn yet\n・Condition: Over LV 15"; nil when it is.
+---@field step integer The uses or ranks one purchase adds (since 2.48.0): 3 for skill 384, 1 for the rest.
+---@field needs? rq.SkillLevel[] For a row not for sale, the skills and levels the game's condition names (since 2.48.0), read from `why`: Healing 3's is `{ { id = 222, n = 3 } }` (Healing 2 at 3 or more); empty when it names no skill. nil for a row for sale.
+---@field level? integer For a row not for sale, the character level the condition asks for (since 2.48.0), read from `why` ("Over LV 25", full-width digits too); nil when it names none.
+
+---A step for `rq.chara.learnable`'s `after`: a skill set to a level.
+---
+---Since: 2.48.0
+---@class rq.SkillStep
+---@field skill integer The skill number.
+---@field n integer The level to set, as `rq.SkillLevel.n`; 0 erases the skill.
+
+---One Boost, from `rq.chara.boosts`.
+---
+---Since: 2.48.0
+---@class rq.BoostRow
+---@field skill integer The skill number: Stamina, Attack and Magic Boost (276, 277, 278) and their second versions (455, 456, 457), then Accuracy, Evasion, Critical, Resilience and Stun Boost (279 to 283).
+---@field step integer 1 for a first version and the five alone, 2 for a second version.
+---@field first? integer For a second version, the first one (457's is 278); nil for the rest.
+---@field kept boolean Whether the character keeps its effect without the skill now: its rank 4 was reached in the third world and the game's reset has not run since. Always false in another world.
 
 ---Calls `fn` after each skill purchase, once per step.
 ---
@@ -3279,19 +3302,69 @@ function chara.skill_points_max(iic) end
 ---it was. `rq.chara.on_offer` callbacks run, so mods' offers are in it. A skill at its most uses
 ---(99) or rank (4) is not listed.
 ---
----Raises an error for a slot with no character.
+---A row the list shows but does not sell has the game's reason (`why`) and what its conditions
+---name: the skills and levels (`needs`) and the character level (`level`). The game names a skill
+---by its name only; the loader reads it back to a number, the list's and the character's skills
+---first.
+---
+---`opts.after` is a list of steps, each a skill and a level (0 erases it), set in order on the
+---character before the list is made and undone after: the list as it would be after those
+---purchases or erasures, as Healing 3 for sale once Healing 2 is at 3, or Healing 2 off sale once
+---Healing 1 is erased. A step sets the level as it is, with no price and none of the game's
+---checks; a Boost set to rank 4 is kept as the game's recalculation would keep it
+---(`rq.chara.boosts`). When a step needs a new row and none is left, the call returns nil and the
+---step's index.
+---
+---The second value is the free skill rows after the steps, as `rq.chara.skill_room` counts them.
+---
+---Raises an error for a slot with no character, an `after` that is not a list, or a step that is
+---not `{ skill = number, n = level from 0 }`.
 ---
 ---Since: 2.45.0
+---Changed: 2.48.0 `opts.after`, the free rows as a second value, and each row's `step`, `needs`
+---and `level`.
 ---
 ---```lua
 ---for _, row in ipairs(rq.chara.learnable(iic)) do
 ---  if row.points > 0 then rq.log(("skill %d: %d points"):format(row.skill, row.points)) end
 ---end
+----- Healing 3's price once Healing 2 is at 3 and Healing 1 erased
+---local rows = rq.chara.learnable(iic, { after = { { skill = 221, n = 0 }, { skill = 222, n = 3 } } })
+---for _, row in ipairs(rows or {}) do
+---  if row.skill == 223 then rq.log("Healing 3: " .. row.points .. " points") end
+---end
 ---```
 ---@param iic integer The character's roster slot.
----@return rq.LearnableRow[] rows The list, in the game's order.
+---@param opts? { after?: rq.SkillStep[] } `after`: the steps to set before the list is made.
+---@return rq.LearnableRow[]? rows The list, in the game's order; nil when a step found no free row.
+---@return integer room The free skill rows after the steps; with nil rows, the index of the step that found none.
 ---@see rq.chara.price
-function chara.learnable(iic) end
+function chara.learnable(iic, opts) end
+
+---Returns the Boosts and whether the character keeps each one's effect without the skill.
+---
+---In the third world only (`rq.world.current`), the game's recalculation marks a Boost raised to
+---rank 4 (`FA[38]` to `FA[45]`), and the character keeps its effect after the skill is erased:
+---+800 HP, +300 Attack or Magic, or +50 to a rate. The second version of Stamina, Attack and
+---Magic Boost (455, 456, 457) is sold only once the first is at rank 4 or kept, and is kept on top
+---of it. The game's reset of the skills (`Ｃスキルドレイン`: Morurun's reset, Skill Again) clears
+---the marks, and so does a recalculation in another world.
+---
+---Raises an error for a slot with no character.
+---
+---Since: 2.48.0
+---
+---```lua
+---local boosts, keeps = rq.chara.boosts(iic)
+---for _, b in ipairs(boosts) do
+---  if b.kept then rq.log(("skill %d's effect stays"):format(b.skill)) end
+---end
+---```
+---@param iic integer The character's roster slot.
+---@return rq.BoostRow[] boosts The eleven Boosts, firsts before seconds.
+---@return boolean keeps Whether this world keeps a Boost's effect (the third world).
+---@see rq.chara.on_forget
+function chara.boosts(iic) end
 
 ---Returns what the game charges a character for a skill from one level to another.
 ---
@@ -8741,7 +8814,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.47.0"
+rq.version = "2.48.0"
 
 rq.units = units
 rq.items = items

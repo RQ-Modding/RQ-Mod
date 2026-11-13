@@ -17,6 +17,10 @@
 --   rq.chara.learn             the game's buy and upgrade, its questions (選択_確認_拡張) answered Yes
 --   rq.chara.skill_room        the free rows the game's check (キャラスキル_空き確認) counts
 --   rq.chara.slots             the record and the level on each row
+--   rq.chara.boosts            (2.48.0) the Boost skills whose effect the game keeps after an ERASE
+--   learnable's after, needs   (2.48.0) the list after some steps, worked out on the character inside
+--                              priv.keep; the game's condition text read as skills and a level
+--   on_forget's kept           (2.48.0) the erased skill is a Boost whose effect stays
 --
 -- Built on public calls (rq.ain.call, global, set_global, global_len, hook) and two private ones:
 -- priv.keep (modloader_scene.c) and priv.forget_quiet (modloader_roster.c), so on_forget does not
@@ -93,6 +97,39 @@ local function step_of(skill)
   return skill == 384 and 3 or 1
 end
 
+-- ---- the Boosts (2.48.0) ----
+-- Ｃ再計算, in the third world only (◆ワールド 3): a Boost at rank 4 sets its flag (FA[38] to
+-- FA[45]); the first of a pair sets 1, the second (455 to 457, which the list sells once the first is
+-- at rank 4 or its flag is 1) sets 2. While its flag covers a Boost, the character keeps the effect
+-- without the skill (+800 HP, +300 Attack or Magic, +50 to a rate). Ｃスキルドレイン clears the
+-- flags, and Ｃ再計算 in another world does too.
+local BOOSTS = {
+  { skill = 276, fa = 38, step = 1 }, { skill = 455, fa = 38, step = 2, first = 276 },
+  { skill = 277, fa = 39, step = 1 }, { skill = 456, fa = 39, step = 2, first = 277 },
+  { skill = 278, fa = 40, step = 1 }, { skill = 457, fa = 40, step = 2, first = 278 },
+  { skill = 279, fa = 41, step = 1 }, { skill = 280, fa = 42, step = 1 },
+  { skill = 281, fa = 43, step = 1 }, { skill = 282, fa = 44, step = 1 },
+  { skill = 283, fa = 45, step = 1 },
+}
+local BOOST_OF = {}
+for _, b in ipairs(BOOSTS) do BOOST_OF[b.skill] = b end
+
+local function keeps_boosts()
+  return g("◆ワールド") == 3
+end
+
+local function boost_kept(iic, b)
+  return keeps_boosts() and call("ＣＦＡ", iic, b.fa, -1) >= b.step
+end
+
+-- What Ｃ再計算 does to the flag of a Boost now at rank n (inside priv.keep only).
+local function mark_boost(iic, skill, n)
+  local b = BOOST_OF[skill]
+  if not b or n < RANK_MAX or not keeps_boosts() then return end
+  local f = call("ＣＦＡ", iic, b.fa, -1)
+  if f == b.step - 1 then call("ＣＦＡ", iic, b.fa, b.step) end
+end
+
 local function rows(iic)
   local out = {}
   for r = 1, ROWS do
@@ -111,21 +148,100 @@ local function reason(text)
   return text
 end
 
--- The list the game just filled: { skill, points, why } in its order.
+-- ---- the game's conditions as data (2.48.0) ----
+-- Ｔ購入スキル登録 writes why a listed skill is not for sale as text, one "・Condition: " a line:
+-- "Over LV 25", or a skill's name with "N+" (at least N uses), "+" (at least 1), "★" (rank 1 +
+-- the stars) or nothing (at least 1). A name is read as the longest skill name the line starts with,
+-- among the skills in the list and on the character first, then the whole table.
+local all_names -- name -> lowest skill number, built once
+
+local function name_of(id)
+  local ok, s = pcall(rq.skill.get, id)
+  return ok and s and s.name or ""
+end
+
+local function name_table()
+  if all_names then return all_names end
+  all_names = {}
+  local ok, size = pcall(len, "Ｓ")
+  if not ok then return all_names end
+  for id = 1, size - 1 do
+    local nm = name_of(id)
+    if nm ~= "" and not all_names[nm] then all_names[nm] = id end
+  end
+  return all_names
+end
+
+-- The level a condition's tail asks for, or nil when it is not one.
+local function tail_level(rest)
+  if rest == "" or rest == "+" then return 1 end
+  local d = rest:match("^%s*(%d+)%+$")
+  if d then return tonumber(d) end
+  local stars = select(2, rest:gsub("★", ""))
+  if stars > 0 and rest:gsub("★", "") == "" then return stars + 1 end
+  return nil
+end
+
+local function read_clause(clause, near)
+  local best, best_n, best_len
+  local function try(id, nm)
+    if nm ~= "" and #nm > (best_len or 0) and clause:sub(1, #nm) == nm then
+      local n = tail_level(clause:sub(#nm + 1))
+      if n then best, best_n, best_len = id, n, #nm end
+    end
+  end
+  for _, id in ipairs(near) do try(id, name_of(id)) end
+  if not best then
+    for nm, id in pairs(name_table()) do try(id, nm) end
+  end
+  return best, best_n
+end
+
+-- needs (skills and levels) and level (the character level) from a row's text. The game writes a
+-- level from a number in full-width digits ("Over LV ４８", string2).
+local function conditions(text, near)
+  text = text:gsub("\xEF\xBC([\x90-\x99])", function(c) return string.char(c:byte() - 0x90 + 48) end)
+  local needs, level = {}, nil
+  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+    local clause = line:match("Condition:%s*(.-)%s*$")
+    if clause and clause ~= "" then
+      local lv = clause:match("^Over LV%s*(%d+)$")
+      if lv then
+        level = math.max(level or 0, tonumber(lv))
+      else
+        local id, n = read_clause(clause, near)
+        if id then needs[#needs + 1] = { id = id, n = n } end
+      end
+    end
+  end
+  return needs, level
+end
+
+-- The list the game just filled: { skill, points, n, step, why, needs, level } in its order.
 local function read_list(iic)
   local n = g("◆取得可能スキル番号")
   local size = len("取得可能スキル")
-  local out = {}
+  local out, near = {}, {}
   for i = 1, math.min(n, size - 1) do
     local id = g("取得可能スキル", i)
     if id > 0 then
       local p = g("取得可能スキルポイント", i)
-      local row = { skill = id, points = p, n = iic and n_of(iic, id) or nil }
+      local row = { skill = id, points = p, n = iic and n_of(iic, id) or nil, step = step_of(id) }
       if p <= 0 then
         row.points = 0
         row.why = reason(g("取得不可能スキル説明", i))
       end
       out[#out + 1] = row
+      near[#near + 1] = id
+    end
+  end
+  if iic then
+    for _, r in ipairs(rows(iic)) do near[#near + 1] = r.id end
+    for _, row in ipairs(out) do
+      if row.why then
+        local ok, needs, level = pcall(conditions, row.why, near)
+        if ok then row.needs, row.level = needs, level end
+      end
     end
   end
   return out
@@ -354,23 +470,6 @@ function chara.skill_points_max(iic)
   end)
 end
 
-function chara.learnable(iic)
-  need_chara(iic, "rq.chara.learnable")
-  return trying(with_list(), function()
-    fill(iic)
-    return read_list(iic)
-  end)
-end
-
-function chara.price(iic, skill, from, to)
-  need_chara(iic, "rq.chara.price")
-  need_skill(skill, "rq.chara.price")
-  if not int(from) or not int(to) or from < 0 or to < 0 then
-    error("rq.chara.price: from and to are whole numbers from 0", 2)
-  end
-  return price(iic, skill, from, to)
-end
-
 -- Free skill rows for a new skill: the game's own check (キャラスキル_空き確認, have < 18 - keep - 1)
 -- as a count, without its message.
 local function free_rows(iic)
@@ -381,6 +480,73 @@ end
 
 local function room(iic)
   return free_rows(iic) > 0
+end
+
+-- learnable's opts.after: { {skill, n}, ... }, checked before anything is tried.
+local function read_steps(opts)
+  if opts == nil then return nil end
+  if type(opts) ~= "table" then error("rq.chara.learnable: opts is a table", 3) end
+  local after = opts.after
+  if after == nil then return nil end
+  if type(after) ~= "table" then error("rq.chara.learnable: after is a list of steps", 3) end
+  local out = {}
+  for i, st in ipairs(after) do
+    if type(st) ~= "table" or not int(st.skill) or st.skill <= 0 or not int(st.n) or st.n < 0 then
+      error("rq.chara.learnable: step " .. i .. " is not {skill = number, n = level from 0}", 3)
+    end
+    need_skill(st.skill, "rq.chara.learnable")
+    out[i] = st
+  end
+  return out
+end
+
+function chara.learnable(iic, opts)
+  need_chara(iic, "rq.chara.learnable")
+  local steps = read_steps(opts)
+  if not steps or #steps == 0 then
+    return trying(with_list(), function()
+      fill(iic)
+      return read_list(iic), free_rows(iic)
+    end)
+  end
+  return trying(with_list({ "Ｃ", iic }), function()
+    for i, st in ipairs(steps) do
+      if not set_n(iic, st.skill, st.n) then return nil, i end
+      mark_boost(iic, st.skill, st.n)
+    end
+    fill(iic)
+    return read_list(iic), free_rows(iic)
+  end)
+end
+
+function chara.boosts(iic)
+  need_chara(iic, "rq.chara.boosts")
+  local keeps = keeps_boosts()
+  local out = {}
+  for _, b in ipairs(BOOSTS) do
+    out[#out + 1] = { skill = b.skill, step = b.step, first = b.first, kept = keeps and boost_kept(iic, b) }
+  end
+  return out, keeps
+end
+
+-- rq.chara.on_forget (0.4.0): the ctx says whether the erased skill is a Boost whose effect stays.
+local c_on_forget = chara.on_forget
+function chara.on_forget(fn)
+  if type(fn) ~= "function" then return c_on_forget(fn) end
+  return c_on_forget(function(ctx)
+    local b = BOOST_OF[ctx.skill]
+    ctx.kept = b ~= nil and exists(ctx.iic) and boost_kept(ctx.iic, b)
+    return fn(ctx)
+  end)
+end
+
+function chara.price(iic, skill, from, to)
+  need_chara(iic, "rq.chara.price")
+  need_skill(skill, "rq.chara.price")
+  if not int(from) or not int(to) or from < 0 or to < 0 then
+    error("rq.chara.price: from and to are whole numbers from 0", 2)
+  end
+  return price(iic, skill, from, to)
 end
 
 function chara.skill_room(iic)
