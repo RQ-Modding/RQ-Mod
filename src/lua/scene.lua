@@ -8,9 +8,31 @@
 -- are drawn over the message window, and the System menu has Save and Load. It also waits
 -- for a scene of the game's own to end: the game never plays one scene inside another, and
 -- a mod scene's ADVOFF there would clear the game's background under its next line.
-local rq, menu_open = ...
+local rq, menu_open, menu_comment = ...
 local scene = rq.scene
 local play = scene.play
+
+-- A row's comment as lines the game's menu never cuts (2.45.1): T_Select::showComment cuts at
+-- each "@" and every 28 bytes, mid-word, before the window starts its lines at "\n" too
+-- (rq_lua_menu_comment in modloader_scene.c). rq.scene.choice (in C's scene layer) gets it here.
+local c_choice = scene.choice
+function scene.choice(items, o)
+  if type(items) == "table" then
+    local copy = {}
+    for i, it in ipairs(items) do
+      if type(it) == "table" and type(it.comment) == "string" and it.comment ~= "" then
+        local c = {}
+        for k, v in pairs(it) do c[k] = v end
+        c.comment = menu_comment(it.comment)
+        copy[i] = c
+      else
+        copy[i] = it
+      end
+    end
+    items = copy
+  end
+  return c_choice(items, o)
+end
 local depth, pending, running = 0, nil, nil
 
 -- Something is drawn on the game's scene layer: a face, a background, a CG.
@@ -127,7 +149,7 @@ local function open_choice(a)
     if r.sep then
       call("選択_区切り追加")
     else
-      call("選択_項目追加", r.no, r.text, r.r, r.g, r.b, r.comment, r.sound)
+      call("選択_項目追加", r.no, r.text, r.r, r.g, r.b, menu_comment(r.comment), r.sound)
       if a.cursor ~= nil and a.ids[r.no] == a.cursor then cursor = r.no end
     end
   end

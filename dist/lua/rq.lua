@@ -973,13 +973,14 @@ function ui.shot_result() end
 ---One row of `rq.ui.choose`.
 ---
 ---Since: 2.7.0
+---Changed: 2.45.1 `comment`'s lines are cut between words.
 ---@class rq.UiChoice
 ---@field id? any What `fn` gets for this row: any value but nil. Default: its place in the list, counting separators.
 ---@field text string The text.
 ---@field r? integer Red, 0 to 255. Default: the game's grey.
 ---@field g? integer Green, 0 to 255. Default: the game's grey.
 ---@field b? integer Blue, 0 to 255. Default: the game's grey.
----@field comment? string Shown in the game's comment box beside the menu while the row is under the mouse.
+---@field comment? string Shown in the game's comment box beside the menu while the row is under the mouse. Its lines are cut between words, at most 28 half-width letters (14 Japanese) each, as the menu's box takes them; `\n` starts a line, and `@` and `$` are drawn as `＠` and `＄` (since 2.45.1: before, the game cut every 28 letters mid-word and counted on across a `\n`).
 ---@field sound? integer A sound number the row plays when picked; default the game's.
 
 ---Opens the game's own choice menu outside a scene, on the hub or any of the game's screens, and
@@ -1109,7 +1110,7 @@ function ui.notice(text, opts) end
 ---@field r? integer Red, 0 to 255. Default: the game's grey.
 ---@field g? integer Green, 0 to 255. Default: the game's grey.
 ---@field b? integer Blue, 0 to 255. Default: the game's grey.
----@field comment? string Shown in the game's comment box beside the dialog while the row is under the mouse.
+---@field comment? string Shown in the game's comment box beside the dialog while the row is under the mouse. Its lines are cut between words, at most 28 half-width letters (14 Japanese) each, as the menu's box takes them; `\n` starts a line, and `@` and `$` are drawn as `＠` and `＄` (since 2.45.1: before, the game cut every 28 letters mid-word and counted on across a `\n`).
 ---@field sound? integer A sound number the row plays when picked; default the game's.
 
 ---Asks the player a question with any choices in the game's own dialog, and waits for the answer.
@@ -7184,7 +7185,7 @@ function scene.register_face(cg, name, tone) end
 ---@field r? integer Red, 0 to 255. Default: the game's color.
 ---@field g? integer Green, 0 to 255. Default: the game's color.
 ---@field b? integer Blue, 0 to 255. Default: the game's color.
----@field comment? string The game's comment text for the row. Default "".
+---@field comment? string The game's comment text for the row. Default "". Its lines are cut between words, at most 28 half-width letters (14 Japanese) each, as the menu's box takes them; `\n` starts a line, and `@` and `$` are drawn as `＠` and `＄` (since 2.45.1: before, the game cut every 28 letters mid-word and counted on across a `\n`).
 ---@field sound? integer A sound number for the row.
 
 ---Shows a list of choices and waits until the player picks one.
@@ -8424,7 +8425,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.45.0"
+rq.version = "2.45.1"
 
 rq.units = units
 rq.items = items
@@ -10342,7 +10343,7 @@ function uikit.balloon(text, opts) end
 ---@field r? integer Red, 0 to 255. Default: the game's grey.
 ---@field g? integer Green, 0 to 255. Default: the game's grey.
 ---@field b? integer Blue, 0 to 255. Default: the game's grey.
----@field comment? string Shown in the game's comment window right of the list, at the row, while the mouse or the keys' cursor stays on the row (as the game's menu shows it). Before 2.13.0, a plain box at once.
+---@field comment? string Shown in the game's comment window right of the list, at the row, while the mouse or the keys' cursor stays on the row (as the game's menu shows it). Before 2.13.0, a plain box at once. Its lines are cut as `rq.UiChoice.comment`'s, at most 28 half-width letters, since 2.45.1.
 ---@field disabled? boolean Greyed out; it cannot be picked.
 
 ---Draws the game's choice menu as a widget: its green base, grey rows, separators and a text panel

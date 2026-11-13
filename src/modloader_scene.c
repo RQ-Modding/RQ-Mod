@@ -1227,6 +1227,146 @@ static int l_menu_open(lua_State *L)
 	return 1;
 }
 
+/* A row's comment for the game's choice menu (2.45.1). T_Select::showComment cuts the comment at
+ * each "@" and then into pieces of 28 Shift-JIS bytes (テキスト分割_強制改行(text, 14)) with no
+ * regard for words, and only then does the comment window (T_Comment) start a line at "@", "$"
+ * and "\n". So a "\n" from a mod did not reset the count, and words were cut where the 28 bytes
+ * ended. The loader hands the game lines it never cuts: each line of the mod's text ("\n") is
+ * wrapped at a space, or beside a letter that is not ASCII, to at most 28 bytes (an ASCII letter
+ * counts 1, half-width katakana 1, any other letter 2, as Shift-JIS stores them); a word longer
+ * than a line is cut where it stops fitting. "@" and "$" become "＠" and "＄", as in rq.ui.confirm;
+ * "\r" goes and other control letters but the tab become spaces. The lines are joined with sep:
+ * "@" for the game, "\n" for the kit's copy of the menu (rq.uikit.options). */
+#define MENU_COMMENT_BYTES 28
+
+static int mc_width(uint32_t cp)
+{
+	return (cp < 0x80 || (cp >= 0xFF61 && cp <= 0xFF9F)) ? 1 : 2;
+}
+
+static int mc_decode(const unsigned char *s, size_t *i, size_t n, uint32_t *cp)
+{
+	unsigned char c = s[*i];
+	int len = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 1;
+	uint32_t v = len == 1 ? c : len == 2 ? (c & 0x1F) : len == 3 ? (c & 0x0F) : (c & 0x07);
+	int k;
+	if (*i + (size_t)len > n)
+		len = 1, v = c;
+	for (k = 1; k < len; k++) {
+		unsigned char d = s[*i + k];
+		if ((d & 0xC0) != 0x80) {
+			len = 1;
+			v = c;
+			break;
+		}
+		v = (v << 6) | (d & 0x3F);
+	}
+	if (len == 1 && c >= 0x80)
+		v = '?';
+	*i += (size_t)len;
+	*cp = v;
+	return len;
+}
+
+static void mc_put(luaL_Buffer *b, uint32_t cp)
+{
+	char u[4];
+	int n;
+	if (cp < 0x80) {
+		u[0] = (char)cp;
+		n = 1;
+	} else if (cp < 0x800) {
+		u[0] = (char)(0xC0 | (cp >> 6));
+		u[1] = (char)(0x80 | (cp & 0x3F));
+		n = 2;
+	} else if (cp < 0x10000) {
+		u[0] = (char)(0xE0 | (cp >> 12));
+		u[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+		u[2] = (char)(0x80 | (cp & 0x3F));
+		n = 3;
+	} else {
+		u[0] = (char)(0xF0 | (cp >> 18));
+		u[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+		u[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+		u[3] = (char)(0x80 | (cp & 0x3F));
+		n = 4;
+	}
+	luaL_addlstring(b, u, (size_t)n);
+}
+
+/* menu_comment(text, sep?) -> the text as lines of at most 28 bytes joined by sep (default "@"). */
+int rq_lua_menu_comment(lua_State *L)
+{
+	size_t n, i = 0, sepn;
+	const unsigned char *s = (const unsigned char *)luaL_optlstring(L, 1, "", &n);
+	const char *sep = luaL_optlstring(L, 2, "@", &sepn);
+	uint32_t *cp = malloc((n + 1) * sizeof *cp);
+	size_t cn = 0, p, a, first = 1;
+	luaL_Buffer b;
+
+	if (!cp)
+		return luaL_error(L, "menu_comment: out of memory");
+	while (i < n) {
+		uint32_t c;
+		mc_decode(s, &i, n, &c);
+		if (c == '\r')
+			continue;
+		if (c == '@')
+			c = 0xFF20; /* ＠ */
+		else if (c == '$')
+			c = 0xFF04; /* ＄ */
+		else if (c < 32 && c != '\n' && c != '\t')
+			c = ' ';
+		cp[cn++] = c;
+	}
+	luaL_buffinit(L, &b);
+	/* each line of the text */
+	for (a = 0; a <= cn;) {
+		size_t e = a;
+		while (e < cn && cp[e] != '\n')
+			e++;
+		p = a;
+		do {
+			size_t end = p, cut, k;
+			int w = 0;
+			while (end < e && w + mc_width(cp[end]) <= MENU_COMMENT_BYTES)
+				w += mc_width(cp[end++]);
+			if (end >= e) {
+				cut = e;
+			} else {
+				/* the last place a line may end: before a space, or beside a letter not ASCII */
+				cut = 0;
+				for (k = end; k > p; k--) {
+					if (cp[k] == ' ' || cp[k] >= 0x80 || cp[k - 1] >= 0x80) {
+						cut = k;
+						break;
+					}
+				}
+				if (!cut)
+					cut = end;
+			}
+			if (!first)
+				luaL_addlstring(&b, sep, sepn);
+			first = 0;
+			k = cut;
+			while (k > p && cp[k - 1] == ' ')
+				k--;
+			{
+				size_t j;
+				for (j = p; j < k; j++)
+					mc_put(&b, cp[j]);
+			}
+			p = cut;
+			while (p < e && cp[p] == ' ')
+				p++;
+		} while (p < e);
+		a = e + 1;
+	}
+	free(cp);
+	luaL_pushresult(&b);
+	return 1;
+}
+
 void rq_scene_open(lua_State *L, int rq_index)
 {
 	lua_getfield(L, rq_index, "ain");
@@ -1269,7 +1409,8 @@ void rq_scene_open(lua_State *L, int rq_index)
 	}
 	lua_pushvalue(L, rq_index);
 	lua_pushcfunction(L, l_menu_open);
-	if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+	lua_pushcfunction(L, rq_lua_menu_comment);
+	if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
 		rq_log("scene: %s", lua_tostring(L, -1));
 		lua_pop(L, 1);
 	}

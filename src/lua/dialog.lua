@@ -457,7 +457,7 @@ function gui.ask(text, items, o)
       if r.sep then
         call("選択_区切り追加")
       else
-        call("選択_項目追加", r.no, r.text, r.r, r.g, r.b, r.comment, r.sound)
+        call("選択_項目追加", r.no, r.text, r.r, r.g, r.b, kit.menu_comment(r.comment), r.sound)
         if o.cursor ~= nil and r.id == o.cursor and not cursor then cursor = r.no end
       end
     end

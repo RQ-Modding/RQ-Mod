@@ -434,6 +434,8 @@ int rq_lua_hud_block(struct lua_State *L);
 int rq_lua_hud_capture_mouse(struct lua_State *L);
 int rq_lua_ui_choosing(struct lua_State *L);
 int rq_lua_hud_set_under_z(struct lua_State *L);
+/* A choice-menu row's comment as lines the game never cuts (2.45.1, modloader_scene.c). */
+int rq_lua_menu_comment(struct lua_State *L);
 int rq_lua_ain_patch_local_int(struct lua_State *L);
 /* modloader_scene.c: where rq.ain.hook's stubs jump, for the code patches (2.34.0). */
 int rq_hook_codes(const uint32_t **out);
@@ -522,7 +524,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.45.0"
+#define RQ_VERSION "2.45.1"
 
 struct rq_qbattle_skill {
 	int id;

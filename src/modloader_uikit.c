@@ -56,7 +56,10 @@ void rq_uikit_open(lua_State *L, int rq_index)
 		lua_pop(L, 1);
 		return;
 	}
-	/* stack: ui, kit */
+	/* stack: ui, kit. kit.menu_comment: a choice-menu row's comment as the game shows it (2.45.1),
+	 * for rq.uikit.options and rq.ui.ask. */
+	lua_pushcfunction(L, rq_lua_menu_comment);
+	lua_setfield(L, -2, "menu_comment");
 	run_part(L, rq_index, rq_uikit_hub_lua, rq_uikit_hub_lua_len, "=uikit_hub");
 	run_part(L, rq_index, rq_uikit_vault_lua, rq_uikit_vault_lua_len, "=uikit_vault");
 	/* The game's windows (2.32.0): the Quest Storage window, the quest panel's heading, the

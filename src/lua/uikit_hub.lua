@@ -950,7 +950,8 @@ function ui.options(items, o)
       local over, clicked = styled(st, r.text, x + 18, ry, bst.w, bst.h, id, r.disabled, false,
         { group = gid, stop = whole, view = below and { x, y + head, W, view } or nil,
           -- The game's comment window right of the menu, at the row (説明_位置設定(702, row y)).
-          tip = r.comment and r.comment ~= "" and { text = r.comment, x = x + W + 6 + (scroll and 22 or 0), y = ry }
+          -- Its lines as the game's menu shows them (2.45.1): at most 28 bytes, cut between words.
+          tip = r.comment and r.comment ~= "" and { text = kit.menu_comment(r.comment, "\n"), x = x + W + 6 + (scroll and 22 or 0), y = ry }
             or nil, tip_wait = o.tip_wait })
       if over and not r.disabled then
         -- The game frames the row under the mouse in yellow (createFrame 216, 255, 0, 102).
