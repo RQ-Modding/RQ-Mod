@@ -901,6 +901,10 @@ local ui = {}
 ---`finish` (the Finish button, bottom right) and `close`, in section `appraisal`. Its questions (an
 ---item not identified is lost) are `select`. The items' own buttons are not listed.
 ---
+---The Quest Storage window over a quest's map is the screen `quest-storage`: `close`, or `yes` and
+---`no` for Give Up, and its tiles `item-1` to `item-15` in the window's order, with the item
+---instance as the value (see `rq.ui.quest_storage`).
+---
 ---It builds the whole list, so do not call it on every `rq.on_frame`.
 ---
 ---Since: 0.20.0
@@ -921,6 +925,7 @@ local ui = {}
 ---`store-drop`, `grid-drop`, `storeUnits` and `storeState` (it was not listed).
 ---Changed: 2.41.0 The appraisal after a quest's success is the screen `appraisal`, with `finish` and
 ---`close` (it was not listed).
+---Changed: 2.47.0 The Quest Storage window's tiles, `item-1` to `item-15` (they were not listed).
 ---
 ---```lua
 ---local s = rq.ui.get()
@@ -1157,6 +1162,66 @@ function ui.notice(text, opts) end
 ---@return any|nil id The picked row's id, 0 when cancelled, `remember_answer` while the question is turned off, nil when it was not shown.
 ---@see rq.ui.choose
 function ui.ask(text, rows, opts) end
+
+---A tile of the game's Quest Storage window, from `rq.ui.quest_storage`.
+---
+---Since: 2.47.0
+---@class rq.UiQuestStorageTile
+---@field index integer The tile's place in the window, 1 to 15: the control `item-<index>`.
+---@field ii integer The item instance.
+---@field x integer The tile's left edge, in game pixels.
+---@field y integer The tile's top edge, in game pixels.
+---@field w integer The tile's width, 100.
+---@field h integer The tile's height, 100.
+---@field identified boolean false for an unidentified item.
+
+---What `rq.ui.quest_storage` returns.
+---
+---Since: 2.47.0
+---@class rq.UiQuestStorage
+---@field mode "view"|"give-up"|"failure" Why it shows: `"view"` from the map panel's button (its close and erase buttons), `"give-up"` from Give Up (Yes and No; the items go with the quest), `"failure"` at a failed quest's end (the items go).
+---@field z integer The window's z (`rq.sprite.scene`'s numbers).
+---@field tiles rq.UiQuestStorageTile[] The tiles with an item, in the window's order.
+---@field dialog boolean true while the game's question shows over it (the erase button's, Give Up's).
+
+---Returns the game's Quest Storage window while it shows, with its item tiles.
+---
+---The window (`T_StoreQuest`) shows over a quest's map. Its tiles are 100 × 100, five to a row,
+---106 apart, from x 482, y 204, the same in every mode. A mod draws on them from `rq.on_frame`, such
+---as a mark or a button in a tile's corner (`rq.uikit.icon_button`); a click on a tile does nothing
+---in the game, and the game gets no mouse over a kit widget. After a mod moves an item in or out of
+---the quest storage (`rq.item.set`'s `place`, 8), `rq.ui.quest_storage_refresh` shows the change.
+---Agents see the tiles as the controls `item-<index>` of the `quest-storage` screen, with the
+---instance as the value.
+---
+---Since: 2.47.0
+---
+---```lua
+---rq.on_frame(function()
+---  local qs = rq.ui.quest_storage()
+---  if not qs or qs.mode ~= "view" or qs.dialog then return end
+---  for _, t in ipairs(qs.tiles) do
+---    if not t.identified then rq.hud.rect(t.x + 80, t.y + 4, 16, 16, 255, 200, 0, 200) end
+---  end
+---end)
+---```
+---@return rq.UiQuestStorage|nil qs The window, or nil when it does not show.
+---@see rq.ui.quest_storage_refresh
+function ui.quest_storage() end
+
+---Builds the game's Quest Storage window again from the quest storage's items.
+---
+---It does what the window's erase button does after an erase: the list, the tiles, their z and the
+---buttons. Call it after moving items in or out of the quest storage while the window shows.
+---
+---Since: 2.47.0
+---
+---```lua
+---rq.item.set(ii, { place = 11 })  -- out of the quest storage, into the storage
+---rq.ui.quest_storage_refresh()
+---```
+---@return boolean ok false when the window does not show, or when the game refused (written to the log).
+function ui.quest_storage_refresh() end
 
 ---Draws text, boxes and CGs over the game, and reads clicks on them.
 ---
@@ -3699,6 +3764,7 @@ function image.flash_bitmaps(file) end
 ---@field locked integer Non-zero when it cannot be taken off.
 ---@field vanishes integer Non-zero when it vanishes.
 ---@field effects rq.ItemEffect[] The effects.
+---@field identified boolean false while the item is unidentified (`未確定` 1): its name, icon and text are the game's "Unidentified item" until it is appraised (`rq.item.appraise`, or the game's appraisal after a quest). Since 2.47.0.
 
 ---Defines, gives and changes items.
 ---
@@ -3755,6 +3821,28 @@ function item.give(who, opts) end
 ---@param ii integer The instance.
 ---@return rq.ItemInfo|nil info A copy of the fields, or nil when there is no such instance.
 function item.get(ii) end
+
+---Appraises an unidentified item for free, as the game's appraisal does.
+---
+---It runs the game's `Ｉ鑑定` on the instance: a rare item gets the bonuses of the quest being
+---played, the effects 21 to 25 stop at 99, and the name, icon and description become the item
+---number's. The item stays where it is. The game appraises the quest storage's items itself after
+---a quest's success; this is for an item it never reaches, such as one a mod kept in the storage.
+---
+---Raises an error for an instance that is not a whole number, `opts` that is not a table, or a
+---`sound` that is not true or false.
+---
+---Since: 2.47.0
+---
+---```lua
+---for _, row in ipairs(rq.items()) do
+---  if row.place == 11 and not rq.item.get(row.id).identified then rq.item.appraise(row.id) end
+---end
+---```
+---@param ii integer The instance.
+---@param opts? {sound?: boolean} `sound`: play the game's appraisal sound. Default false.
+---@return boolean appraised true when it was unidentified and is now identified; false for no such instance, or one already identified.
+function item.appraise(ii, opts) end
 
 ---Writes an instance's fields.
 ---
@@ -4839,6 +4927,7 @@ function shop.in_stock(no) end
 ---Changed: 0.9.0 Accepts a text id.
 ---Changed: 0.26.0 An unknown item raises an error instead of closing the game.
 ---Changed: 2.35.0 No `rq.shop.install` needed; it raised an error before it.
+---Changed: 2.47.0 While the shop shows, the item is on its list at once (it waited for the next visit).
 ---@param no integer|string An item number or text id.
 ---@return integer ii The new instance, or 0 when the shop already had the item or the game refused it.
 function shop.stock(no) end
@@ -8652,7 +8741,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.46.0"
+rq.version = "2.47.0"
 
 rq.units = units
 rq.items = items
@@ -8959,6 +9048,37 @@ function party.set_state(iic, state) end
 ---@return integer count How many characters were healed.
 ---@see rq.chara.heal
 function party.heal(opts) end
+
+---What an `rq.party.on_go_home` callback gets.
+---
+---Since: 2.47.0
+---@class rq.GoHomeCtx
+---@field iic integer The character's roster slot.
+---@field no integer The character's number (`rq.ids.chara`).
+---@field reason "aten"|"item" `"aten"`: Aten's Go Home (skill 369), with her in a party of two or more. `"item"`: the wearer of item 209, in a party of two or more.
+---@field item? integer The item, for `"item"`: 209.
+---@field chance integer The chance the character leaves, in percent: 20 for Aten, 100 for the item; a callback before this one may have changed it.
+
+---Registers a function that runs when the game would send a character home after a fight.
+---
+---After each fight the game's `割り込み２／戦闘後` sends Aten home one time in five when she is in a
+---party of two or more (her skill Go Home is only its description), and the wearer of item 209
+---always. The callback gets who and why, and returns another chance in percent: 0 keeps the
+---character in the party, 100 sends them home, nil leaves it as it is. The callbacks run in the
+---order they were added, each seeing the chance the one before it set. A return that is not a whole
+---number from 0 to 100 is ignored, and written to the log once. An error in a callback is written
+---to the log.
+---
+---Since: 2.47.0
+---
+---```lua
+---rq.party.on_go_home(function(ctx)
+---  if ctx.reason == "aten" and rq.item.equipped(ctx.iic).item then return 0 end -- she stays
+---end)
+---```
+---@param fn fun(ctx: rq.GoHomeCtx): integer|nil Returns the chance, from 0 to 100, or nil.
+---@return fun() remove Removes this callback.
+function party.on_go_home(fn) end
 
 rq.party = party
 
@@ -10294,6 +10414,33 @@ function uikit.layers(piece, x, y, w, h) end
 ---@return boolean clicked true on the update it is clicked.
 function uikit.close(opts) end
 
+---Draws a picture as a button, as the game's CG buttons.
+---
+---The CG is shrunk to fit the box (never grown) and centered in it. Under the mouse or the keys'
+---cursor the box gets the item tile's yellow frame; while held the picture moves 1 pixel right and
+---down; while `disabled` it is grey and cannot be clicked. With a `label`, a text `tip` is the game's
+---comment window with the label as its title. Agents see it as `button-<id>`, or `button-<label>`
+---without an id.
+---
+---Raises an error for an icon that is not a CG number, `opts` that is not a table, or a `label` that
+---is not text.
+---
+---Since: 2.47.0
+---
+---```lua
+---local ICON = rq.image.add("mymod:bag", "icons/bag.png", { fit = "contain", w = 24, h = 24 })
+---rq.on_frame(function()
+---  if rq.uikit.icon_button(ICON, { x = 700, y = 120, w = 28, h = 28, id = "bag", label = "My Bag",
+---      tip = "Opens the bag." }) then
+---    rq.log("bag")
+---  end
+---end)
+---```
+---@param icon integer A CG number, such as one from `rq.image.add`.
+---@param opts? rq.UiPlace|{label?: string, disabled?: boolean} Place (`w` and `h` default to the CG's size), `label` (for agents and the tip's title; default "button") and `disabled`.
+---@return boolean clicked true on the update it is clicked.
+function uikit.icon_button(icon, opts) end
+
 ---Draws a room row of Rance Castle: the grey button with the room's name, the face beside it, and
 ---the NEW and heart marks.
 ---
@@ -10476,6 +10623,7 @@ function uikit.page(opts, fn) end
 ---@field y? integer The top edge, in game pixels. Default 165, the game's, or higher for a window that would go past y 607 (the 3D view's bottom).
 ---@field empty? string Text in the window's middle when the list is empty.
 ---@field cell? fun(index: integer, x: integer, y: integer, entry: any) Called after each tile is drawn, with the item's place in the list, the tile's top left (100 × 100) and the list's value, to draw marks on it.
+---@field capacity? integer How many cells hold items, 0 or more (since 2.47.0). A tile past it is darkened, cannot be clicked and has the vault's lock mark (CG 11419) in its middle, and so has each empty cell past it on the page shown. Default: no limit.
 
 ---Draws the game's Quest Storage window holding item tiles, and returns whether it is still open.
 ---
@@ -10493,6 +10641,7 @@ function uikit.page(opts, fn) end
 ---`button-<id>-next`.
 ---
 ---Since: 2.32.0
+---Changed: 2.47.0 `capacity`: the cells past it are locked.
 ---
 ---```lua
 ---local open = false
@@ -10511,7 +10660,7 @@ function uikit.page(opts, fn) end
 ---end)
 ---```
 ---@param items (integer|rq.UiItemRow|rq.UiItemWindowEntry)[] The tiles, in order.
----@param opts? rq.UiItemWindowOpts `id`, `title`, `rows`, `x`, `y`, `empty`, `cell`.
+---@param opts? rq.UiItemWindowOpts `id`, `title`, `rows`, `x`, `y`, `empty`, `cell`, `capacity`.
 ---@return boolean open false on the update it closes.
 ---@return integer|nil clicked The place in `items` of the tile clicked on this update.
 function uikit.item_window(items, opts) end

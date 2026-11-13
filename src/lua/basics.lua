@@ -878,6 +878,84 @@ function chara.heal(iic, opts)
   return heal_one(iic, opts)
 end
 
+-- ---- rq.party.on_go_home (2.47.0) ----
+-- 割り込み２／戦闘後(fg), after each fight on a quest's map (from 割り込み２), sends someone home:
+--   Aten (character 40) in a party of two or more: FA[317]++ (her fights this time), then
+--   RAND(5) == 1 (1 in 5) plays アテン／引きこもり and ＰＴＡ解除 takes her out (FA[115] counts it);
+--   else the wearer of item 209 (ＰＴＡ＿Ｉ有無(209)) in a party of two or more "went home" at once.
+-- The callbacks run where the game decides: at RAND(5) inside it for Aten, after ＰＴＡ＿Ｉ有無(209)
+-- inside it for the item. A changed chance is rolled with the game's RAND(100) and given to the
+-- game as its own roll's answer (RAND(5) 1 or 2), or as no wearer (0).
+local GO_HOME = "割り込み２／戦闘後"
+local ATEN = 40
+local home_list, add_home = handlers()
+local home_hooked = false
+local in_home = 0
+
+local function caller_of(name)
+  local ok, st = pcall(rq.ain.stack, 6)
+  if not ok or type(st) ~= "table" then return nil end
+  for _, n in ipairs(st) do
+    if n ~= name then return n end
+  end
+  return nil
+end
+
+local function home_chance(ctx)
+  for _, h in ipairs({ table.unpack(home_list) }) do
+    local r = run(h, "rq.party.on_go_home", ctx)
+    if r ~= nil then
+      if int(r) and r >= 0 and r <= 100 then
+        ctx.chance = r
+      elseif not h.seen["return"] then
+        h.seen["return"] = true
+        logf("rq.party.on_go_home (%s): expected a chance from 0 to 100, or nil", h.mod)
+      end
+    end
+  end
+  return ctx.chance
+end
+
+local function home_install()
+  if home_hooked then return end
+  home_hooked = true
+  hook(GO_HOME, {
+    before = function() in_home = in_home + 1 end,
+    after = function() if in_home > 0 then in_home = in_home - 1 end end,
+  })
+  hook("RAND", { before = function(h)
+    if in_home == 0 or h.args[1] ~= 5 or #home_list == 0 then return end
+    if caller_of("RAND") ~= GO_HOME then return end
+    local okc, iic = pcall(call, "Ｃ番号取得", ATEN)
+    if not okc or not int(iic) or iic == 0 then return end
+    local c = home_chance({ iic = iic, no = ATEN, reason = "aten", chance = 20 })
+    if c == 20 then return end
+    h.skip, h.result = true, (c > 0 and call("RAND", 100) <= c) and 1 or 2
+  end })
+  hook("ＰＴＡ＿Ｉ有無", { after = function(h)
+    if in_home == 0 or h.args[1] ~= 209 or #home_list == 0 then return end
+    local iic = h.result
+    if not int(iic) or iic == 0 then return end
+    if caller_of("ＰＴＡ＿Ｉ有無") ~= GO_HOME then return end
+    local okn, count = pcall(call, "ＰＴＡ総数")
+    if not okn or count == 1 then return end
+    local c = home_chance({ iic = iic, no = chara.number(iic), reason = "item", item = 209, chance = 100 })
+    if c >= 100 then return end
+    if c <= 0 or call("RAND", 100) > c then h.result = 0 end
+  end })
+end
+
+---rq.party.on_go_home(fn): who the game would send home after a fight (Aten's Go Home, item 209),
+---with the chance; fn returns another chance (0 to stay) or nil. 2.47.0.
+function party.on_go_home(fn)
+  check_fn(fn, "rq.party.on_go_home")
+  home_install()
+  return add_home(fn)
+end
+
+-- The game to the title inside 割り込み２／戦闘後 skips its after hook.
+rq.on_reset(function() in_home = 0 end)
+
 -- ---- rq.battle.start (loader 0.22.0; in Lua with the boss and the rest since 2.36.0) ----
 --
 -- The scripted fight (特定戦闘処理) or the boss fight (ボス戦闘処理), called with rq.ain.call: it

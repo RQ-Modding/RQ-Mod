@@ -905,6 +905,11 @@ int rq_lua_item_get(lua_State *L)
 		lua_pushstring(L, type_name(v));
 		lua_setfield(L, -2, "type_name");
 	}
+	/* 未確定: 1 unidentified, 0 identified, 2 identified and locked in the vault (2.47.0). */
+	if (mread(p, "未確定", &v)) {
+		lua_pushboolean(L, v != 1);
+		lua_setfield(L, -2, "identified");
+	}
 	s = mstr(p, "名前");
 	lua_pushstring(L, s);
 	lua_setfield(L, -2, "name");

@@ -316,6 +316,40 @@ function ui.close(o)
   return clicked
 end
 
+---A picture as a button (2.47.0), as the game's CG buttons: the CG shrunk to fit the box (never
+---grown) and centered, the item tile's yellow frame under the mouse or the keys, the picture 1
+---pixel right and down while held, grey while disabled. o: x, y, w, h (default the CG's size), id,
+---label (for agents and the tip's title; default "button"), tip, tip_wait, disabled, nav. Returns
+---true on the update it is clicked.
+function ui.icon_button(icon, o)
+  if math.type(icon) ~= "integer" then error("uikit.icon_button: icon is a CG number", 2) end
+  o = o or {}
+  if type(o) ~= "table" then error("uikit.icon_button: opts is a table", 2) end
+  if o.label ~= nil and type(o.label) ~= "string" then error("uikit.icon_button: label is a string", 2) end
+  local iw, ih = hud.cg_size(icon)
+  iw, ih = iw or 0, ih or 0
+  local x, y, w, h = place(o, iw > 0 and iw or 32, ih > 0 and ih or 32)
+  local id = id_of(o, "iconbutton")
+  local tip = o.tip
+  if type(tip) == "string" and o.label then tip = { header = o.label, text = tip } end
+  local over, clicked, held = interact(id, x, y, w, h, o.disabled, { nav = o.nav, tip = tip, tip_wait = o.tip_wait })
+  if iw > 0 and ih > 0 then
+    local s = min(1, w / iw, h / ih)
+    local dw, dh = max(1, floor(iw * s)), max(1, floor(ih * s))
+    local dx, dy = x + (w - dw) // 2, y + (h - dh) // 2
+    if held then dx, dy = dx + 1, dy + 1 end
+    hud.cg(dx, dy, icon, { w = dw, h = dh, tint = o.disabled and { 110, 110, 110 } or nil })
+  end
+  if over and not o.disabled then
+    local f = T("vault").slot_frame
+    hud.rect(x, y, w, h, f.r, f.g, f.b, f.a)
+  end
+  if clicked then play("click") end
+  show("button", o.id ~= nil and tostring(o.id) or (o.label or "icon"), o.label or "button", x, y, w, h,
+    { disabled = o.disabled })
+  return clicked
+end
+
 -- ---- Rows ----
 
 ---A room row of Rance Castle. o: text, face (a CG number, drawn 24x29), new, mark ("heart" or

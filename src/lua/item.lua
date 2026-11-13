@@ -393,6 +393,100 @@ function item.on_can_equip(fn)
   end
 end
 
+-- ---- rq.item.appraise (2.47.0) ----
+-- Ｉ鑑定(ii) is the appraisal screen's own call (アイテム_鑑定 adds 効果音_鑑定 and puts the item in
+-- Quest Storage, Ｉ存在 8): a rare item (Ｉレアランク not 0) gets one bonus for each of the quest's
+-- three bonuses that was met (◆クエストボーナス有無[n] 1 and ◆クエストボーナス[n] at its most),
+-- effects 21 to 25 stop at 99, then 未確定 0 and the name, CG and description of the item number
+-- (Ｉ情報 "自動生成"). appraise leaves the item where it is.
+
+function item.appraise(ii, opts)
+  if math.type(ii) ~= "integer" then error("rq.item.appraise: expected an item instance (ii)", 2) end
+  if opts ~= nil and type(opts) ~= "table" then error("rq.item.appraise: opts is a table", 2) end
+  if opts and opts.sound ~= nil and type(opts.sound) ~= "boolean" then
+    error("rq.item.appraise: sound is true or false", 2)
+  end
+  if ii <= 0 or not call("アイテム_確認", ii) then return false end
+  if call("Ｉ未確定", ii, -1) ~= 1 then return false end
+  call("Ｉ鑑定", ii)
+  if opts and opts.sound then pcall(call, "効果音_鑑定") end
+  changed(ii)
+  return true
+end
+
+-- ---- The Quest Storage window's tiles (2.47.0) ----
+-- T_StoreQuest (g_sStoreQuest) is opened by Ｒ８クエスト倉庫(mode): 0 from the map panel's button
+-- (its X and the erase buttons), 1 from Give Up (Yes and No, the items go with the quest), 2 at a
+-- failure (the items go). m_sList.m_anItemNo holds the instances in the window's order, 15 at
+-- most; tile i (from 0) is at 482 + (i % 5) * 106, 204 + (i // 5) * 106, 100 x 100 in every mode
+-- (getIconX, getIconY). After the erase button T_StoreQuest::execErase builds the window again:
+-- m_sList.create(8, 0, ...), createIcon, setZ(m_spBase's z), setButtonActive, setShow(true).
+local g = rq.ain.global
+local QS_MODES = { [0] = "view", [1] = "give-up", [2] = "failure" }
+
+local function qs_shown()
+  local ok, show = pcall(g, "g_sStoreQuest", "m_spBase", "m_bShow")
+  if not ok or show ~= true then return false end
+  local ok2, sp = pcall(g, "g_sStoreQuest", "m_spBase", "m_nSpNo")
+  return ok2 and math.type(sp) == "integer" and sp > 0
+end
+
+function rq.ui.quest_storage()
+  if not qs_shown() then return nil end
+  local ok, n = pcall(rq.ain.global_len, "g_sStoreQuest", "m_sList", "m_anItemNo")
+  if not ok or math.type(n) ~= "integer" then n = 0 end
+  local tiles = {}
+  for i = 0, math.min(n, 15) - 1 do
+    local ii = g("g_sStoreQuest", "m_sList", "m_anItemNo", i)
+    if math.type(ii) == "integer" and ii > 0 then
+      tiles[#tiles + 1] = { index = i + 1, ii = ii, x = 482 + (i % 5) * 106, y = 204 + (i // 5) * 106,
+        w = 100, h = 100, identified = call("Ｉ未確定", ii, -1) ~= 1 }
+    end
+  end
+  local mode = g("g_sStoreQuest", "m_nMode")
+  -- The game's question over it (the erase button's "Discard ...?", Give Up's "Abandon this quest?").
+  local okd, sp = pcall(g, "g_sSelect", "m_spBase", "m_nSpNo")
+  local okv, shown = pcall(g, "g_sSelect", "m_spBase", "m_bShow")
+  return {
+    mode = QS_MODES[mode] or tostring(mode),
+    z = g("g_sStoreQuest", "m_spBase", "m_nZ"),
+    tiles = tiles,
+    dialog = (okd and math.type(sp) == "integer" and sp > 0 and okv and shown == true) or false,
+  }
+end
+
+function rq.ui.quest_storage_refresh()
+  if not qs_shown() then return false end
+  local m = rq.ain.method
+  local ok, err = pcall(function()
+    m({ "g_sStoreQuest" }, "T_StoreQuest@hideComment", -1)
+    m({ "g_sStoreQuest", "m_sList" }, "T_ItemList@create", 8, 0, 0, 0, 0, 0, 0)
+    m({ "g_sStoreQuest" }, "T_StoreQuest@createIcon")
+    m({ "g_sStoreQuest" }, "T_StoreQuest@setZ", g("g_sStoreQuest", "m_spBase", "m_nZ"))
+    m({ "g_sStoreQuest" }, "T_StoreQuest@setButtonActive")
+    m({ "g_sStoreQuest" }, "T_StoreQuest@setShow", true)
+  end)
+  if not ok then rq.log("rq.ui.quest_storage_refresh: " .. tostring(err)) end
+  return ok
+end
+
+-- ---- rq.shop.stock while the shop shows (2.47.0) ----
+-- T_Shop::buyItem builds the list again (アイテム倉庫_再作成) before on_buy runs, so an item stocked
+-- then, or from a button while the shop shows, waited for the next visit. The shop's list is
+-- g_sStoreItem with m_nStoreType 3 (T_StoreItem::create; -1 once it closes).
+local raw_stock = rq.shop and rq.shop.stock
+
+if raw_stock then
+  function rq.shop.stock(no)
+    local ii = raw_stock(no)
+    if math.type(ii) == "integer" and ii > 0 then
+      local ok, kind = pcall(g, "g_sStoreItem", "m_nStoreType")
+      if ok and kind == 3 then pcall(call, "アイテム倉庫_再作成", -1, -1, -1, -1, -1) end
+    end
+    return ii
+  end
+end
+
 rq.on_reset(function()
   asking = false
   infos = {}

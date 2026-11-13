@@ -5336,6 +5336,23 @@ static int fill_storequest(struct page *st)
 				emit_named_btn(btn, i, "no", "No", "quest-storage", "2", 0);
 		}
 	}
+	/* The item tiles (2.47.0): item-1 to item-15 in the window's order, at T_StoreQuest's
+	 * getIconX / getIconY, the instance as the value. They take hovers (the item card); a click
+	 * on one does nothing in the game. */
+	arr = fpage(fpage(st, "m_sList"), "m_anItemNo");
+	if (arr && arr->type == ARRAY_PAGE) {
+		for (i = 0; i < arr->nr_vars && i < 15; i++) {
+			int ii = arr->values[i].i, before = g_nctrls;
+			char id[16], label[24];
+			if (ii <= 0)
+				continue;
+			snprintf(id, sizeof id, "item-%d", i + 1);
+			snprintf(label, sizeof label, "Item %d", i + 1);
+			emit_plain(id, label, "quest-storage", 482 + (i % 5) * 106, 204 + (i / 5) * 106, 100, 100);
+			if (g_nctrls > before)
+				snprintf(g_ctrls[g_nctrls - 1].value, sizeof g_ctrls[g_nctrls - 1].value, "%d", ii);
+		}
+	}
 	if (g_nctrls == n0)
 		return 0;
 	snprintf(g_screen, sizeof g_screen, "quest-storage");

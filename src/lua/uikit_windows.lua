@@ -42,6 +42,8 @@ hub.item_window = {
   -- The page's number between the arrows, and the text shown when there is nothing.
   page = game { face = 258, size = 20, r = 236, g = 232, b = 176 },
   empty = game { face = 258, size = 22, r = 60, g = 35, b = 10, outline = { 230, 210, 170 } },
+  -- A cell past `capacity` (2.47.0): darkened, with the vault's lock mark (11419) in its middle.
+  locked = { shade = { 0, 0, 0, 150 }, mark = 11419 },
 }
 
 -- The quest panel (T_QuestComment): 11014, 576x470, its four headings painted in. A heading's band
@@ -116,6 +118,10 @@ function ui.item_window(items, o)
     error("uikit.item_window: rows is 1 to 5", 2)
   end
   if o.cell ~= nil and type(o.cell) ~= "function" then error("uikit.item_window: cell is a function", 2) end
+  local cap = o.capacity
+  if cap ~= nil and (math.type(cap) ~= "integer" or cap < 0) then
+    error("uikit.item_window: capacity is a whole number, 0 or more", 2)
+  end
   local v = T("item_window")
   local per = v.cols * rows
   local wh = window_h(v, rows)
@@ -179,19 +185,37 @@ function ui.item_window(items, o)
   show("page", key, o.title, x, y, v.w, wh)
   local clicked
   local first = (st.page - 1) * per
+  -- A cell past capacity: darkened, the lock mark in its middle.
+  local function lock_cell(tx, ty)
+    local lk = v.locked
+    hud.rect(tx, ty, 100, 100, lk.shade[1], lk.shade[2], lk.shade[3], lk.shade[4])
+    local mw, mh = hud.cg_size(lk.mark)
+    if mw and mw > 0 then hud.cg(tx + (100 - mw) // 2, ty + (100 - mh) // 2, lk.mark) end
+  end
   for i = 1, min(per, n - first) do
     local k = first + i
     local item, e = entry_of(items[k])
     local c, r = (i - 1) % v.cols, (i - 1) // v.cols
     local tx, ty = x + v.tile_x + v.cell * c, y + v.tile_y + v.cell * r
+    local locked = cap ~= nil and k > cap
     if item ~= nil then
       local hit = ui.item_icon(item, { x = tx, y = ty, id = key .. "." .. k, judged = e and e.judged,
-        tip = e and e.tip, disabled = e and e.disabled })
+        tip = e and e.tip, disabled = (e and e.disabled) or locked })
       if hit then clicked = k end
     end
+    if locked then lock_cell(tx, ty) end
     if o.cell then
       local ok, err = pcall(o.cell, k, tx, ty, items[k])
       if not ok then error(err, 0) end
+    end
+  end
+  -- The empty cells past capacity on the page shown (2.47.0).
+  if cap ~= nil then
+    for i = max(1, n - first + 1), per do
+      if first + i > cap then
+        local c, r = (i - 1) % v.cols, (i - 1) // v.cols
+        lock_cell(x + v.tile_x + v.cell * c, y + v.tile_y + v.cell * r)
+      end
     end
   end
   if n == 0 and o.empty then
