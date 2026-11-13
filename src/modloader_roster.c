@@ -69,6 +69,7 @@ static int g_forget_cb[CB_MAX];
 static int g_nforget;
 static int g_in_apply;
 static int g_lua_forget;
+static int g_forget_quiet; /* priv.forget_quiet (2.45.0): the loader tries the game's code */
 
 static int f_create = -1, f_cdata = -1, f_base = -1, f_findno = -1, f_del = -1;
 static int f_pta_add = -1, f_pta_del = -1, f_state = -1, f_name = -1, f_short = -1;
@@ -584,8 +585,30 @@ static int apply_init(lua_State *L, int iic, struct page *p, int t)
 	return changed;
 }
 
-/* Learn skills from { {id=, n=}, ... }. Idempotent: use-count skills are never stacked twice. */
-static int apply_learn(lua_State *L, int iic, int t)
+/* A skill row's cost field (Ｃ[iic].スキル[row].コスト), which the game writes only as 0 and never
+ * reads: the loader keeps the purchase record there (2.45.0, lua/skills.lua), -1 for "given". */
+static void mark_given(int iic, int id)
+{
+	struct page *p = cpage(iic), *arr, *rowp;
+	int row = ci(f_cs_find, 3, iic, id, 0);
+	int mi;
+
+	if (!p || row <= 0 || ci(f_cs_cost, 3, iic, row, -1) != 0)
+		return;
+	mi = memb_utf(p, "スキル");
+	if (mi < 0)
+		return;
+	arr = slot_page(p->values[mi].i);
+	if (!arr || row >= arr->nr_vars)
+		return;
+	rowp = slot_page(arr->values[row].i);
+	if (rowp)
+		mwrite(rowp, "コスト", -1);
+}
+
+/* Learn skills from { {id=, n=}, ... }. Idempotent: use-count skills are never stacked twice.
+ * mark: an edit's grant, marked "given" in the row's cost field (2.45.0). */
+static int apply_learn(lua_State *L, int iic, int t, int mark)
 {
 	int i, n = (int)lua_rawlen(L, t), changed = 0;
 
@@ -605,11 +628,15 @@ static int apply_learn(lua_State *L, int iic, int t)
 		if (!row) {
 			ci(f_cs_add, 3, iic, id, cnt);
 			changed = 1;
+			if (mark)
+				mark_given(iic, id);
 		} else {
 			int type = ci(f_stype, 2, id, -1);
 			if ((type == 20 || type == 30) && ci(f_cs_rank, 3, iic, row, -1) < cnt) {
 				ci(f_cs_add, 3, iic, id, cnt);
 				changed = 1;
+				if (mark)
+					mark_given(iic, id);
 			}
 		}
 	}
@@ -697,7 +724,7 @@ static void apply_template(lua_State *L, struct tpl *t, int iic, int no, const c
 	} else if (!strcmp(flag, "スキル")) {
 		lua_getfield(L, tab, "skills");
 		if (lua_istable(L, -1))
-			apply_learn(L, iic, lua_gettop(L));
+			apply_learn(L, iic, lua_gettop(L), 0);
 		lua_pop(L, 1);
 	} else if (!strcmp(flag, "ステータス")) {
 		p = cpage(iic);
@@ -837,7 +864,7 @@ static void roster_forget(void)
 	int iic = stack_pop().i;
 	lua_State *L = rq_lua();
 
-	if (L && g_nforget > 0 && iic > 0 && iis > 0) {
+	if (L && g_nforget > 0 && !g_forget_quiet && iic > 0 && iis > 0) {
 		int row = ci(f_cs_find, 3, iic, iis, 0);
 		if (row) {
 			int cost = ci(f_cs_cost, 3, iic, row, -1);
@@ -934,7 +961,7 @@ void rq_roster_apply(int iic)
 					int r = 0;
 					if (!strcmp(k, "learn")) {
 						if (lua_istable(L, -1))
-							r = apply_learn(L, iic, lua_gettop(L));
+							r = apply_learn(L, iic, lua_gettop(L), 1);
 					} else if (!strcmp(k, "init")) {
 						r = 0; /* written during the ステータス flag of Ｃ再計算 */
 					} else if (rq_item_is_gear_key(k)) {
@@ -1386,6 +1413,14 @@ int rq_lua_chara_on_create(lua_State *L)
 int rq_lua_chara_on_forget(lua_State *L)
 {
 	return add_cb(L, g_forget_cb, &g_nforget);
+}
+
+/* priv.forget_quiet(on) (2.45.0): no on_forget while the loader tries the game's code on a
+ * character inside priv.keep (Ｃ生成／キャラデータ removes skills, as Athena's 108). */
+int rq_lua_forget_quiet(lua_State *L)
+{
+	g_forget_quiet = lua_toboolean(L, 1);
+	return 0;
 }
 
 /* ---- rq.store: per-mod key/value, next to the active save ----

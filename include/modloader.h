@@ -298,6 +298,10 @@ int rq_lua_chara_add_skill_points(struct lua_State *L);
 int rq_lua_chara_forget(struct lua_State *L);
 int rq_lua_chara_on_create(struct lua_State *L);
 int rq_lua_chara_on_forget(struct lua_State *L);
+/* priv.forget_quiet(on) and priv.keep(paths, fn, ...) (2.45.0): the loader's own Lua tries the game's
+ * code on a character and puts it back (lua/skills.lua). */
+int rq_lua_forget_quiet(struct lua_State *L);
+int rq_lua_keep(struct lua_State *L);
 int rq_lua_store_get(struct lua_State *L);
 int rq_lua_store_set(struct lua_State *L);
 int rq_lua_store_delete(struct lua_State *L);
@@ -518,7 +522,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.44.0"
+#define RQ_VERSION "2.45.0"
 
 struct rq_qbattle_skill {
 	int id;

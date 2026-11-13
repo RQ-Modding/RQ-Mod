@@ -439,6 +439,143 @@ static int l_global_len(lua_State *L)
 	return 1;
 }
 
+/* ---- priv.keep (2.45.0) ---- */
+
+/* A value that is a page: a struct, or an array of either kind the AIN uses (array@int as a
+ * struct member is AIN_ARRAY_INT, an older type than AIN_ARRAY). */
+static int is_page_type(int t)
+{
+	switch (t) {
+	case AIN_STRUCT:
+	case AIN_ARRAY_TYPE:
+		return 1;
+	default:
+		return t != AIN_REF_ARRAY && ain_is_array_data_type(t);
+	}
+}
+
+/* Writes src's values back into dst, a page of the same shape, keeping dst's heap slots: a game
+ * function up the stack may hold one of them. Inner arrays and structs are walked the same way;
+ * an inner array that changed size gets its page replaced in its own slot. */
+static void restore_into(struct page *dst, struct page *src)
+{
+	int i;
+
+	for (i = 0; i < dst->nr_vars && i < src->nr_vars; i++) {
+		int type = variable_type(dst, i, NULL, NULL);
+
+		if (is_page_type(type)) {
+			int ds = dst->values[i].i, ss = src->values[i].i;
+			struct page *dp = ds > 0 && page_index_valid(ds) ? heap_get_page(ds) : NULL;
+			struct page *sp = ss > 0 && page_index_valid(ss) ? heap_get_page(ss) : NULL;
+
+			if (dp && sp && dp->type == sp->type && dp->nr_vars == sp->nr_vars) {
+				restore_into(dp, sp);
+			} else if (type != AIN_STRUCT && ds > 0 && page_index_valid(ds)) {
+				if (dp) {
+					delete_page_vars(dp);
+					free_page(dp);
+				}
+				heap_set_page(ds, sp ? copy_page(sp) : NULL);
+			}
+		} else if (type == AIN_STRING) {
+			variable_set(dst, i, type, vm_copy(src->values[i], type));
+		} else if (is_plain(type)) {
+			dst->values[i] = src->values[i];
+		}
+	}
+}
+
+struct kept {
+	int slot;            /* the heap slot of a kept array or struct; -1 for a plain value */
+	struct page *copy;   /* its deep copy, or NULL for an empty array */
+	struct page *holder; /* a plain value's page, variable and type */
+	int varno, type;
+	union vm_value val;
+};
+
+/* priv.keep(paths, fn, ...): runs fn(...), then puts back each value a path reaches (a path as
+ * rq.ain.global takes it: { "Ｃ", iic }, { "◆取得可能スキル番号" }), as it was before fn: a whole
+ * character, a whole array, or a plain value. fn's results are returned; its error is raised
+ * again after the values are back. For the loader's own Lua: trying the game's code on a
+ * character (its starting skills, a step's price) without changing anything. */
+int rq_lua_keep(lua_State *L)
+{
+	int n, i, top, status;
+	struct kept *k;
+
+	luaL_checktype(L, 1, LUA_TTABLE);
+	luaL_checktype(L, 2, LUA_TFUNCTION);
+	n = (int)lua_rawlen(L, 1);
+	k = lua_newuserdatauv(L, sizeof *k * (n > 0 ? n : 1), 0);
+	/* Walk every path first: a bad one raises before anything is copied. */
+	for (i = 0; i < n; i++) {
+		struct page *page;
+		int varno, type, base, m, j;
+
+		lua_rawgeti(L, 1, i + 1);
+		if (!lua_istable(L, -1))
+			return luaL_error(L, "keep: path %d is not a table", i + 1);
+		base = lua_gettop(L);
+		m = (int)lua_rawlen(L, base);
+		if (m < 1)
+			return luaL_error(L, "keep: path %d is empty", i + 1);
+		for (j = 1; j <= m; j++)
+			lua_rawgeti(L, base, j);
+		walk_global_at(L, base + 1, base + 2, base + m, &page, &varno, &type);
+		lua_settop(L, base - 1);
+		k[i].copy = NULL;
+		if (is_page_type(type)) {
+			int slot = page->values[varno].i;
+			if (slot <= 0 || !page_index_valid(slot))
+				return luaL_error(L, "keep: path %d reaches no array or struct", i + 1);
+			k[i].slot = slot;
+		} else if (is_plain(type)) {
+			k[i].slot = -1;
+			k[i].holder = page;
+			k[i].varno = varno;
+			k[i].type = type;
+		} else {
+			return luaL_error(L, "keep: path %d reaches a reference", i + 1);
+		}
+	}
+	for (i = 0; i < n; i++) {
+		if (k[i].slot > 0) {
+			struct page *p = heap_get_page(k[i].slot);
+			k[i].copy = p ? copy_page(p) : NULL;
+		} else {
+			k[i].val = vm_copy(k[i].holder->values[k[i].varno], k[i].type);
+		}
+	}
+	top = lua_gettop(L);
+	lua_pushvalue(L, 2);
+	for (i = 3; i < top; i++)
+		lua_pushvalue(L, i);
+	status = lua_pcall(L, top - 3, LUA_MULTRET, 0);
+	for (i = n - 1; i >= 0; i--) {
+		if (k[i].slot > 0) {
+			struct page *cur = page_index_valid(k[i].slot) ? heap_get_page(k[i].slot) : NULL;
+			struct page *copy = k[i].copy;
+			if (cur && copy && cur->type == copy->type && cur->nr_vars == copy->nr_vars) {
+				restore_into(cur, copy);
+				delete_page_vars(copy);
+				free_page(copy);
+			} else if (page_index_valid(k[i].slot)) {
+				if (cur) {
+					delete_page_vars(cur);
+					free_page(cur);
+				}
+				heap_set_page(k[i].slot, copy);
+			}
+		} else {
+			variable_set(k[i].holder, k[i].varno, k[i].type, k[i].val);
+		}
+	}
+	if (status != LUA_OK)
+		return lua_error(L);
+	return lua_gettop(L) - top;
+}
+
 /* rq.ain.set_global_len(name, [step, ...,] size): makes a one-dimensional array global (or one a
  * path reaches) `size` long, as the game's own Realloc does: values kept, new elements empty. */
 static int l_set_global_len(lua_State *L)

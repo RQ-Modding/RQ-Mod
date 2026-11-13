@@ -206,6 +206,11 @@ void rq_state_private(lua_State *L, int priv)
 	lua_setfield(L, priv, "model_info");
 	lua_pushcfunction(L, l_model_derive);
 	lua_setfield(L, priv, "model_derive");
+	/* 2.45.0: trying the game's code on a character, then putting it back (lua/skills.lua). */
+	lua_pushcfunction(L, rq_lua_keep);
+	lua_setfield(L, priv, "keep");
+	lua_pushcfunction(L, rq_lua_forget_quiet);
+	lua_setfield(L, priv, "forget_quiet");
 }
 
 int rq_lua_random_seed(lua_State *L)

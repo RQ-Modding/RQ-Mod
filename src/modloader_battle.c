@@ -2136,6 +2136,8 @@ extern const char rq_choices_lua[];
 extern const unsigned rq_choices_lua_len;
 extern const char rq_quests_lua[];
 extern const unsigned rq_quests_lua_len;
+extern const char rq_skills_lua[];
+extern const unsigned rq_skills_lua_len;
 
 /* The loader's private table (2.36.0): calls its own Lua parts share with each other and with
  * the C side, given to them as the chunk's second argument and never to a mod. */
@@ -2208,6 +2210,10 @@ void rq_battle_lua_open(lua_State *L, int rq_index)
 	 * (its refresh and can_take) and scene (place, on_event); its hook on クエスト処理 is placed
 	 * here, before any mod's rq.quests.on_event. */
 	run_embedded(L, rq_index, rq_quests_lua, rq_quests_lua_len, "=quests");
+	/* rq.chara.on_learn, base_skills, skill_points_max, learnable, price and learn, and the
+	 * purchase record in a skill row's cost field (lua/skills.lua, loader 2.45.0). After combat,
+	 * whose callback helpers it shares. */
+	run_embedded(L, rq_index, rq_skills_lua, rq_skills_lua_len, "=skills");
 }
 
 #endif /* RQ_MODLOADER */
