@@ -72,6 +72,10 @@ hub.vault = {
   remove = button(11506, 100, 80, 100, 10),
   kinds = { [21] = 10407, [1] = 10408, [11] = 10409, [17] = 10410 },
   current = { r = 0, g = 255, b = 255, a = 128 },
+  -- A marked row (2.49.0): the tick box at the icon's top right (+70,+29) and the count in a black
+  -- box at its bottom right (+54,+98, 48x24).
+  mark = { x = 70, y = 29, box = { x = 54, y = 98, w = 48, h = 24, a = 210 },
+    count = game { face = 258, size = 19, bold = true, r = 255, g = 255, b = 255 } },
   -- The row's buttons (T_StoreItem::setPos): LOCK / UNDO LOCK at +204,+1, SELL at +285,+7,
   -- DONATE at +335,+7.
   buttons = {
@@ -473,11 +477,16 @@ end
 ---the game's colors, the classes that may equip it, LOCKED, the shop's price, and the row's
 ---buttons. row is ui.item_data's table, an ii, or a table of your own with the same fields.
 ---opts: x, y, id, style ("vault", "storage", "shop" or "equip"), buttons ({lock, sell, donate} =
----true), current, disabled. Returns clicked (the row) and the button clicked: "lock", "unlock",
----"sell" or "donate".
+---true), current, disabled; 2.49.0: mark (false: an empty tick box; true or a count: ticked, the
+---cyan cover, and "×n" for a count; with a mark the cover shows the mark, not current). Returns
+---clicked (the row) and the button clicked: "lock", "unlock", "sell" or "donate".
 function ui.item_row(row, o)
   o = o or {}
   if row == nil then error("uikit.item_row: expected a row or an ii", 2) end
+  local mark = o.mark
+  if mark ~= nil and type(mark) ~= "boolean" and not (math.type(mark) == "integer" and mark >= 0) then
+    error("uikit.item_row: mark is true, false or a count", 2)
+  end
   local r = data_of(row)
   if not r then error("uikit.item_row: no item instance " .. tostring(row), 2) end
   local v = T("vault")
@@ -512,6 +521,20 @@ function ui.item_row(row, o)
     ui.draw(b.over and b.b.hover or b.b.normal, x + b.b.x, y + b.b.y, b.b.w, b.b.h)
     show("button", key .. "-" .. b.name, b.name, x + b.b.x, y + b.b.y, b.b.w, b.b.h)
   end
+  -- The mark (2.49.0): a tick box drawn on the icon (a click on it is a click on the row), and
+  -- for a count the count under it.
+  local marked = mark ~= nil and mark ~= false and mark ~= 0
+  if mark ~= nil then
+    local m = v.mark
+    local tint = o.disabled and GREY or nil
+    ui.draw("check_frame", x + m.x + 1, y + m.y + 1, 28, 28, tint)
+    if marked then ui.draw("check_mark", x + m.x, y + m.y, 30, 30, tint) end
+    if math.type(mark) == "integer" and mark > 0 then
+      local b = m.box
+      hud.rect(x + b.x, y + b.y, b.w, b.h, 0, 0, 0, b.a)
+      hud.text(x + b.x, y + b.y, "×" .. mark, with(m.count, { w = b.w, h = b.h, align = "center", valign = "center" }))
+    end
+  end
   -- The game's keys on the current row: L locks, S sells, D donates (T_StoreItem::checkKey*).
   if o.keys and o.current and not pressed then
     local st = ui.state("itemrowkeys:" .. key)
@@ -521,12 +544,15 @@ function ui.item_row(row, o)
     keys_seen(st)
   end
   if over and not o.disabled and not on_button then cover(x, y, w, h) end
-  if o.current then
+  local lit = o.current
+  if mark ~= nil then lit = marked end
+  if lit then
     local c = v.current
     hud.rect(x, y, w, h, c.r, c.g, c.b, c.a)
   end
   if clicked or pressed then play("click") end
-  show("row", key, r.name, x, y, w, h, { selected = o.current and true or false, disabled = o.disabled,
+  -- With a mark, selected is the mark (2.49.0).
+  show("row", key, r.name, x, y, w, h, { selected = lit and true or false, disabled = o.disabled,
     value = r.ii and tostring(r.ii) or nil })
   return clicked, pressed
 end
@@ -673,13 +699,16 @@ end
 ---which the wheel over the rows moves a row at a time. rows hold row tables or ii numbers.
 ---opts: x, y, id (keeps the scroll), shown, style, buttons, bar ({y, h}), keys (the arrow keys,
 ---Page Up and Down, Home, End and Enter, and L, S, D on the current row), drag (a group name:
----rows can be dragged to another list of the group). Returns the current index, whether it
+---rows can be dragged to another list of the group); 2.49.0: marks (a table from a row's ii, or
+---for a row table without one its index, to true or a count: each row gets item_row's mark, and
+---the cyan cover shows the marked rows). Returns the current index, whether it
 ---changed, the button clicked with the index of its row, and whether a row was chosen (clicked,
 ---or Enter).
 function ui.item_list(rows, index, o)
   o = o or {}
   if type(rows) ~= "table" then error("uikit.item_list: expected a list of rows", 2) end
   if o.drag ~= nil and type(o.drag) ~= "string" then error("uikit.item_list: drag is a group name", 2) end
+  if o.marks ~= nil and type(o.marks) ~= "table" then error("uikit.item_list: marks is a table", 2) end
   local id = id_of(o, "itemlist")
   local st = ui.state(id)
   local n = o.shown or 6
@@ -732,8 +761,14 @@ function ui.item_list(rows, index, o)
     if r ~= nil then
       local ry = y + (i - 1) * 128
       local dis = type(r) == "table" and r.disabled
+      local mark
+      if o.marks then
+        local ii = type(r) == "table" and r.ii or (math.type(r) == "integer" and r) or nil
+        local m = o.marks[ii or k]
+        mark = (m == true or (math.type(m) == "integer" and m > 0)) and m or false
+      end
       local c, b = ui.item_row(r, { x = x, y = ry, style = o.style, buttons = o.buttons,
-        current = k == index, id = key .. "." .. k, disabled = dis, keys = o.keys, group = id })
+        current = k == index, id = key .. "." .. k, disabled = dis, keys = o.keys, group = id, mark = mark })
       if c and not (drag and drag.moved) then
         if k ~= index then index, changed = k, true end
         chosen = true
@@ -1127,7 +1162,7 @@ end
 ---chara (a character: the column gets Equippable / Unequippable for them), shown, style, sort (a
 ---mode; default the stores' saved one), keys; 2.44.0: only (fn(ii): keep the items it returns
 ---true for), type (a category kept picked), first (rows put before the rest, unsorted, filtered
----the same), drag (a drag group, as item_list's). Returns the ii picked on this update, else nil,
+---the same), drag (a drag group, as item_list's); 2.49.0: marks (as item_list's, by ii). Returns the ii picked on this update, else nil,
 ---then the current ii.
 function ui.item_picker(o)
   o = o or {}
@@ -1137,6 +1172,7 @@ function ui.item_picker(o)
   if o.only ~= nil and type(o.only) ~= "function" then error("uikit.item_picker: only is a function(ii)", 2) end
   if o.first ~= nil and type(o.first) ~= "table" then error("uikit.item_picker: first is a list of rows", 2) end
   if o.drag ~= nil and type(o.drag) ~= "string" then error("uikit.item_picker: drag is a group name", 2) end
+  if o.marks ~= nil and type(o.marks) ~= "table" then error("uikit.item_picker: marks is a table", 2) end
   if o.type ~= nil then
     local known = false
     for _, c in ipairs(T("filters").cats) do if c.type == o.type then known = true end end
@@ -1199,7 +1235,7 @@ function ui.item_picker(o)
   local down = (T("filters").sub[st.filter.type] and 1 or 0) * 128
   local index, changed, _, _, chosen = ui.item_list(st.list, st.index, { x = x, y = y + down, id = key .. "-list",
     shown = shown - down // 128, style = o.style or (o.chara and "equip") or wh.style, bar = { y, shown * 128 },
-    keys = o.keys, drag = o.drag })
+    keys = o.keys, drag = o.drag, marks = o.marks })
   if changed then
     st.index = index
     st.ii = ii_of(st.list[index])

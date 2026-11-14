@@ -4082,11 +4082,13 @@ function item.store(ii, where) end
 ---vanishes. Short of money, the game says "Not enough money.". The notices show only when asking;
 ---with `ask = false` it buys at once and returns false where the game would have said no, and an
 ---old item that vanishes when taken off also stops it. The question waits inside the call, as with
----`sell`. The money on the system bar updates. Buying does not restock the shop.
+---`sell`. The money on the system bar updates, and the `rq.shop.on_buy` callbacks run, as for the
+---shop's drag. Buying does not restock the shop: `rq.shop.restock` does what the next visit would.
 ---
 ---Raises an error when `ii` or `chara` is not a whole number, or `opts` is not a table.
 ---
 ---Since: 2.10.0
+---Changed: 2.49.0 Runs the `rq.shop.on_buy` callbacks (only the game's drag did).
 ---
 ---```lua
 ---local ii = rq.uikit.item_picker({ x = 538, y = 0, id = "shop", where = "shop" })
@@ -4965,12 +4967,13 @@ function shop.on_stock(fn) end
 
 ---Registers a function that runs after each Frostbuy purchase.
 ---
----It wraps the end of `T_Shop@buyItem` the first time it is used, so it needs no `install`. Use it to
----count purchases, and raise the next price in `on_stock`. Up to 16 callbacks; an error in one is
----written to the log.
+---It wraps the end of `T_Shop@buyItem` the first time it is used, so it needs no `install`. It runs
+---for `rq.item.buy` too, so a mod's purchase counts as the player's drag. Use it to count purchases,
+---and raise the next price in `on_stock`. Up to 16 callbacks; an error in one is written to the log.
 ---
 ---Since: 0.9.0
 ---Changed: 0.23.0 Returns a remover.
+---Changed: 2.49.0 Runs for `rq.item.buy` too.
 ---
 ---```lua
 ---rq.shop.on_buy(function(ctx)
@@ -5004,6 +5007,80 @@ function shop.in_stock(no) end
 ---@param no integer|string An item number or text id.
 ---@return integer ii The new instance, or 0 when the shop already had the item or the game refused it.
 function shop.stock(no) end
+
+---Returns whether the shop puts another copy of an item on sale on the next visit, once the one on
+---sale is bought.
+---
+---These are the game's own rules (`Ｔアイテム屋`, which refills the stock once a visit): an item whose
+---restock count (`◆アイテム補充数`) is not 0 (most weapons and armor, the special items the second
+---world adds, some held items such as the Capture Rope), Forbidden Talent (304) from the third world
+---on, and Forbidden Talent - Weak (305) once quest 20 is cleared. It is false for the items the game
+---sells only while the player owns none (Skill Again, the Character Ticket, Tama's items), once, or
+---never, and for a mod's item: a mod restocks its own items in `rq.shop.on_stock` or `on_buy`.
+---
+---Raises an error for a value that is not a number or a text id.
+---
+---Since: 2.49.0
+---
+---```lua
+---if rq.shop.restocks(304) then rq.log("Forbidden Talent comes back on every visit") end
+---```
+---@param no integer|string An item number or text id.
+---@return boolean restocks true when the next visit puts another on sale.
+---@see rq.shop.restock
+function shop.restocks(no) end
+
+---Puts the next copy of an item on sale now, as the next visit would.
+---
+---When `rq.shop.restocks(no)` is true and none is on sale, it calls `rq.shop.stock(no)`: the game's
+---`Ｔアイテム屋／入荷品` adds 1 to the restock count and makes the copy, so a weapon or armor comes a
+---level higher (① to ⑨, at the game's price), and an open shop lists it at once. Otherwise it does
+---nothing. With it a mod can sell several copies in one visit, one `rq.item.buy` after another.
+---
+---Raises an error for a value that is not a number or a text id.
+---
+---Since: 2.49.0
+---
+---```lua
+---local no = rq.item.number(ii)
+---if rq.item.buy(ii, { ask = false }) then rq.shop.restock(no) end
+---```
+---@param no integer|string An item number or text id.
+---@return integer ii The new instance, or 0 when the item does not restock, one is already on sale, or the game refused it.
+---@see rq.shop.next
+function shop.restock(no) end
+
+---What `rq.shop.next` gives for each copy: `rq.item.info`'s row data and the copy's shop level.
+---
+---Since: 2.49.0
+---@class rq.ShopCopy: rq.ItemInfo
+---@field ii? integer The instance on sale, on the first copy only.
+---@field plus integer The shop level at the end of the name, ① to ⑨ as 1 to 9; 0 for none.
+
+---Returns the copies of an item the shop would sell one after another: the one on sale now, then one
+---for each `rq.shop.restock`.
+---
+---Each copy is read from the game's own creation at the restock count it would have (an instance made
+---quietly, read and deleted, and the count put back), so its level, name, price and stats are the
+---game's, with a mod's `rq.item.edit` and the world's bonus. A weapon's or armor's copies go up a level
+---each, up to ⑨; past it, and for an item whose data does not follow the count, the last copy
+---repeats without another instance. One copy when the item does not restock
+---(`rq.shop.restocks`), none when none is on sale. It only reads: buying is `rq.item.buy`, then
+---`rq.shop.restock`, one copy at a time.
+---
+---Raises an error for a value that is not a number or a text id, or an `n` that is not a whole number
+---of 1 or more.
+---
+---Since: 2.49.0
+---
+---```lua
+---local cost = 0
+---for _, c in ipairs(rq.shop.next(90, 5)) do cost = cost + c.price end -- the next 5 Buster Swords
+---```
+---@param no integer|string An item number or text id.
+---@param n? integer How many copies, 1 or more. Default 1.
+---@return rq.ShopCopy[] copies The copies, the one on sale first; empty when none is on sale.
+function shop.next(no, n) end
 
 ---Returns the donations count and Frostbuy's reward goal (`◆寄付`, `◆寄付ボーナス`).
 ---
@@ -8814,7 +8891,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.48.0"
+rq.version = "2.49.0"
 
 rq.units = units
 rq.items = items
@@ -10003,6 +10080,8 @@ function uikit.slider(value, opts) end
 ---@field big? integer The same with Shift held. Default `step` x 10.
 ---@field label? string Text left of the field, in the theme's label font. Also its label in `rqmod-ctl ui`.
 ---@field disabled? boolean Greyed: no buttons, no typing, no wheel. Its tip still shows.
+---@field h? integer The field's height in pixels, 18 to 30; the buttons are square, their text smaller. Default 30. Since 2.49.0.
+---@field ends? "max"|"min"|true A MAX button after +, a MIN button before -, or both. Since 2.49.0.
 
 ---Draws a number field: the number in a framed box between - and +, and returns the new number.
 ---
@@ -10010,6 +10089,8 @@ function uikit.slider(value, opts) end
 ---  press, then every 80 ms.
 ---- **The wheel** over the field changes it by `step`, and the game does not get that wheel step.
 ---- **Under the keys' cursor**, Page Up raises it and Page Down lowers it by `step`.
+---- **MIN and MAX** (`ends`) put it at `min` or `max` with one click. `h` makes the field smaller,
+---  as a cart's lines want it (24 in Frostbuy Bulk Buy).
 ---- **Typing.** A click on the number, or Enter under the keys' cursor, types into it. The digits are
 ---  read from the keys, 0 to 9 and the keypad's (with the keypad's minus while `min` is below 0), not
 ---  from the system's text input, so `rqmod-ctl type` and `key` can type it. Backspace takes the last
@@ -10020,12 +10101,14 @@ function uikit.slider(value, opts) end
 ---
 ---A typed number counts as one change, when it is kept. The field is listed for `rqmod-ctl ui` as
 ---`stepper-<id>` with the number as `value` and `selected` true while it types; its buttons are
----`button-<id>-dec` and `button-<id>-inc`.
+---`button-<id>-dec` and `button-<id>-inc`, and `button-<id>-min` and `button-<id>-max` with `ends`.
 ---
 ---Raises an error for a `value`, `min`, `max`, `step` or `big` that is not a whole number, a `max` below
----`min`, a `step` or `big` below 1, or a `w` that is not a whole number.
+---`min`, a `step` or `big` below 1, a `w` that is not a whole number, an `h` that is not a whole number
+---from 18 to 30, or another `ends`.
 ---
 ---Since: 2.22.0
+---Changed: 2.49.0 `h` and `ends` (MIN and MAX).
 ---
 ---```lua
 ---rq.config.page{
@@ -10039,9 +10122,12 @@ function uikit.slider(value, opts) end
 ---    end
 ---  end,
 ---}
+---
+----- A cart's line: small, with MAX.
+---line.n = rq.uikit.stepper(line.n, { id = "n-" .. line.no, x = 82, y = 262, h = 24, ends = "max", max = 99 })
 ---```
 ---@param value integer The number shown; it is put inside `min` and `max`.
----@param opts? rq.UiStepperOpts `min`, `max`, `step`, `big`, `label`, `disabled`; place (`w`: the box's width, default to fit `max`), `id`, `tip`, `nav`.
+---@param opts? rq.UiStepperOpts `min`, `max`, `step`, `big`, `label`, `disabled`, `h`, `ends`; place (`w`: the box's width, default to fit `max`), `id`, `tip`, `nav`.
 ---@return integer value The new number.
 ---@return boolean changed true on the update it changed.
 function uikit.stepper(value, opts) end
@@ -10901,17 +10987,23 @@ function uikit.item_refresh(ii) end
 ---is listed for `rqmod-ctl` as `row-<id>`, its buttons as `button-<id>-lock`, `-unlock`, `-sell`,
 ---`-donate`.
 ---
----Raises an error without a row, for an `ii` with no instance, or with another style.
+---`mark` makes the row one of several to tick: a tick box at the icon's top right, ticked for `true`
+---or a count, and the count as "×n" at the icon's bottom right. The cyan cover then shows the mark,
+---not `current`, and so does `selected` in `rqmod-ctl ui`. A click on the box is a click on the row.
+---
+---Raises an error without a row, for an `ii` with no instance, with another style, or for a `mark`
+---other than true, false or a count of 0 or more.
 ---
 ---Since: 2.8.0
 ---Changed: 2.9.0 The shop and equip styles, two-line names, `keys`, no SELL or DONATE on a locked row.
+---Changed: 2.49.0 `mark`.
 ---
 ---```lua
 ---local clicked, button = rq.uikit.item_row(ii, { x = 538, y = 0, id = "mine", buttons = { lock = true } })
 ---if button == "lock" then rq.item.lock(ii) elseif button == "unlock" then rq.item.lock(ii, false) end
 ---```
 ---@param row integer|rq.UiItemRow An instance, or row data (from `item_data`, or made up).
----@param opts? rq.UiPlace|{style?: "vault"|"storage"|"shop"|"equip", buttons?: {lock?: boolean, sell?: boolean, donate?: boolean}, current?: boolean, disabled?: boolean, keys?: boolean} Place and `id`; `style` (default "vault"); `buttons`; `current` (covered in see-through cyan, as the game marks the row it works on); `disabled` (greyed out, no buttons, no clicks); `keys` (L, S and D press the buttons while the row is current).
+---@param opts? rq.UiPlace|{style?: "vault"|"storage"|"shop"|"equip", buttons?: {lock?: boolean, sell?: boolean, donate?: boolean}, current?: boolean, disabled?: boolean, keys?: boolean, mark?: boolean|integer} Place and `id`; `style` (default "vault"); `buttons`; `current` (covered in see-through cyan, as the game marks the row it works on); `disabled` (greyed out, no buttons, no clicks); `keys` (L, S and D press the buttons while the row is current); `mark` (since 2.49.0: false for an empty tick box, true or a count for a ticked one).
 ---@return boolean clicked true on the update the row is clicked.
 ---@return "lock"|"unlock"|"sell"|"donate"|nil button The button clicked on this update.
 function uikit.item_row(row, opts) end
@@ -11030,22 +11122,35 @@ function uikit.item_card_size() end
 ---`rq.uikit.item_dropped(group)` returns the row on that update; nothing moves by itself.
 ---`item_storage` is the game's storage screen built on this.
 ---
----Raises an error without a list, or when `drag` is not a name.
+---With `marks`, the rows are to tick, as a shop cart's: each row gets `item_row`'s `mark`, looked up
+---in `marks` by the row's instance (or, for a row table without one, its index in the list): true
+---or a count ticks it, anything else leaves it unticked. The cyan cover shows the ticked rows. A
+---click still makes a row current and chooses it; the list changes no mark, the caller does.
+---
+---Raises an error without a list, or when `drag` is not a name or `marks` not a table.
 ---
 ---Since: 2.8.0
 ---Changed: 2.9.0 `keys`, `drag`, and the fifth return.
 ---Changed: 2.11.0 The dragged icon is drawn once, on the top layer.
 ---Changed: 2.12.0 `keys` uses the kit's keys cursor; it repeats after 250 ms, every 50 ms (was 400 and 80).
+---Changed: 2.49.0 `marks`.
 ---
 ---```lua
 ---local list = rq.uikit.item_sort(rq.uikit.item_filter(my_iis, { type = 1 }), 11)
 ---rq.on_frame(function()
 ---  pick = rq.uikit.item_list(list, pick, { x = 538, y = 0, id = "weapons" })
 ---end)
+---
+----- Rows to tick: the caller ticks or unticks the row a click chooses.
+---local ticked = {}
+---rq.on_frame(function()
+---  local i, _, _, _, chosen = rq.uikit.item_list(list, nil, { x = 538, y = 0, id = "cart", marks = ticked })
+---  if chosen then ticked[list[i]] = not ticked[list[i]] or nil end
+---end)
 ---```
 ---@param rows (integer|rq.UiItemRow)[] The rows: instances or row data.
 ---@param index? integer The current row; nil for none.
----@param opts? rq.UiPlace|{shown?: integer, style?: "vault"|"storage"|"shop"|"equip", buttons?: {lock?: boolean, sell?: boolean, donate?: boolean}, bar?: {y: integer, h: integer}, keys?: boolean, drag?: string} Place and `id`; `shown` (rows at once, default 6); `style` and `buttons` for each row; `bar` (where the scroll bar runs, default beside the rows); `keys` (the keys above); `drag` (a group name: rows can be dragged to another list of the group).
+---@param opts? rq.UiPlace|{shown?: integer, style?: "vault"|"storage"|"shop"|"equip", buttons?: {lock?: boolean, sell?: boolean, donate?: boolean}, bar?: {y: integer, h: integer}, keys?: boolean, drag?: string, marks?: table<integer, boolean|integer>} Place and `id`; `shown` (rows at once, default 6); `style` and `buttons` for each row; `bar` (where the scroll bar runs, default beside the rows); `keys` (the keys above); `drag` (a group name: rows can be dragged to another list of the group); `marks` (since 2.49.0: the ticked rows, by instance or index, to true or a count).
 ---@return integer|nil index The current row.
 ---@return boolean changed true on the update it changed.
 ---@return "lock"|"unlock"|"sell"|"donate"|nil button A row button clicked on this update.
@@ -11270,10 +11375,12 @@ function uikit.item_sorts() end
 ---unsorted, filtered as the rest (an item worn now, as a row table with its own `level` words).
 ---`opts.drag` lets the rows be dragged onto another list of that group (`item_list`'s `drag`,
 ---`item_dropped`). With `shown` under 6 the SORT sits at the list's own foot. The current instance
----is one the list shows: an item used up, sold or filtered out is no longer current.
+---is one the list shows: an item used up, sold or filtered out is no longer current. `opts.marks`
+---ticks rows by instance, as `item_list`'s: a picker to tick several items, the caller adding or
+---taking an item on each pick.
 ---
 ---Raises an error with another place, when `chara` is not a whole number, when `only` is not a
----function, `first` not a list, `drag` not a name, or `type` not a category.
+---function, `first` not a list, `drag` not a name, `type` not a category, or `marks` not a table.
 ---
 ---Since: 2.8.0
 ---Changed: 2.9.0 The shop and quest places, `chara`, `keys`; a click on the current row picks it again.
@@ -11281,6 +11388,7 @@ function uikit.item_sorts() end
 ---(`button-<id>-sort` is now `tab-<id>-sort-default-sort` and the mode's tab); the saved sort mode.
 ---Changed: 2.44.0 `only`, `type`, `first` and `drag`; the SORT at the foot of a shorter list; the
 ---current instance cleared when the list no longer shows it.
+---Changed: 2.49.0 `marks`.
 ---
 ---```lua
 ---local picking = true
@@ -11298,7 +11406,7 @@ function uikit.item_sorts() end
 ---local ii = rq.uikit.item_picker({ x = 538, y = 0, id = "special", type = 21,
 ---  only = function(ii) return not rq.uikit.item_data(ii).locked end, first = { worn_row } })
 ---```
----@param opts? rq.UiPlace|{where?: "vault"|"storage"|"both"|"shop"|"quest", chara?: integer, shown?: integer, style?: "vault"|"storage"|"shop"|"equip", sort?: integer, keys?: boolean, only?: fun(ii: integer): boolean, type?: integer, first?: (integer|rq.UiItemRow)[], drag?: string} Place and `id`; `where` (default "vault"); `chara` (a character's roster slot: their equip list); `shown` (rows, default 6); `style` of the rows (default from `where`); `sort` (the first sort mode, default the stores' saved one; a mode under 10 is 1, as in the game); `keys` (the list's keys); since 2.44.0: `only` (keeps the items it returns true for), `type` (a category kept picked: 21, 1, 11 or 17), `first` (rows before the rest), `drag` (a drag group).
+---@param opts? rq.UiPlace|{where?: "vault"|"storage"|"both"|"shop"|"quest", chara?: integer, shown?: integer, style?: "vault"|"storage"|"shop"|"equip", sort?: integer, keys?: boolean, only?: fun(ii: integer): boolean, type?: integer, first?: (integer|rq.UiItemRow)[], drag?: string, marks?: table<integer, boolean|integer>} Place and `id`; `where` (default "vault"); `chara` (a character's roster slot: their equip list); `shown` (rows, default 6); `style` of the rows (default from `where`); `sort` (the first sort mode, default the stores' saved one; a mode under 10 is 1, as in the game); `keys` (the list's keys); since 2.44.0: `only` (keeps the items it returns true for), `type` (a category kept picked: 21, 1, 11 or 17), `first` (rows before the rest), `drag` (a drag group); since 2.49.0: `marks` (the ticked rows, by instance, to true or a count).
 ---@return integer|nil picked The instance picked on this update.
 ---@return integer|nil current The instance picked last, while the list shows it.
 function uikit.item_picker(opts) end

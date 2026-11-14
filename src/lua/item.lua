@@ -229,6 +229,8 @@ function item.buy(ii, opts)
     call("効果音_ドロップ")
   end
   show_money()
+  -- The rq.shop.on_buy callbacks, as for the game's drag (2.49.0).
+  if priv and priv.bought then priv.bought(ii) end
   return changed(ii)
 end
 
@@ -246,13 +248,10 @@ end
 -- rq.item.on_create listeners from seeing that instance; the item's own definition still runs.
 local infos = {}   -- no -> { t = time, row = row or false }
 
-local function read_info(no)
-  if priv and priv.quiet then priv.quiet(true) end
-  local ok, ii = pcall(call, "Ｉ生成", no, 0)
-  if priv and priv.quiet then priv.quiet(false) end
-  if not ok or type(ii) ~= "number" or ii <= 0 then return nil end
+-- An instance's row data, as rq.item.info gives it.
+local function read_row(ii, no)
   local row
-  ok = pcall(function()
+  local ok = pcall(function()
     row = {
       no = no,
       name = call("アイテム_名前", ii),
@@ -269,8 +268,17 @@ local function read_info(no)
       if call("アイテム_装備職業", ii, c) > 0 then row.classes[#row.classes + 1] = c end
     end
   end)
-  pcall(call, "Ｉ削除", ii)
   return ok and row or nil
+end
+
+local function read_info(no)
+  if priv and priv.quiet then priv.quiet(true) end
+  local ok, ii = pcall(call, "Ｉ生成", no, 0)
+  if priv and priv.quiet then priv.quiet(false) end
+  if not ok or type(ii) ~= "number" or ii <= 0 then return nil end
+  local row = read_row(ii, no)
+  pcall(call, "Ｉ削除", ii)
+  return row
 end
 
 local function copy(row)
@@ -484,6 +492,102 @@ if raw_stock then
       if ok and kind == 3 then pcall(call, "アイテム倉庫_再作成", -1, -1, -1, -1, -1) end
     end
     return ii
+  end
+end
+
+-- ---- rq.shop.restocks, restock and next (2.49.0, notes/plans/plan-bulk-buy.md in the workspace) ----
+-- Ｔアイテム屋 refills the stock once a visit. Ｔアイテム屋／入荷品(no) puts a copy on sale when none
+-- is, and first adds 1 to ◆アイテム補充数[no] when it is not 0. A weapon's or armor's shop level is
+-- that count - 2 from 3 on, at most ⑨ (Ｉ生成／データ１: the name's " ①", the price and the stats).
+-- What comes back on the next visit after a copy is bought: a count other than 0 (its refill loop),
+-- Forbidden Talent (304) from the third world on, Forbidden Talent - Weak (305) once quest 20 is
+-- cleared. The rest of Ｔアイテム屋's items come back only while the player owns none, once, or never.
+local shop = rq.shop
+local COUNTS = 348 -- ◆アイテム補充数's length
+local CIRCLED = { "①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨" }
+
+local function count_of(no)
+  if no < 1 or no >= COUNTS then return 0 end
+  local ok, c = pcall(rq.ain.global, "◆アイテム補充数", no)
+  return ok and math.type(c) == "integer" and c or 0
+end
+
+-- An item number, or a mod item's text id as its number.
+local function shop_no(no, where)
+  if type(no) == "string" and priv and priv.no_of then return priv.no_of(no) end
+  if math.type(no) ~= "integer" then error("rq.shop." .. where .. ": expected an item number or a text id", 3) end
+  return no
+end
+
+local function comes_back(no)
+  if count_of(no) ~= 0 then return true end
+  if no == 304 then return rq.ain.global("◆ワールド") >= 3 end
+  if no == 305 then return call("Ｑ状態", 20, -1) == 2 end
+  return false
+end
+
+-- The ① to ⑨ at the end of a name, 0 for none.
+local function plus_of(name)
+  for i = #CIRCLED, 1, -1 do
+    local c = CIRCLED[i]
+    if #name > #c and name:sub(-#c) == c then return i end
+  end
+  return 0
+end
+
+local function on_sale(no)
+  local ok, list = pcall(item.find, no, { place = SHOP })
+  return ok and list and list[1] or nil
+end
+
+if shop then
+  function shop.restocks(no)
+    return comes_back(shop_no(no, "restocks"))
+  end
+
+  function shop.restock(no)
+    no = shop_no(no, "restock")
+    if no <= 0 or not comes_back(no) or on_sale(no) then return 0 end
+    local ii = shop.stock(no)
+    return math.type(ii) == "integer" and ii or 0
+  end
+
+  function shop.next(no, n)
+    no = shop_no(no, "next")
+    if n == nil then n = 1 end
+    if math.type(n) ~= "integer" or n < 1 then error("rq.shop.next: n is a whole number, 1 or more", 2) end
+    local out = {}
+    local ii = no > 0 and on_sale(no)
+    if not ii then return out end
+    local now = read_row(ii, no)
+    if not now then return out end
+    now.ii, now.plus = ii, plus_of(now.name or "")
+    out[1] = now
+    if n == 1 or not comes_back(no) then return out end
+    -- Each restock makes its copy at the count it raised: the k-th copy at count + k - 1. Only a
+    -- weapon's or armor's level follows the count, up to ⑨; a count of 0 never rises. A copy that
+    -- cannot change repeats the last one, without another instance.
+    local count = count_of(no)
+    local function fixed(r) return count == 0 or r.plus >= 9 or (r.kind ~= 1 and r.kind ~= 11) end
+    local last
+    if fixed(now) then
+      last = copy(now)
+      last.ii = nil
+    end
+    for k = 2, n do
+      if not last then
+        rq.ain.set_global("◆アイテム補充数", no, count + k - 1)
+        local ok, row = pcall(read_info, no)
+        rq.ain.set_global("◆アイテム補充数", no, count)
+        if not ok or not row then break end
+        row.plus = plus_of(row.name or "")
+        out[k] = copy(row)
+        if fixed(row) then last = row end
+      else
+        out[k] = copy(last)
+      end
+    end
+    return out
   end
 end
 

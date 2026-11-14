@@ -1325,8 +1325,9 @@ end
 
 ---A number field: the number in a framed box between - and + (2.22.0). opts: x, y, id, min (0),
 ---max (999999), step (1), big (step x 10, with Shift held), w (the box), label (text left of it),
----disabled, tip, tip_wait, nav. A click on the number, or Enter under the keys' cursor, types into
----it. Returns the value and whether it changed on this update.
+---disabled, tip, tip_wait, nav; h (2.49.0: the height, 18 to 30, the buttons square) and ends
+---(2.49.0: "max", "min" or true, MAX after + and MIN before -). A click on the number, or Enter
+---under the keys' cursor, types into it. Returns the value and whether it changed on this update.
 function ui.stepper(value, o)
   o = o or {}
   if type(o) ~= "table" then error("uikit.stepper: opts is a table", 2) end
@@ -1337,6 +1338,13 @@ function ui.stepper(value, o)
   if mx < mn then error("uikit.stepper: max is below min", 2) end
   if step < 1 or big < 1 then error("uikit.stepper: step and big are 1 or more", 2) end
   if o.w ~= nil and math.type(o.w) ~= "integer" then error("uikit.stepper: w is a whole number of pixels", 2) end
+  if o.h ~= nil and (math.type(o.h) ~= "integer" or o.h < 18 or o.h > 30) then
+    error("uikit.stepper: h is a whole number of pixels, 18 to 30", 2)
+  end
+  local ends = o.ends
+  if ends ~= nil and ends ~= false and ends ~= true and ends ~= "max" and ends ~= "min" then
+    error("uikit.stepper: ends is \"max\", \"min\" or true", 2)
+  end
   local th = ui.theme
   local id = id_of(o, "stepper")
   local st = ui.state(id)
@@ -1344,12 +1352,20 @@ function ui.stepper(value, o)
   local style = th.label
   local dim = with(style, { r = th.dim.r, g = th.dim.g, b = th.dim.b })
   local disabled = o.disabled and true or false
-  local B = 30
+  local B = o.h or 30
   local lw = o.label and (text_w(o.label, style) + 12) or 0
   local maxlen = math.max(#tostring(mx), #tostring(mn))
-  local bw = o.w or math.max(64, text_w(string.rep("8", maxlen), style) + 24)
-  local x, y, w, h = place({ x = o.x, y = o.y }, lw + B + 4 + bw + 4 + B, B)
-  local dx, bx, ix = x + lw, x + lw + B + 4, x + lw + B + 4 + bw + 4
+  local bw = o.w or math.max(64 * B // 30, text_w(string.rep("8", maxlen), style) + 24)
+  -- MIN and MAX (2.49.0): the theme's button with its text, at least square.
+  local bt = with(th.button_text, { size = math.min(th.button_text.size or 18, B - 6) })
+  local et = with(bt, { size = math.min(bt.size, B - 10) })
+  local has_min, has_max = ends == true or ends == "min", ends == true or ends == "max"
+  local nw = has_min and math.max(B, text_w("MIN", et) + 12) or 0
+  local xw = has_max and math.max(B, text_w("MAX", et) + 12) or 0
+  local x, y, w, h = place({ x = o.x, y = o.y },
+    lw + (has_min and nw + 4 or 0) + B + 4 + bw + 4 + B + (has_max and 4 + xw or 0), B)
+  local dx = x + lw + (has_min and nw + 4 or 0)
+  local bx, ix = dx + B + 4, dx + B + 4 + bw + 4
   local old = value
   value = clamp(value, mn, mx)
   local tint = disabled and { tint = { 128, 128, 128 } } or nil
@@ -1363,7 +1379,7 @@ function ui.stepper(value, o)
     local off = disabled or typing == id
     local over, clicked, held = interact(bid, ax, y, B, B, off, { nav = o.nav })
     ui.draw("button", ax, y, B, B, off and { tint = { 128, 128, 128 } } or nil)
-    hud.text(ax, y, text, with(th.button_text, { w = B, h = B, align = "center", valign = "center" }))
+    hud.text(ax, y, text, with(bt, { w = B, h = B, align = "center", valign = "center" }))
     if over and not off then
       local c = th.button_cover
       hud.rect(ax, y, B, B, c.r, c.g, c.b, math.floor(c.a * (128 + 128 * pulse()) / 255))
@@ -1389,6 +1405,24 @@ function ui.stepper(value, o)
     end
     show("button", key .. "-" .. sub, text, ax, y, B, B, { disabled = off })
   end
+  -- MIN and MAX: a click puts the number at that end (2.49.0).
+  local function to_end(sub, ex, ew, text, target)
+    local bid = id .. "." .. sub
+    local off = disabled or typing == id
+    local over, clicked = interact(bid, ex, y, ew, B, off, { nav = o.nav })
+    ui.draw("button", ex, y, ew, B, off and { tint = { 128, 128, 128 } } or nil)
+    hud.text(ex, y, text, with(et, { w = ew, h = B, align = "center", valign = "center" }))
+    if over and not off then
+      local c = th.button_cover
+      hud.rect(ex, y, ew, B, c.r, c.g, c.b, math.floor(c.a * (128 + 128 * pulse()) / 255))
+    end
+    if clicked and not off and value ~= target then
+      value = target
+      play("click")
+    end
+    show("button", key .. "-" .. sub, text, ex, y, ew, B, { disabled = off })
+  end
+  if has_min then to_end("min", x + lw, nw, "MIN", mn) end
   arrow("dec", dx, -1, "-")
 
   -- The box: a click or Enter types into it.
@@ -1464,6 +1498,7 @@ function ui.stepper(value, o)
   show("stepper", key, o.label, bx, y, bw, B, { value = tostring(value), disabled = disabled,
     selected = typing == id })
   arrow("inc", ix, 1, "+")
+  if has_max then to_end("max", ix + B + 4, xw, "MAX", mx) end
   return value, value ~= old
 end
 

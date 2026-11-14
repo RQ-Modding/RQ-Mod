@@ -1192,10 +1192,12 @@ static void wrap_tail_method1(struct ain *a, int fno, int sys)
 	commit_wrap(a, fno, &out);
 }
 
-static void shop_buy(void)
+/* The on_buy callbacks for one purchase: the game's drag (T_Shop@buyItem) and, since 2.49.0,
+ * rq.item.buy (lua/item.lua, through priv.bought). */
+static void run_buy(int ii)
 {
 	lua_State *L = rq_lua();
-	int ii = local_get(0).i, i;
+	int i;
 	struct page *p = ipage(ii);
 	int no = 0, price = 0;
 
@@ -1226,6 +1228,24 @@ static void shop_buy(void)
 			lua_pop(L, 1);
 		}
 	}
+}
+
+static void shop_buy(void)
+{
+	run_buy(local_get(0).i);
+}
+
+static int l_item_bought(lua_State *L)
+{
+	run_buy((int)luaL_checkinteger(L, 1));
+	return 0;
+}
+
+/* An item number or a text id as a number, as the C calls take them (2.49.0, rq.shop.next). */
+static int l_item_no_of(lua_State *L)
+{
+	lua_pushinteger(L, resolve_no(L, 1));
+	return 1;
 }
 
 int rq_lua_shop_on_buy(lua_State *L)
@@ -1559,6 +1579,11 @@ void rq_item_open_lua(lua_State *L, int rq_index)
 	lua_newtable(L);
 	lua_pushcfunction(L, l_item_quiet);
 	lua_setfield(L, -2, "quiet");
+	/* rq.item.buy runs the rq.shop.on_buy callbacks (2.49.0). */
+	lua_pushcfunction(L, l_item_bought);
+	lua_setfield(L, -2, "bought");
+	lua_pushcfunction(L, l_item_no_of);
+	lua_setfield(L, -2, "no_of");
 	if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
 		rq_log("item.lua: %s", lua_tostring(L, -1));
 		lua_pop(L, 1);
