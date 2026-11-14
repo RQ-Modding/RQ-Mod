@@ -7,7 +7,8 @@
 -- from anywhere, every frame too. It waits while the System menu or Config is open: they
 -- are drawn over the message window, and the System menu has Save and Load. It also waits
 -- for a scene of the game's own to end: the game never plays one scene inside another, and
--- a mod scene's ADVOFF there would clear the game's background under its next line.
+-- a mod scene's ADVOFF there would clear the game's background under its next line. And it
+-- waits for the game's save to end (2.50.0).
 local rq, menu_open, menu_comment = ...
 local scene = rq.scene
 local play = scene.play
@@ -33,6 +34,27 @@ function scene.choice(items, o)
   end
   return c_choice(items, o)
 end
+-- The game's moment for an item that comes from somewhere (2.50.0): the jingle Ｒ８ジングル(1008), then
+-- Ｒ８どこかからアイテム(ii), T_ItemComment::field's window with the item's icon and name, which waits
+-- for a click. The game plays it so when a reward comes in a scene (Ｒ８アイテム入手 in
+-- 構造体／アイテム.jaf, the dice's prize in 関数／サイコロ.jaf). It only shows the item: where the
+-- item is stays the mod's call (rq.item.give, rq.item.store).
+function scene.item(ii, o)
+  if math.type(ii) ~= "integer" then error("rq.scene.item: expected an item instance (ii)", 2) end
+  if o ~= nil and type(o) ~= "table" then error("rq.scene.item: o is a table", 2) end
+  o = o or {}
+  if ii <= 0 or not rq.ain.call("アイテム_確認", ii) then
+    error("rq.scene.item: no item instance " .. ii, 2)
+  end
+  local jingle = o.jingle
+  if jingle == nil then jingle = 1008 end
+  if jingle ~= false and math.type(jingle) ~= "integer" then
+    error("rq.scene.item: jingle is a jingle number or false", 2)
+  end
+  if jingle then rq.ain.call("Ｒ８ジングル", jingle, false) end
+  rq.ain.call("Ｒ８どこかからアイテム", ii)
+end
+
 local depth, pending, running = 0, nil, nil
 
 -- Something is drawn on the game's scene layer: a face, a background, a CG.
@@ -40,10 +62,47 @@ local function game_scene()
   return rq.ain.call("画面_表示中")
 end
 
+-- The game is saving (2.50.0). Its autosave shows "Auto-Saving" and waits 700 ms in UPDATE
+-- (T_SaveMessage::wait), so rq.on_frame runs under it: a scene or a menu opened there would play
+-- inside the save, under its message.
+local SAVING = { ["自動セーブ"] = true, ["中断セーブ"] = true, ["セーブファイル_保存"] = true }
+local function saving()
+  local ok, names = pcall(rq.ain.stack, 64)
+  if not ok or type(names) ~= "table" then return false end
+  for _, n in ipairs(names) do
+    if SAVING[n] then return true end
+  end
+  return false
+end
+
+-- The vault's and Frostbuy's item window (g_sStoreItem: m_nStoreType 1 or 2 the vault, 3 a rack of
+-- the shop, -1 closed) is drawn at z 9211 and up, over the message window (8101 to 8301). A mod scene
+-- there hides it and shows it again at its end (2.50.0). T_StoreItem::setShow leaves the frame on the
+-- rack the window shows (m_spLock, CG 11416) shown, so that one hides on its own.
+local function store_open()
+  local ok, kind = pcall(rq.ain.global, "g_sStoreItem", "m_nStoreType")
+  return ok and math.type(kind) == "integer" and kind > 0
+end
+
+local function store_hide()
+  if not store_open() then return false end
+  pcall(rq.ain.method, { "g_sStoreItem" }, "T_StoreItem@setShow", false)
+  pcall(rq.ain.method, { "g_sStoreItem", "m_spLock" }, "T_Sprite@setShow", 0)
+  return true
+end
+
+local function store_show()
+  if store_open() then pcall(rq.ain.method, { "g_sStoreItem" }, "T_StoreItem@setShow", true) end
+end
+
 -- Counts the scenes rq.scene.play has open, once and start included.
 function scene.play(fn, ...)
   depth = depth + 1
+  local hid = depth == 1 and store_hide()
   local r = table.pack(pcall(play, fn, ...))
+  if hid and (r[1] or not tostring(r[2]):find("rq: the game went to the title", 1, true)) then
+    store_show()
+  end
   depth = depth - 1
   if not r[1] then error(r[2], 0) end
   return table.unpack(r, 2, r.n)
@@ -74,7 +133,7 @@ rq.on_frame(function()
     if coroutine.status(running) == "suspended" then step() end
     return
   end
-  if not pending or menu_open() or game_scene() then return end
+  if not pending or menu_open() or game_scene() or saving() then return end
   local p = pending
   pending = nil
   running = coroutine.create(function() scene.play(p[1], table.unpack(p, 2, p.n)) end)
@@ -166,7 +225,8 @@ local function open_choice(a)
 end
 
 rq.on_frame(function()
-  if not ask or asking or scene.active() or menu_open() or rq.ui.choosing() or game_scene() then
+  if not ask or asking or scene.active() or menu_open() or rq.ui.choosing() or game_scene()
+    or saving() then
     return
   end
   local a = ask

@@ -993,7 +993,8 @@ function ui.shot_result() end
 ---
 ---The menu opens at the next update, and `fn` runs when it closes. It is modal: the game's screen
 ---under it waits until the player picks, as under the vault's sort menu. It waits to open while the
----System menu or Config is open, while a scene plays, and while another choice menu shows. The
+---System menu or Config is open, while a scene plays, while another choice menu shows, and while the
+---game saves (its "Auto-Saving" message holds 700 ms, and the game draws frames under it). The
 ---menu does not scroll, so it takes at most 20 rows. With fewer than 3 rows it draws the game's tall
 ---buttons.
 ---
@@ -1007,6 +1008,7 @@ function ui.shot_result() end
 ---than 20 rows.
 ---
 ---Since: 2.7.0
+---Changed: 2.50.0 Waits for the game's save to end.
 ---
 ---```lua
 ---rq.ui.choose({ "Sell all", { id = "keep", text = "Keep the rare ones" }, "-", "Sort first" },
@@ -2400,6 +2402,33 @@ function saves.on_save(fn) end
 ---@return fun() remove Removes this callback.
 ---@see rq.savedata
 function saves.on_load(fn) end
+
+---Saves to the game's autosave slot now, as the game does when a quest is taken and when it ends.
+---
+---It calls the game's own autosave (`自動セーブ(1)`): its "Auto-Saving" message shows for 700 ms and
+---the save goes to the slot the title's Continue loads, with the `rq.saves.on_save` callbacks and
+---`rq.savedata`. It saves on the hub only, where the SYSTEM menu's Save is on too (the footer's hub
+---mode, outside a quest): a mod that changed the player's things in a scene can save them before
+---anything else happens. The game draws frames while its message shows, so `rq.on_frame` runs under
+---it; a call from there while the game saves is refused. `rq.scene.start` and `rq.ui.choose` wait
+---for the save to end.
+---
+---Since: 2.50.0
+---
+---```lua
+---local save_after = false
+---rq.on_frame(function()
+---  if save_after and not rq.scene.active() and rq.ui.get().screen == "hub" then
+---    save_after = false
+---    local ok, why = rq.saves.autosave()
+---    if not ok then rq.log("no autosave: " .. why) end
+---  end
+---end)
+---```
+---@return boolean saved true when the game wrote the save.
+---@return string? why Why it did not save: "a quest is running", "only on the hub", "the game is saving" or "the game could not save".
+---@see rq.saves.on_save
+function saves.autosave() end
 
 ---How `rq.agent.control` finds a control: a game button, or a rectangle a mod draws.
 ---@class rq.AgentOpts
@@ -3816,6 +3845,7 @@ function image.flash_bitmaps(file) end
 ---@field info? string The description; `$` is a line break.
 ---@field locked? boolean Cannot be taken off (`外せません`).
 ---@field vanishes? boolean Vanishes (`消滅します`).
+---@field keep? boolean The player cannot get rid of it: the vault's DISCARD, SELL and DONATE refuse it, as the game does for Chaos the Darksword (`アイテム_破棄可能` says false). `rq.item.remove` still removes it. Default false. Since 2.50.0.
 ---@field on_create? fun(ii: integer) Runs when an instance is created.
 
 ---What `rq.item.get` returns.
@@ -4085,10 +4115,14 @@ function item.store(ii, where) end
 ---`sell`. The money on the system bar updates, and the `rq.shop.on_buy` callbacks run, as for the
 ---shop's drag. Buying does not restock the shop: `rq.shop.restock` does what the next visit would.
 ---
+---The `rq.shop.on_can_buy` callbacks run first: a refusal returns false and its text, which the
+---game's notice shows when asking.
+---
 ---Raises an error when `ii` or `chara` is not a whole number, or `opts` is not a table.
 ---
 ---Since: 2.10.0
 ---Changed: 2.49.0 Runs the `rq.shop.on_buy` callbacks (only the game's drag did).
+---Changed: 2.50.0 Runs the `rq.shop.on_can_buy` callbacks, and returns a refusal's text.
 ---
 ---```lua
 ---local ii = rq.uikit.item_picker({ x = 538, y = 0, id = "shop", where = "shop" })
@@ -4096,7 +4130,8 @@ function item.store(ii, where) end
 ---```
 ---@param ii integer The instance, in the shop's stock (place 6).
 ---@param opts? {ask?: boolean, chara?: integer} `ask` (default true): the game's question and notices. `chara`: a roster slot to buy onto.
----@return boolean bought false when it was not bought: not in the shop's stock, not enough money, a character who cannot wear it, an old item that cannot come off, No, or another question showing.
+---@return boolean bought false when it was not bought: not in the shop's stock, refused by an `rq.shop.on_can_buy` callback, not enough money, a character who cannot wear it, an old item that cannot come off, No, or another question showing.
+---@return string? why A refusal's text from `rq.shop.on_can_buy`, when it gave one.
 function item.buy(ii, opts) end
 
 ---Calls `fn` after any item instance is created (`Ｉ生成`), game or mod.
@@ -4983,6 +5018,41 @@ function shop.on_stock(fn) end
 ---@param fn fun(ctx: rq.BuyCtx) Gets the purchase.
 ---@return fun() remove Removes this callback.
 function shop.on_buy(fn) end
+
+---What an `rq.shop.on_can_buy` callback gets.
+---@class rq.CanBuyCtx
+---@field ii integer The item instance on the shop's rack.
+---@field no integer Its item number.
+---@field id? string Its text id, when a mod defined the item.
+---@field name string The item's name.
+---@field price integer Its price, in gold.
+---@field to "vault"|"character" Where it goes: the vault, or a party member it is dragged onto (`rq.item.buy`'s `chara`).
+
+---Registers a function that can refuse a Frostbuy purchase before it happens.
+---
+---It runs when the player drags an item from the shop's rack onto the vault or a party member, before
+---the game checks the money and asks "Purchase ...?", and for `rq.item.buy`. Return false and a
+---text to refuse: the game's notice shows the text (none for nil or ""), the item stays on the rack
+---and nothing is paid. Return true or nil to let it go on. The first refusal wins. Use it for an item
+---that may be bought only at some times; to take an item off the rack, use `rq.shop.on_stock`. An
+---error in a callback is logged once per text, and the purchase goes on.
+---
+---Raises an error when `fn` is not a function.
+---
+---Since: 2.50.0
+---
+---```lua
+---rq.shop.on_can_buy(function(ctx)
+---  if ctx.id == "mymod:ticket" and rq.game.gold() < 100000 then
+---    return false, "Come back with 100,000 Gold."
+---  end
+---end)
+---```
+---@param fn fun(ctx: rq.CanBuyCtx): (boolean|nil, string?) Gets the purchase; returns false and a text to refuse.
+---@return fun() remove Removes this callback.
+---@see rq.shop.on_buy
+---@see rq.item.buy
+function shop.on_can_buy(fn) end
 
 ---Returns whether an item is already on sale in the shop.
 ---
@@ -7346,9 +7416,13 @@ scene.cmd = {}
 ---game's `ADVOFF`, which clears the scene layer, so inside a game scene (from a hook) that scene's
 ---background and pictures go too; `rq.scene.start` waits for a game scene to end instead.
 ---
+---The vault's and Frostbuy's item window (a rack of the shop, the vault's list) is drawn over the
+---message window, so the scene hides it and shows it again at its end.
+---
 ---Raises the error "rq: the game went to the title" again when the player went to the title.
 ---
 ---Since: 0.18.0
+---Changed: 2.50.0 Hides the vault's and the shop's item window while it plays.
 ---@param fn fun(s: rq.scene, ...): any The scene.
 ---@param ... any Passed on to `fn`.
 ---@return any ... What `fn` returns.
@@ -7368,13 +7442,16 @@ function scene.once(id, fn, ...) end
 ---Plays a scene at the next frame, in a coroutine of its own, and returns at once.
 ---
 ---It returns false, and queues nothing, while a mod scene plays or waits to, so a mod can call it from
----anywhere, also every frame. It waits while the System menu or Config is open, and while a scene of
----the game's own is on screen. The scene draws over the current screen, takes the clicks, and leaves
----the screen as it was. An error that ends it is logged.
+---anywhere, also every frame. It waits while the System menu or Config is open, while a scene of
+---the game's own is on screen, and while the game saves (its "Auto-Saving" message holds 700 ms, and
+---the game draws frames under it). The scene draws over the current screen, takes the clicks, and
+---leaves the screen as it was, the vault's and Frostbuy's item window too (`rq.scene.play`). An
+---error that ends it is logged.
 ---
 ---Raises an error when `fn` is not a function.
 ---
 ---Since: 1.14.0
+---Changed: 2.50.0 Waits for the game's save to end, and hides the vault's and the shop's item window.
 ---
 ---```lua
 ---rq.on_frame(function()
@@ -7665,6 +7742,29 @@ function scene.register_face(cg, name, tone) end
 ---@param opts? {x?: integer, y?: integer, cancel?: boolean} `x`, `y`: where the list goes (y default 360). `cancel`: the game's cancel flag for the list. Default false.
 ---@return integer id The picked row's id.
 function scene.choice(items, opts) end
+
+---Shows an item as the game does when a scene hands one over, and waits for a click.
+---
+---It plays the game's jingle (1008 by default) and opens the game's item window with the item's
+---icon, name, level and effects (`Ｒ８どこかからアイテム`, as for an event's reward or the dice's
+---prize). It only shows the item: put it where it goes with `rq.item.give`, `rq.item.set` or
+---`rq.item.store` first.
+---
+---Raises an error when `ii` is not a whole number or not an item instance, when `o` is not a table,
+---or when `jingle` is neither a number nor false.
+---
+---Since: 2.50.0
+---
+---```lua
+---rq.scene.start(function(s)
+---  local ii = rq.item.give("mymod:lens")
+---  s.say(2020, "Here, take this.")
+---  s.item(ii)
+---end)
+---```
+---@param ii integer The item instance.
+---@param o? {jingle?: integer|false} `jingle`: the jingle number, or false for none. Default 1008.
+function scene.item(ii, o) end
 
 ---Runs `fn` before a game scene or command.
 ---
@@ -8891,7 +8991,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.49.0"
+rq.version = "2.50.0"
 
 rq.units = units
 rq.items = items

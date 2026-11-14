@@ -184,6 +184,73 @@ end
 
 -- The shop's stock (place 6), bought as the shop's drag onto the vault or a party member does
 -- (T_EquitItem::setItem). 2.10.0.
+-- ---- rq.shop.on_can_buy (2.50.0, notes/plans/plan-rare-contract.md in the workspace) ----
+-- The game buys in one place: T_EquitItem::setItem with m_nType 6, the drag from the rack to the
+-- vault (index 999) or onto a character's row. It checks the price, says "Not enough money.", asks
+-- "Purchase X?" and only then moves the item to the vault (place 7) and takes the money. A shop
+-- item's place is 6, so a before hook there that finds place 6 is a purchase: the callbacks run
+-- before all of it. A refusal shows its text in the game's notice and returns false, and the drag
+-- puts the tile back on the rack. rq.item.buy runs them too, after its own checks of the item.
+local buy_list, buy_hooked = {}, false
+
+-- ok, then the refusal's text (nil for none).
+local function can_buy(ii, to)
+  if #buy_list == 0 then return true end
+  local okg, row = pcall(item.get, ii)
+  if not okg or type(row) ~= "table" then return true end
+  local ctx = { ii = ii, no = row.no, id = row.id, name = row.name, price = row.price, to = to }
+  for _, x in ipairs({ table.unpack(buy_list) }) do
+    local ok, r, text = pcall(x.fn, ctx)
+    if not ok then
+      r = tostring(r)
+      if not x.seen[r] then
+        x.seen[r] = true
+        rq.log(("rq.shop.on_can_buy (%s): %s"):format(x.mod, r))
+      end
+    elseif r == false then
+      if text ~= nil and type(text) ~= "string" then text = tostring(text) end
+      return false, text
+    elseif r ~= nil and r ~= true and not x.seen["return"] then
+      x.seen["return"] = true
+      rq.log(("rq.shop.on_can_buy (%s): expected true, false or nil"):format(x.mod))
+    end
+  end
+  return true
+end
+
+local function buy_install()
+  if buy_hooked then return end
+  buy_hooked = true
+  rq.ain.hook("T_EquitItem@setItem", { before = function(h)
+    if #buy_list == 0 then return end
+    local index, ii = h.args[1], h.args[2]
+    if math.type(ii) ~= "integer" or ii <= 0 then return end
+    local okp, place = pcall(call, "アイテム_存在", ii)
+    if not okp or place ~= SHOP then return end
+    local ok, text = can_buy(ii, index == 999 and "vault" or "character")
+    if ok then return end
+    if text and text ~= "" then notice(text) end
+    h.skip = true
+    h.result = false
+  end })
+end
+
+if rq.shop then
+  function rq.shop.on_can_buy(fn)
+    if type(fn) ~= "function" then error("rq.shop.on_can_buy: expected a function", 2) end
+    local id = "?"
+    pcall(function() id = rq.mod.id() or "?" end)
+    local x = { fn = fn, mod = id, seen = {} }
+    buy_list[#buy_list + 1] = x
+    buy_install()
+    return function()
+      for i, y in ipairs(buy_list) do
+        if y == x then table.remove(buy_list, i) return end
+      end
+    end
+  end
+end
+
 function item.buy(ii, opts)
   if opts ~= nil and type(opts) ~= "table" then error("rq.item.buy: opts is a table", 2) end
   opts = opts or {}
@@ -192,6 +259,11 @@ function item.buy(ii, opts)
   if chara ~= nil and math.type(chara) ~= "integer" then error("rq.item.buy: chara is a roster slot", 2) end
   if math.type(ii) ~= "integer" then error("rq.item.buy: expected an item instance (ii)", 2) end
   if busy() or ii <= 0 or not call("アイテム_確認", ii) or call("アイテム_存在", ii) ~= SHOP then return false end
+  local okb, why = can_buy(ii, chara and "character" or "vault")
+  if not okb then
+    if ask and why and why ~= "" then notice(why) end
+    return false, why
+  end
   local kind
   if chara then
     if not call("キャラ_確認", chara) then return false end
@@ -397,6 +469,38 @@ function item.on_can_equip(fn)
   return function()
     for i, y in ipairs(can_list) do
       if y == x then table.remove(can_list, i) return end
+    end
+  end
+end
+
+-- ---- rq.ItemDef.keep (2.50.0) ----
+-- アイテム_破棄可能 says whether an item may go: false for Chaos (100) and quest items (type 22).
+-- アイテム_売却, アイテム_寄付 and アイテム_破棄 ask it before they do anything, and rq.item.sell and
+-- donate ask it too, so one after hook keeps a mod's item that sets keep from all of them.
+local keep, keep_hooked = {}, false
+
+local function keep_install()
+  if keep_hooked then return end
+  keep_hooked = true
+  rq.ain.hook("アイテム_破棄可能", { after = function(h)
+    if h.result ~= true then return end
+    local ii = h.args[1]
+    if math.type(ii) ~= "integer" or ii <= 0 then return end
+    local ok, no = pcall(call, "アイテム_固有番号", ii)
+    if ok and keep[no] then h.result = false end
+  end })
+end
+
+do
+  local define = item.define
+  if define then
+    function item.define(def, ...)
+      local no = define(def, ...)
+      if math.type(no) == "integer" then
+        keep[no] = type(def) == "table" and def.keep == true or nil
+        if keep[no] then keep_install() end
+      end
+      return no
     end
   end
 end

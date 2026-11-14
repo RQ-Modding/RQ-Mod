@@ -114,3 +114,36 @@ function saves.on_load(fn)
   end
   return add_load(fn, "rq.saves.on_load")
 end
+
+-- ---- rq.saves.autosave (2.50.0, notes/plans/plan-rare-contract.md in the workspace) ----
+-- 自動セーブ(1) is the game's autosave: slot 30 and its "~~Auto-Saving~~" message (セーブメッセージ_表示(1),
+-- held 700 ms), as when a quest is taken and when it ends. The game saves its data (system.GroupSave
+-- of its globals), not the running code, so a call from a mod saves as the game's own does; the
+-- loader refuses only system.ResumeSave under a mod's call. The System menu's Save is on only on the
+-- hub (システムメニュー_有効確認: the footer's mode 10), so autosave is too. rq.on_frame runs while the
+-- message waits, so a call there finds the game's own save, or this one, on the stack.
+local autosaving = false
+local SAVING = { ["自動セーブ"] = true, ["中断セーブ"] = true, ["セーブファイル_保存"] = true }
+
+local function game_saving()
+  local ok, names = pcall(rq.ain.stack, 64)
+  if not ok or type(names) ~= "table" then return false end
+  for _, n in ipairs(names) do
+    if SAVING[n] then return true end
+  end
+  return false
+end
+
+function saves.autosave()
+  if autosaving or game_saving() then return false, "the game is saving" end
+  local call = rq.ain.call
+  if rq.quests.current() ~= 0 then return false, "a quest is running" end
+  local okm, mode = pcall(call, "システムバー_モード")
+  if not okm or mode ~= 10 then return false, "only on the hub" end
+  autosaving = true
+  local ok, r = pcall(call, "自動セーブ", 1)
+  autosaving = false
+  if not ok then error(r, 0) end
+  if r ~= true then return false, "the game could not save" end
+  return true
+end
