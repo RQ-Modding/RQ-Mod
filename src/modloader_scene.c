@@ -38,11 +38,23 @@
 #define HOOK_MAX 256
 #define HOOK_CB_MAX 16
 #define ARG_MAX 32
+#define ONLY_ARGS 4
+#define ONLY_VALS 16
+
+/* rq.ain.hook's `only` (2.55.0): the callback runs only when each named argument holds one of its
+ * values, checked here before any Lua runs. pos is the argument's place in ctx.args. */
+struct only {
+	int n;
+	int pos[ONLY_ARGS];
+	int nv[ONLY_ARGS];
+	int v[ONLY_ARGS][ONLY_VALS];
+};
 
 struct hook {
 	int fno;
 	int before[HOOK_CB_MAX], nbefore;
 	int after[HOOK_CB_MAX], nafter;
+	struct only *before_only[HOOK_CB_MAX], *after_only[HOOK_CB_MAX];
 	int running;
 };
 
@@ -666,12 +678,122 @@ static void ret_map_set(int fno, int id)
 	g_rq_scene_ret_on = 1;
 }
 
-/* rq.ain.hook(name, { before = fn, after = fn }) */
+/* The variable of the argument at ctx.args position pos (non-void arguments counted from 1), or
+ * -1. */
+static int arg_var(struct ain_function *fn, int pos)
+{
+	int i, n = 1;
+
+	for (i = 0; i < fn->nr_args; i++) {
+		if (fn->vars[i].type.data == AIN_VOID)
+			continue;
+		if (n == pos)
+			return i;
+		n++;
+	}
+	return -1;
+}
+
+/* opts.only at idx into *o: { [pos] = value or { values } }, whole numbers for int arguments.
+ * Returns 0 when there is none. Raises the errors before anything is registered. */
+static int read_only(lua_State *L, int idx, struct ain_function *fn, const char *name, struct only *o)
+{
+	int k, j, len;
+
+	memset(o, 0, sizeof *o);
+	lua_getfield(L, idx, "only");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1))
+		return luaL_error(L, "rq.ain.hook: only is a table of argument positions");
+	lua_pushnil(L);
+	while (lua_next(L, -2)) {
+		int pos, var, t;
+		if (!lua_isinteger(L, -2))
+			return luaL_error(L, "rq.ain.hook: only's keys are argument positions");
+		pos = (int)lua_tointeger(L, -2);
+		var = arg_var(fn, pos);
+		if (pos < 1 || var < 0)
+			return luaL_error(L, "rq.ain.hook: %s has no argument %d", name, pos);
+		t = fn->vars[var].type.data;
+		if (t != AIN_INT && t != AIN_LONG_INT)
+			return luaL_error(L, "rq.ain.hook: only[%d]: %s's argument %d is not an int", pos, name, pos);
+		if (o->n >= ONLY_ARGS)
+			return luaL_error(L, "rq.ain.hook: only names at most %d arguments", ONLY_ARGS);
+		k = o->n++;
+		o->pos[k] = pos;
+		if (lua_isinteger(L, -1)) {
+			o->v[k][0] = (int)lua_tointeger(L, -1);
+			o->nv[k] = 1;
+		} else if (lua_istable(L, -1)) {
+			len = (int)lua_rawlen(L, -1);
+			if (len < 1 || len > ONLY_VALS)
+				return luaL_error(L, "rq.ain.hook: only[%d] lists 1 to %d values", pos, ONLY_VALS);
+			for (j = 1; j <= len; j++) {
+				lua_rawgeti(L, -1, j);
+				if (!lua_isinteger(L, -1))
+					return luaL_error(L, "rq.ain.hook: only[%d] lists whole numbers", pos);
+				o->v[k][j - 1] = (int)lua_tointeger(L, -1);
+				lua_pop(L, 1);
+			}
+			o->nv[k] = len;
+		} else {
+			return luaL_error(L, "rq.ain.hook: only[%d] is a whole number or a list of them", pos);
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	return o->n > 0;
+}
+
+static struct only *only_copy(const struct only *o)
+{
+	struct only *c = xmalloc(sizeof *c);
+	memcpy(c, o, sizeof *c);
+	return c;
+}
+
+/* Whether the current frame's arguments pass a callback's `only` (NULL: none, always). */
+static int only_pass(const struct only *o, struct ain_function *fn)
+{
+	int k, j;
+
+	if (!o)
+		return 1;
+	for (k = 0; k < o->n; k++) {
+		int var = arg_var(fn, o->pos[k]), v, hit = 0;
+		if (var < 0)
+			return 0;
+		v = local_get(var).i;
+		for (j = 0; j < o->nv[k] && !hit; j++)
+			hit = o->v[k][j] == v;
+		if (!hit)
+			return 0;
+	}
+	return 1;
+}
+
+/* The callbacks of one side whose `only` the current frame passes, into out. */
+static int passing(int *cbs, struct only **only, int n, struct ain_function *fn, int *out)
+{
+	int i, m = 0;
+
+	for (i = 0; i < n; i++) {
+		if (only_pass(only[i], fn))
+			out[m++] = cbs[i];
+	}
+	return m;
+}
+
+/* rq.ain.hook(name, { before = fn, after = fn, only = { [pos] = values } }) */
 static int l_hook(lua_State *L)
 {
 	const char *name = luaL_checkstring(L, 1);
 	struct hook *h;
-	int fno;
+	struct only only;
+	int fno, has_only;
 
 	luaL_checktype(L, 2, LUA_TTABLE);
 	if (!ain)
@@ -679,6 +801,7 @@ static int l_hook(lua_State *L)
 	fno = find_fn(name);
 	if (fno < 0)
 		return luaL_error(L, "rq.ain.hook: no function named %s", name);
+	has_only = read_only(L, 2, &ain->functions[fno], name, &only);
 	h = hook_for(fno);
 	if (!h)
 		return luaL_error(L, "rq.ain.hook: too many hooked functions");
@@ -686,6 +809,7 @@ static int l_hook(lua_State *L)
 	if (lua_isfunction(L, -1)) {
 		if (h->nbefore >= HOOK_CB_MAX)
 			return luaL_error(L, "rq.ain.hook: too many callbacks on %s", name);
+		h->before_only[h->nbefore] = has_only ? only_copy(&only) : NULL;
 		h->before[h->nbefore++] = luaL_ref(L, LUA_REGISTRYINDEX);
 	} else {
 		lua_pop(L, 1);
@@ -694,6 +818,7 @@ static int l_hook(lua_State *L)
 	if (lua_isfunction(L, -1)) {
 		if (h->nafter >= HOOK_CB_MAX)
 			return luaL_error(L, "rq.ain.hook: too many callbacks on %s", name);
+		h->after_only[h->nafter] = has_only ? only_copy(&only) : NULL;
 		h->after[h->nafter++] = luaL_ref(L, LUA_REGISTRYINDEX);
 		ret_map_set(fno, (int)(h - g_hooks));
 	} else {
@@ -774,10 +899,15 @@ static void hook_before(void)
 	struct hook *h = &g_hooks[id];
 	struct ain_function *fn = &ain->functions[h->fno];
 	lua_State *L = rq_lua();
-	int top, ctx, skip = 0, rt = fn->return_type.data;
+	int top, ctx, skip = 0, rt = fn->return_type.data, cbs[HOOK_CB_MAX], ncbs;
 	char *utf;
 
 	if (!L || !h->nbefore || h->running) {
+		stack_push(0);
+		return;
+	}
+	ncbs = passing(h->before, h->before_only, h->nbefore, fn, cbs);
+	if (!ncbs) {
 		stack_push(0);
 		return;
 	}
@@ -786,7 +916,7 @@ static void hook_before(void)
 	push_ctx(L, fn, utf);
 	ctx = lua_gettop(L);
 	h->running = 1;
-	run_cbs(L, h->before, h->nbefore, ctx, "before");
+	run_cbs(L, cbs, ncbs, ctx, "before");
 	h->running = 0;
 	pull_args(L, ctx, fn);
 	lua_getfield(L, ctx, "skip");
@@ -824,7 +954,7 @@ void rq_scene_on_return(int fno)
 	struct hook *h;
 	struct ain_function *fn;
 	lua_State *L;
-	int top, ctx, rt;
+	int top, ctx, rt, cbs[HOOK_CB_MAX], ncbs;
 	char *utf;
 
 	if (fno < 0 || fno >= g_ret_n || !g_ret_map[fno])
@@ -834,6 +964,9 @@ void rq_scene_on_return(int fno)
 	if (!L || h->running)
 		return;
 	fn = &ain->functions[fno];
+	ncbs = passing(h->after, h->after_only, h->nafter, fn, cbs);
+	if (!ncbs)
+		return;
 	rt = fn->return_type.data;
 	top = lua_gettop(L);
 	utf = sjis2utf(fn->name, 0);
@@ -844,7 +977,7 @@ void rq_scene_on_return(int fno)
 		lua_setfield(L, ctx, "result");
 	}
 	h->running = 1;
-	run_cbs(L, h->after, h->nafter, ctx, "after");
+	run_cbs(L, cbs, ncbs, ctx, "after");
 	h->running = 0;
 	if (is_plain(rt)) {
 		int same;
@@ -1200,15 +1333,34 @@ static const char lua_layer[] =
 "  end\n"
 "end\n"
 "local raw_hook, hook_slots = rq.ain.hook, {}\n"
+"-- A callback's C slot is used again for the next callback with the same `only` (2.55.0).\n"
+"local function only_key(only)\n"
+"  if type(only) ~= 'table' then return '' end\n"
+"  local parts = {}\n"
+"  for pos, v in pairs(only) do\n"
+"    local vals = {}\n"
+"    if type(v) == 'table' then\n"
+"      for i, x in ipairs(v) do vals[i] = x end\n"
+"      table.sort(vals)\n"
+"      for i, x in ipairs(vals) do vals[i] = tostring(x) end\n"
+"    else\n"
+"      vals[1] = tostring(v)\n"
+"    end\n"
+"    parts[#parts + 1] = tostring(pos) .. '=' .. table.concat(vals, ',')\n"
+"  end\n"
+"  table.sort(parts)\n"
+"  return ':' .. table.concat(parts, ';')\n"
+"end\n"
 "function rq.ain.hook(name, spec)\n"
 "  if type(spec) ~= 'table' then return raw_hook(name, spec) end\n"
-"  raw_hook(name, {})\n"
+"  local only = spec.only\n"
+"  raw_hook(name, { only = only })\n"
 "  local removers = {}\n"
 "  for _, phase in ipairs({ 'before', 'after' }) do\n"
 "    if type(spec[phase]) == 'function' then\n"
-"      local key = phase .. ':' .. name\n"
+"      local key = phase .. ':' .. name .. only_key(only)\n"
 "      hook_slots[key] = hook_slots[key] or removable(function(fn)\n"
-"        raw_hook(name, { [phase] = fn })\n"
+"        raw_hook(name, { [phase] = fn, only = only })\n"
 "      end)\n"
 "      removers[#removers + 1] = hook_slots[key](spec[phase])\n"
 "    end\n"

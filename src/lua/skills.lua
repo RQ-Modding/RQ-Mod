@@ -34,6 +34,9 @@
 --   on_forget's n and preview  (2.52.0) the skill's level in its row (n_at); false for an erasure
 --   rq.chara.set_cost          (2.53.0) writes the purchase record of a row the character holds, for
 --                              a mod whose skill takes the place of others (their records added)
+--   rq.chara.on_has_skill      (2.55.0) the game's check for a skill, ＣＳ番号取得, answered "no" by a
+--                              mod: one hook per skill number with rq.ain.hook's `only`, so the
+--                              game's checks for other skills never enter Lua
 --
 -- Built on public calls (rq.ain.call, global, set_global, global_len, hook) and two private ones:
 -- priv.keep (modloader_scene.c) and priv.forget_quiet (modloader_roster.c), so on_forget does not
@@ -461,7 +464,74 @@ hook("Ｃスキルドレイン", { after = function(h)
   for _, r in ipairs({ table.unpack(resets) }) do cbs.run(r, "rq.chara.on_skill_reset", ctx) end
 end })
 
+-- rq.chara.on_has_skill (2.55.0, notes/plans/plan-dynamic-immature.md in the workspace):
+-- ＣＳ番号取得(iic, skill, fg) is the game's check for a skill: the row of the first copy held (fg
+-- 0, ＣＳ保有 1), set in an action slot (1, ＣＳ実装中 not 0) or held and not set (2), else 0.
+-- ＣＳ有無, ＣＳ有無／スタメン and ＣＳ総数取得／スタメン (the party) ask through it. ctx.caller is the
+-- first function on the stack past these helpers: the game code that asks.
+local HAS_HELPERS = { ["ＣＳ番号取得"] = true, ["ＣＳ有無"] = true, ["ＣＳ有無／スタメン"] = true,
+  ["ＣＳ番号取得／スタメン"] = true, ["ＣＳ総数取得／スタメン"] = true }
+local HAS_MODES = { [0] = "held", [1] = "set", [2] = "unset" }
+local has_lists = {}
+
+local function asker()
+  local ok, st = pcall(rq.ain.stack, 8)
+  if not ok or type(st) ~= "table" then return nil end
+  for _, n in ipairs(st) do
+    if not HAS_HELPERS[n] then return n end
+  end
+end
+
+local function has_ctx(iic, skill, fg)
+  return setmetatable({ iic = iic, skill = skill, mode = HAS_MODES[fg] or "held" }, { __index = function(t, k)
+    local v
+    if k == "chara" then
+      v = g("Ｃ", iic, "番号")
+    elseif k == "row" then
+      -- The hook does not fire again while its callbacks run: this is the game's answer.
+      v = call("ＣＳ番号取得", iic, skill, fg)
+    elseif k == "caller" then
+      v = asker()
+    else
+      return nil
+    end
+    rawset(t, k, v)
+    return v
+  end })
+end
+
+local function has_install(skill)
+  local list, add = cbs.handlers("rq.chara.on_has_skill")
+  has_lists[skill] = { list = list, add = add }
+  hook("ＣＳ番号取得", { only = { [2] = skill }, before = function(h)
+    if #list == 0 then return end
+    local iic, fg = h.args[1], h.args[3]
+    if not exists(iic) or not int(fg) then return end
+    local ctx = has_ctx(iic, skill, fg)
+    for _, x in ipairs({ table.unpack(list) }) do
+      local ok, r = cbs.run(x, "rq.chara.on_has_skill", ctx)
+      if ok and r == false then
+        h.skip = true
+        h.result = 0
+        return
+      elseif ok and r ~= nil then
+        cbs.report(x, "rq.chara.on_has_skill", "expected false or nil")
+      end
+    end
+  end })
+end
+
 -- ---- the calls ----
+
+function chara.on_has_skill(skill, fn)
+  -- The game's skill table is empty while the mods load: only the range is checked.
+  if not int(skill) or skill < 1 or skill > 1000 then
+    error("rq.chara.on_has_skill: expected a skill number, 1 to 1000", 2)
+  end
+  if type(fn) ~= "function" then error("rq.chara.on_has_skill: expected a function", 2) end
+  if not has_lists[skill] then has_install(skill) end
+  return has_lists[skill].add(fn)
+end
 
 function chara.on_learn(fn)
   return add_learned(fn)

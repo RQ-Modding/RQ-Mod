@@ -154,21 +154,43 @@ function ain.call(name, ...) end
 ---@field skip? boolean `before` only: true keeps the function from running.
 ---@field result? any In `before`: what a skipped function returns. In `after`: the return value, which may be changed.
 
+---What `rq.ain.hook` takes.
+---@class rq.AinHookOpts
+---@field before? fun(h: rq.AinHookCtx) Runs before the function, with its arguments.
+---@field after? fun(h: rq.AinHookCtx) Runs after it, with its return value.
+---@field only? table<integer, integer|integer[]> Argument positions (1 for the first) to a whole number or a list of 1 to 16: the callbacks run only for a call whose int argument at each position holds one of its values. At most 4 positions. Default: every call (since 2.55.0).
+
 ---Runs Lua before and after any AIN function.
 ---
 ---A method is named `Class@method`. Many hooks may sit on one function. The function does not fire
 ---its hooks again while one of its callbacks runs. A table with neither side does nothing.
 ---
+---`only` keeps the callbacks to the calls a mod wants, checked in C: on a function the game calls
+---thousands of times a frame (a skill check, a stat read), a hook for one skill number costs Lua
+---nothing on the other calls. Every position named must hold one of its values. The `after` side
+---reads the arguments as the function leaves them. Hooks with a different `only` on one function
+---each check their own.
+---
+---Raises an error for an unknown function, an `only` that is not a table of positions, a position
+---the function has no argument at, an argument that is not an int, more than 4 positions, or a
+---value that is not a whole number or a list of 1 to 16 of them.
+---
 ---Since: 0.18.0
 ---Changed: 0.23.0 Returns a remover.
+---Changed: 2.55.0 `only`: the callbacks run only for calls with these int arguments.
 ---
 ---```lua
 ---rq.ain.hook("message", { before = function(h)
 ---  h.args[3] = h.args[3]:gsub("Rance", "Ranse")  -- rewrite every line of text
 ---end })
+---
+----- Only the game's checks for skill 373: ＣＳ番号取得(character, skill, mode).
+---rq.ain.hook("ＣＳ番号取得", { only = { [2] = 373 }, after = function(h)
+---  rq.log("asked for Immature on", h.args[1], "->", h.result)
+---end })
 ---```
 ---@param name string The function's name.
----@param opts {before?: fun(h: rq.AinHookCtx), after?: fun(h: rq.AinHookCtx)} The callbacks.
+---@param opts rq.AinHookOpts The callbacks, and `only`.
 ---@return fun() remove Removes both sides of this hook.
 function ain.hook(name, opts) end
 
@@ -3469,6 +3491,50 @@ function chara.on_learn(fn) end
 ---@see rq.chara.base_skills
 function chara.on_skill_reset(fn) end
 
+---What `rq.chara.on_has_skill` gets for one check.
+---
+---Since: 2.55.0
+---@class rq.HasSkillCtx
+---@field iic integer The character's roster slot.
+---@field chara integer The character number (`Ｃ番号`).
+---@field skill integer The skill asked for.
+---@field mode "held"|"set"|"unset" What the game asks: "held", whether the character has it; "set", whether it is in one of the action slots; "unset", whether it is held and not set.
+---@field row integer The game's answer: the skill row (1 and up) of the first copy that fits `mode`, 0 for none.
+---@field caller? string The game function that asks, past the game's own helpers (`ＣＳ有無`, `ＣＳ有無／スタメン` and the like): `Ｃ再計算` for the stats, a scene's or a battle's function otherwise.
+
+---Calls `fn` when the game checks whether a character has one skill, to answer "no".
+---
+---The game's checks for a skill go through one function, `ＣＳ番号取得`: the stats (`Ｃ再計算`),
+---battles, scenes and event conditions, and the party checks (`ＣＳ有無／スタメン`). `fn` returns
+---false to answer that the character does not have the skill, for this one check, or nil to keep
+---the game's answer. The skill row stays: the skill window, the status page and `rq.chara.slots`
+---still show it. A check from one place only (`ctx.caller`) keeps the skill everywhere else: a
+---character can keep a skill that scenes look for and lose what it does to the stats. After a
+---change in the answer for stats, call `rq.chara.recalc`.
+---
+---The callbacks run only for checks of `skill` (an `rq.ain.hook` with `only`), so a check of
+---another skill costs Lua nothing; the game checks skills many times a frame in a battle, so keep
+---`fn` short. `chara`, `row` and `caller` are worked out when a callback first reads them.
+---
+---A callback's error, or a return other than false or nil, is logged once per mod and changes
+---nothing.
+---
+---Raises an error when `skill` is not a whole number from 1 to 1000, or `fn` is not a function.
+---
+---Since: 2.55.0
+---
+---```lua
+----- Immature (373) takes nothing off Kouhime's stats (character 20); scenes still see it.
+---rq.chara.on_has_skill(373, function(ctx)
+---  if ctx.chara == 20 and ctx.caller == "Ｃ再計算" then return false end
+---end)
+---```
+---@param skill integer The skill number, 1 to 1000.
+---@param fn fun(ctx: rq.HasSkillCtx): false|nil Returns false for "no", or nil.
+---@return fun() remove Removes this callback.
+---@see rq.chara.slots
+function chara.on_has_skill(skill, fn) end
+
 ---Returns the skills a character starts with, as Morurun's reset would give them back.
 ---
 ---The game rebuilds a character's skills for that reset (`Ｃスキルドレイン`) from the character's
@@ -4389,6 +4455,14 @@ function item.info(no) end
 ---`fn` returns true to let the character equip it, false to refuse, or nil to keep the answer. Each
 ---callback sees in `ctx.allowed` what the one before left.
 ---
+---A refusal can say why: `return false, "No free skill slot."`. The text of the last callback that
+---refused with one counts, unless a later one returns true. The game shows it in its notice where
+---a player tries to equip the item: a drop on a greyed character in the vault's or the storage
+---screen's equip list shows it instead of the game's "Unable to equip.". The status page's item
+---list greys only what the game itself refuses, so an item only a mod refuses with a text stays
+---bright there, and picking it shows the text and equips nothing. With no text, the game's own
+---behavior stays: "Unable to equip." in the vault, a grey row on the status page.
+---
 ---The game checks the level first and stops there, so `ctx.reasons` says whether the item's
 ---characters or class would refuse it too: a mod that lifts only the level returns true only when
 ---"level" is the one reason. `reason`, `reasons` and the levels are worked out when a callback
@@ -4397,19 +4471,70 @@ function item.info(no) end
 ---A callback's error, or a return that is not a boolean or nil, is logged once and changes nothing.
 ---
 ---Since: 2.46.0
+---Changed: 2.55.0 A refusal's text, shown in the vault and on the status page.
 ---
 ---```lua
+---local BAG = rq.item.define({ id = "mymod:bag", name = "Bag", type = "special" })
 ---rq.item.on_can_equip(function(ctx)
 ---  -- Athena 2.0 (27) wears any bow (subtype 5) whatever its level.
 ---  if ctx.chara == 27 and #ctx.reasons == 1 and ctx.reason == "level"
 ---    and rq.item.get(ctx.ii).subtype == 5 then
 ---    return true
 ---  end
+---  -- The bag gives a skill: refused, with the reason, when there is no row for it.
+---  if ctx.no == BAG and rq.chara.skill_room(ctx.iic) < 1 then
+---    return false, "No free skill slot."
+---  end
 ---end)
 ---```
----@param fn fun(ctx: rq.CanEquipCtx): boolean|nil Returns true, false or nil.
+---@param fn fun(ctx: rq.CanEquipCtx): (boolean|nil, string?) Returns true, false or nil; with false, the text the game shows (since 2.55.0).
 ---@return fun() remove Removes this callback.
+---@see rq.item.on_equip
 function item.on_can_equip(fn) end
+
+---What `rq.item.on_equip` gets.
+---
+---Since: 2.55.0
+---@class rq.EquipCtx
+---@field ii integer The item instance put on.
+---@field no integer The item number (`Ｉ固有番号`).
+---@field id? string A mod item's text id, as `rq.item.define` named it; nil for a game item.
+---@field iic integer The character's roster slot.
+---@field chara integer The character number (`Ｃ番号`).
+---@field slot "special"|"weapon"|"armor"|"item" The slot.
+---@field kind integer The slot as the game numbers it: 21 special, 1 weapon, 11 armor, 17 item.
+---@field old integer The instance the slot held before, 0 for none. One that vanishes when taken off is already deleted.
+
+---Calls `fn` each time an item is put on a character.
+---
+---It runs in `キャラ_装備設定`, the one call the game equips through: the vault's and the storage
+---screen's drag, the status page, buying onto a character in the shop, `rq.item.give` with `to`
+---and `rq.item.equip`. It runs once the slot holds the item, after the game has worked out the
+---stats again and, for a Special item, done its own effects (Skill Again, a Morurun). Putting the
+---same instance on again does not call it. An item taken off does not call it.
+---
+---This is the place for an item that does something once, when equipped: give a skill, then
+---`rq.chara.recalc`. With `vanishes = true` in `rq.item.define`, the game deletes the item when it
+---comes off, as it does Rocky Chunk, and what it did stays.
+---
+---A callback's error is logged once per mod.
+---
+---Since: 2.55.0
+---
+---```lua
+---local BAG = rq.item.define({ id = "mymod:bag", name = "Bag", type = "special", icon = 6331,
+---  price = 100, vanishes = true, info = "Equip: the wearer learns Immature." })
+---rq.item.on_equip(function(ctx)
+---  if ctx.no == BAG then
+---    rq.chara.grant(ctx.iic, 373, 0)
+---    rq.chara.recalc(ctx.iic)
+---  end
+---end)
+---```
+---@param fn fun(ctx: rq.EquipCtx) Gets the item and the character. Its return value is not used.
+---@return fun() remove Removes this callback.
+---@see rq.item.on_can_equip
+function item.on_equip(fn) end
 
 ---What `rq.item.find` and `rq.item.count` take.
 ---
@@ -9181,7 +9306,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.54.0"
+rq.version = "2.55.0"
 
 rq.units = units
 rq.items = items

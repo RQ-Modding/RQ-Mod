@@ -384,6 +384,18 @@ end
 
 local can_list = {}
 local can_hooked = false
+-- The last check's item, character and refusal text (2.55.0): the text of the last callback that
+-- returned false with one, unless a later callback returned true.
+local can_last = nil
+local text_install
+
+-- The game function that called the one hooked now, by name: the hooked function's own frame is
+-- the first on the stack.
+local function called_from(name)
+  local ok, st = pcall(rq.ain.stack, 3)
+  if not ok or type(st) ~= "table" then return false end
+  return st[2] == name or st[1] == name
+end
 
 local function can_why(ii, iic)
   local reasons = {}
@@ -439,23 +451,38 @@ local function can_install()
     if math.type(ii) ~= "integer" or math.type(iic) ~= "integer" or ii <= 0 or iic <= 0 then return end
     local okc, real = pcall(call, "アイテム_確認", ii)
     if not okc or not real then return end
-    local ctx = can_ctx(ii, iic, h.result == true)
+    local game = h.result == true
+    local ctx = can_ctx(ii, iic, game)
+    local text
     for _, x in ipairs({ table.unpack(can_list) }) do
-      local ok, r = pcall(x.fn, ctx)
+      local ok, r, t = pcall(x.fn, ctx)
       if not ok then
         r = tostring(r)
         if not x.seen[r] then
           x.seen[r] = true
           rq.log(("rq.item.on_can_equip (%s): %s"):format(x.mod, r))
         end
-      elseif r == true or r == false then
-        rawset(ctx, "allowed", r)
+      elseif r == true then
+        rawset(ctx, "allowed", true)
+        text = nil
+      elseif r == false then
+        rawset(ctx, "allowed", false)
+        if t ~= nil then text = type(t) == "string" and t or tostring(t) end
       elseif r ~= nil and not x.seen["return"] then
         x.seen["return"] = true
         rq.log(("rq.item.on_can_equip (%s): expected true, false or nil"):format(x.mod))
       end
     end
-    h.result = rawget(ctx, "allowed") == true
+    local allowed = rawget(ctx, "allowed") == true
+    if allowed or text == "" then text = nil end
+    can_last = { ii = ii, iic = iic, text = text }
+    -- The status page's item list greys what the character cannot wear, and a grey row cannot be
+    -- picked: an item only a mod refuses, with a text, stays bright there, and picking it shows the
+    -- text (text_install's hook on キャラ_装備変更).
+    if text and game and called_from("T_StoreItem@getItemActive") then
+      allowed = true
+    end
+    h.result = allowed
   end })
 end
 
@@ -466,9 +493,130 @@ function item.on_can_equip(fn)
   local x = { fn = fn, mod = id, seen = {} }
   can_list[#can_list + 1] = x
   can_install()
+  text_install()
   return function()
     for i, y in ipairs(can_list) do
       if y == x then table.remove(can_list, i) return end
+    end
+  end
+end
+
+-- ---- A refusal's text (2.55.0, notes/plans/plan-dynamic-immature.md in the workspace) ----
+-- The game says "Unable to equip." for a drop on a grey character row of the vault's equip list
+-- (T_EquitItem::setItem, the one instance in g_sEquipDrag.m_sEquip), and nothing on the status
+-- page, whose grey rows cannot be picked. Where a mod's callback refused with a text, the vault
+-- shows that text instead, and the status page's pick (T_Status::equipItem, through
+-- キャラ_装備変更) shows it and equips nothing.
+
+local EQUIP_DRAG = { "g_sEquipDrag", "m_sEquip" }
+local text_hooked = false
+
+local function int(v)
+  return math.type(v) == "integer"
+end
+
+-- The refusal's text for ii on iic, from the check run again now; nil when it may wear it or no
+-- callback gave a text.
+local function refusal(ii, iic)
+  if #can_list == 0 then return nil end
+  can_last = nil
+  local ok, yes = pcall(call, "アイテム_装備可能", ii, iic)
+  if not ok or yes then return nil end
+  local l = can_last
+  if l and l.ii == ii and l.iic == iic then return l.text end
+end
+
+function text_install()
+  if text_hooked then return end
+  text_hooked = true
+  rq.ain.hook("T_EquitItem@setItem", { before = function(h)
+    if h.skip or #can_list == 0 then return end
+    local index, ii = h.args[1], h.args[2]
+    if not int(index) or index == 999 or not int(ii) or ii <= 0 then return end
+    local oka, active = pcall(rq.ain.method, EQUIP_DRAG, "T_EquitItem@getActive", index)
+    if not oka or (active ~= 0 and active ~= false) then return end
+    local okc, iic = pcall(rq.ain.method, EQUIP_DRAG, "T_EquitItem@getCharaNo", index)
+    if not okc or not int(iic) or iic <= 0 then return end
+    local text = refusal(ii, iic)
+    if not text then return end
+    notice(text)
+    h.skip = true
+    h.result = false
+  end })
+  rq.ain.hook("キャラ_装備変更", { before = function(h)
+    if h.skip or #can_list == 0 then return end
+    local iic, ii = h.args[1], h.args[3]
+    if not int(iic) or iic <= 0 or not int(ii) or ii <= 0 then return end
+    if not called_from("T_Status@equipItem") then return end
+    local text = refusal(ii, iic)
+    if not text then return end
+    notice(text)
+    h.skip = true
+    h.result = false
+  end })
+end
+
+-- ---- rq.item.on_equip (2.55.0) ----
+-- キャラ_装備設定(iic, kind, ii) is the one call the game equips through: the vault's and the
+-- storage screen's drag and the shop's buy for a character (T_EquitItem::setItem), the status
+-- page (キャラ_装備変更) and rq.item.equip. It returns true once the slot holds the item, the item
+-- it replaced deleted when that one vanishes (アイテム_消滅します), the stats worked out again and,
+-- for the Special slot, the game's own item effects done (Ｃオプション装備後). The before side keeps
+-- the item it replaces; the after side calls the callbacks for an item put on.
+
+local SLOT_NAMES = { [21] = "special", [1] = "weapon", [11] = "armor", [17] = "item" }
+local equip_list, equip_hooked, equip_old = {}, false, nil
+
+local function equip_install()
+  if equip_hooked then return end
+  equip_hooked = true
+  rq.ain.hook("キャラ_装備設定", {
+    before = function(h)
+      equip_old = nil
+      if #equip_list == 0 then return end
+      local iic, kind = h.args[1], h.args[2]
+      if not int(iic) or not int(kind) then return end
+      local ok, old = pcall(call, "キャラ_装備取得", iic, kind)
+      equip_old = { iic = iic, kind = kind, old = ok and int(old) and old > 0 and old or 0 }
+    end,
+    after = function(h)
+      local before = equip_old
+      equip_old = nil
+      if h.result ~= true or #equip_list == 0 then return end
+      local iic, kind, ii = h.args[1], h.args[2], h.args[3]
+      if not int(iic) or not int(kind) or not int(ii) or ii <= 0 or not SLOT_NAMES[kind] then return end
+      local old = before and before.iic == iic and before.kind == kind and before.old or 0
+      if old == ii then return end
+      local okn, no = pcall(call, "Ｉ固有番号", ii, -1)
+      local okc, chara = pcall(call, "キャラ_番号", iic)
+      local ctx = { ii = ii, no = okn and int(no) and no or 0, iic = iic,
+        chara = okc and int(chara) and chara or 0, slot = SLOT_NAMES[kind], kind = kind, old = old }
+      local oki, id = pcall(item.id_of, ctx.no)
+      if oki and type(id) == "string" then ctx.id = id end
+      for _, x in ipairs({ table.unpack(equip_list) }) do
+        local ok, r = pcall(x.fn, ctx)
+        if not ok then
+          r = tostring(r)
+          if not x.seen[r] then
+            x.seen[r] = true
+            rq.log(("rq.item.on_equip (%s): %s"):format(x.mod, r))
+          end
+        end
+      end
+    end,
+  })
+end
+
+function item.on_equip(fn)
+  if type(fn) ~= "function" then error("rq.item.on_equip: expected a function", 2) end
+  local id = "?"
+  pcall(function() id = rq.mod.id() or "?" end)
+  local x = { fn = fn, mod = id, seen = {} }
+  equip_list[#equip_list + 1] = x
+  equip_install()
+  return function()
+    for i, y in ipairs(equip_list) do
+      if y == x then table.remove(equip_list, i) return end
     end
   end
 end
