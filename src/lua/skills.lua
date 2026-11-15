@@ -21,6 +21,12 @@
 --   learnable's after, needs   (2.48.0) the list after some steps, worked out on the character inside
 --                              priv.keep; the game's condition text read as skills and a level
 --   on_forget's kept           (2.48.0) the erased skill is a Boost whose effect stays
+--   forget's player, on_forget's player and mod
+--                              (2.51.0) rq.chara.forget marks its erasure while it runs (the
+--                              skill, opts.player, the calling mod by rq.mod.id); on_forget's ctx
+--                              reads the mark for caller "lua". player is also true for the skill
+--                              window's ERASE (キャラスキル_消去). forget's third value, the points
+--                              the callbacks gave back, is counted in C
 --
 -- Built on public calls (rq.ain.call, global, set_global, global_len, hook) and two private ones:
 -- priv.keep (modloader_scene.c) and priv.forget_quiet (modloader_roster.c), so on_forget does not
@@ -529,15 +535,43 @@ function chara.boosts(iic)
   return out, keeps
 end
 
--- rq.chara.on_forget (0.4.0): the ctx says whether the erased skill is a Boost whose effect stays.
+-- The erasure rq.chara.forget is making: { iic, skill, player, mod } (2.51.0).
+local forgetting = nil
+local ERASE = "キャラスキル_消去" -- the skill window's ERASE, after its two questions
+
+-- rq.chara.on_forget (0.4.0): the ctx says whether the erased skill is a Boost whose effect stays,
+-- whether the player chose the erasure, and the mod that called rq.chara.forget.
 local c_on_forget = chara.on_forget
 function chara.on_forget(fn)
   if type(fn) ~= "function" then return c_on_forget(fn) end
   return c_on_forget(function(ctx)
     local b = BOOST_OF[ctx.skill]
     ctx.kept = b ~= nil and exists(ctx.iic) and boost_kept(ctx.iic, b)
+    local f = ctx.caller == "lua" and forgetting or nil
+    ctx.player = ctx.caller == ERASE
+      or (f ~= nil and f.player and ctx.iic == f.iic and ctx.skill == f.skill) or false
+    ctx.mod = f and f.mod or nil
     return fn(ctx)
   end)
+end
+
+-- rq.chara.forget (0.4.0): opts.player (2.51.0), and the points given back (C's third value).
+local c_forget = chara.forget
+function chara.forget(iic, skill, opts)
+  local i, s = math.tointeger(iic), math.tointeger(skill)
+  if not i or not s then error("rq.chara.forget: iic and skill are whole numbers", 2) end
+  if opts ~= nil and type(opts) ~= "table" then error("rq.chara.forget: opts is a table", 2) end
+  local player = opts and opts.player
+  if player ~= nil and type(player) ~= "boolean" then
+    error("rq.chara.forget: opts.player is true or false", 2)
+  end
+  local outer = forgetting
+  forgetting = { iic = i, skill = s, player = player == true, mod = rq.mod.id() }
+  local ok, removed, cost, back = pcall(c_forget, i, s)
+  forgetting = outer
+  if not ok then error(removed, 2) end
+  if not removed then return false end
+  return true, cost, back
 end
 
 function chara.price(iic, skill, from, to)

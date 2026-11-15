@@ -69,6 +69,7 @@ static int g_forget_cb[CB_MAX];
 static int g_nforget;
 static int g_in_apply;
 static int g_lua_forget;
+static int g_forget_back;  /* rq.chara.forget (2.51.0): the points its on_forget callbacks gave */
 static int g_forget_quiet; /* priv.forget_quiet (2.45.0): the loader tries the game's code */
 
 static int f_create = -1, f_cdata = -1, f_base = -1, f_findno = -1, f_del = -1;
@@ -904,6 +905,8 @@ static void roster_forget(void)
 			free(caller);
 			if (total > 0)
 				ci(f_points, 2, iic, ci(f_points, 2, iic, -1) + total);
+			if (g_lua_forget)
+				g_forget_back += total;
 		}
 	}
 	stack_push(iic);
@@ -1386,12 +1389,14 @@ int rq_lua_chara_forget(lua_State *L)
 		return 1;
 	}
 	cost = ci(f_cs_cost, 3, iic, row, -1);
+	g_forget_back = 0;
 	g_lua_forget = 1;
 	ci(f_cs_del, 2, iic, skill);
 	g_lua_forget = 0;
 	lua_pushboolean(L, 1);
 	lua_pushinteger(L, cost);
-	return 2;
+	lua_pushinteger(L, g_forget_back);
+	return 3;
 }
 
 static int add_cb(lua_State *L, int *refs, int *n)
