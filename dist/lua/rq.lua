@@ -2874,7 +2874,9 @@ function chara.max_uses(iic, skillId) end
 ---@field caller string The AIN function that removed it, or "lua" for `rq.chara.forget`.
 ---@field kept boolean Whether the skill is a Boost whose effect the character keeps without it (since 2.48.0), as `rq.BoostRow.kept`: erasing it loses nothing until the game's reset. false for every other skill.
 ---@field player boolean Whether the player chose this erasure (since 2.51.0): the skill window's ERASE (`caller` "キャラスキル_消去"), or a mod's `rq.chara.forget` with `player = true`. false for the game's other removals (its recalculation, the story, the reset) and a plain `rq.chara.forget`.
----@field mod? string The id of the mod that called `rq.chara.forget` (since 2.51.0), as `rq.mod.id` gives it; nil for the game's own removals.
+---@field mod? string The id of the mod that called `rq.chara.forget` or `rq.chara.forget_points` (since 2.51.0), as `rq.mod.id` gives it; nil for the game's own removals.
+---@field n integer The skill's level in its row (since 2.52.0), as `rq.chara.slots`' `n`: most uses for a use-count skill, rank for a ranked one, 1 for the rest; in a preview, the level asked about.
+---@field preview boolean true when `rq.chara.forget_points` asks what the callback would give back (since 2.52.0): nothing is erased and the points are not given, so do nothing but count (no log, no state). false for an erasure.
 
 ---Registers a character template.
 ---
@@ -3175,7 +3177,38 @@ function chara.heal(iic, opts) end
 ---@return boolean removed false when the character did not have the skill (the only value then).
 ---@return integer? cost The purchase record, as `rq.ForgetCtx.cost`.
 ---@return integer? back The skill points the `rq.chara.on_forget` callbacks gave back (since 2.51.0).
+---@see rq.chara.forget_points
 function chara.forget(iic, skill, opts) end
+
+---The skill points the `rq.chara.on_forget` callbacks would give back for erasing a skill, without
+---erasing it.
+---
+---Each callback runs with the ctx the erasure would have, `preview` true, `caller` "lua" and `mod`
+---the calling mod; nothing is erased and no points are given. For a plan, `n`, `cost` and `kept`
+---describe the row as it would be then: a skill the character does not have yet, or one a plan
+---raises first. `cost` is the purchase record then (`rq.ForgetCtx.cost`), which a planner works
+---out from what the steps pay. Use it to show the price of a change that erases skills, as
+---Loadouts shows the price of a load less what comes back. A callback that does not look at
+---`preview` gives the same answer as for an erasure.
+---
+---Raises an error for a slot with no character, a skill number the game does not have, or `opts`
+---of the wrong type.
+---
+---Since: 2.52.0
+---
+---```lua
+----- What erasing Healing 3 would give back if the player chose it.
+---local back = rq.chara.forget_points(iic, 223, { player = true })
+---
+----- And once it is bought to 3 uses for 9 points (a row the character does not have yet).
+---local later = rq.chara.forget_points(iic, 223, { player = true, n = 3, cost = 9 })
+---```
+---@param iic integer The character's roster slot.
+---@param skill integer The skill number.
+---@param opts? {player?: boolean, n?: integer, cost?: integer, kept?: boolean} `player` as in `rq.chara.forget` (default false). `n`: the level then, from 1 (default: the row's now). `cost`: the purchase record then, from -1 (default: the row's now, or 0). `kept`: whether it would be a Boost whose effect stays (default: as now, or for a Boost at `n` 4 in the third world, true).
+---@return integer back The points the callbacks would give back; 0 when the character does not have the skill and no `n` is given.
+---@see rq.chara.forget
+function chara.forget_points(iic, skill, opts) end
 
 ---Calls `fn` after any character is created (`Ｃ生成`), base game or mod.
 ---
@@ -3189,7 +3222,9 @@ function chara.on_create(fn) end
 
 ---Calls `fn` before a skill row is emptied, to give skill points back.
 ---
----The points every callback returns are added up and given to the character. `player` tells the
+---The points every callback returns are added up and given to the character. When `preview` is
+---true, `rq.chara.forget_points` is asking what the callback would give: count, and change nothing
+---else. `player` tells the
 ---erasures the player chose (the skill window's ERASE, and a mod's `rq.chara.forget` with
 ---`player = true`) from the game's other removals (its recalculation, the story, the reset) and a
 ---mod's own; `caller` names the AIN function, or "lua". `kept` tells a Boost whose effect the
@@ -3201,6 +3236,7 @@ function chara.on_create(fn) end
 ---Changed: 2.45.0 `cost` is the purchase record.
 ---Changed: 2.48.0 `kept`.
 ---Changed: 2.51.0 `player` and `mod`.
+---Changed: 2.52.0 `n` and `preview`; `rq.chara.forget_points` calls the callbacks with `preview`.
 ---
 ---```lua
 ----- Half the points back for each erasure the player chose.
@@ -9011,7 +9047,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.51.0"
+rq.version = "2.52.0"
 
 rq.units = units
 rq.items = items

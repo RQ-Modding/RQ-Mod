@@ -27,6 +27,11 @@
 --                              reads the mark for caller "lua". player is also true for the skill
 --                              window's ERASE (キャラスキル_消去). forget's third value, the points
 --                              the callbacks gave back, is counted in C
+--   rq.chara.forget_points     (2.52.0) what the on_forget callbacks would give back for an
+--                              erasure, without it: each callback registered (kept in forget_fns
+--                              until its remover runs) called with the ctx the erasure would have,
+--                              preview true
+--   on_forget's n and preview  (2.52.0) the skill's level in its row (n_at); false for an erasure
 --
 -- Built on public calls (rq.ain.call, global, set_global, global_len, hook) and two private ones:
 -- priv.keep (modloader_scene.c) and priv.forget_quiet (modloader_roster.c), so on_forget does not
@@ -539,20 +544,39 @@ end
 local forgetting = nil
 local ERASE = "キャラスキル_消去" -- the skill window's ERASE, after its two questions
 
+-- Each callback registered, in order (2.52.0), for forget_points: { fn }, taken off by its
+-- remover. The C call under this wrapper is already wrapped with removers (modloader_scene.c's
+-- removable runs before this file), so this wrapper returns that remover and adds its own part.
+local forget_fns = {}
+
 -- rq.chara.on_forget (0.4.0): the ctx says whether the erased skill is a Boost whose effect stays,
--- whether the player chose the erasure, and the mod that called rq.chara.forget.
+-- whether the player chose the erasure, the mod that called rq.chara.forget, and the skill's level.
 local c_on_forget = chara.on_forget
 function chara.on_forget(fn)
   if type(fn) ~= "function" then return c_on_forget(fn) end
-  return c_on_forget(function(ctx)
+  local remove = c_on_forget(function(ctx)
     local b = BOOST_OF[ctx.skill]
-    ctx.kept = b ~= nil and exists(ctx.iic) and boost_kept(ctx.iic, b)
+    local here = exists(ctx.iic)
+    ctx.kept = b ~= nil and here and boost_kept(ctx.iic, b)
     local f = ctx.caller == "lua" and forgetting or nil
     ctx.player = ctx.caller == ERASE
       or (f ~= nil and f.player and ctx.iic == f.iic and ctx.skill == f.skill) or false
     ctx.mod = f and f.mod or nil
+    ctx.n = here and ctx.slot > 0 and n_at(ctx.iic, ctx.slot, ctx.skill) or 0
+    ctx.preview = false
     return fn(ctx)
   end)
+  local entry = { fn = fn }
+  forget_fns[#forget_fns + 1] = entry
+  return function()
+    if type(remove) == "function" then remove() end
+    for i, e in ipairs(forget_fns) do
+      if e == entry then
+        table.remove(forget_fns, i)
+        break
+      end
+    end
+  end
 end
 
 -- rq.chara.forget (0.4.0): opts.player (2.51.0), and the points given back (C's third value).
@@ -572,6 +596,55 @@ function chara.forget(iic, skill, opts)
   if not ok then error(removed, 2) end
   if not removed then return false end
   return true, cost, back
+end
+
+-- rq.chara.forget_points (2.52.0): the points the on_forget callbacks would give back for erasing
+-- the skill, now or (opts.n, cost, kept) as its row would be; nothing is erased or given.
+function chara.forget_points(iic, skill, opts)
+  need_chara(iic, "rq.chara.forget_points")
+  need_skill(skill, "rq.chara.forget_points")
+  if opts ~= nil and type(opts) ~= "table" then error("rq.chara.forget_points: opts is a table", 2) end
+  opts = opts or {}
+  for _, k in ipairs({ "player", "kept" }) do
+    if opts[k] ~= nil and type(opts[k]) ~= "boolean" then
+      error("rq.chara.forget_points: opts." .. k .. " is true or false", 2)
+    end
+  end
+  if opts.n ~= nil and (not int(opts.n) or opts.n < 1) then
+    error("rq.chara.forget_points: opts.n is a whole number from 1", 2)
+  end
+  if opts.cost ~= nil and (not int(opts.cost) or opts.cost < -1) then
+    error("rq.chara.forget_points: opts.cost is a whole number from -1", 2)
+  end
+  local row = row_of(iic, skill)
+  if not row and opts.n == nil then return 0 end
+  local n = opts.n or n_at(iic, row, skill)
+  local t = stype(skill)
+  local rank = row and g("Ｃ", iic, "スキル", row, "ランク") or 0
+  if opts.n and (t == 20 or t == 30) then rank = opts.n end
+  local kept = opts.kept
+  if kept == nil then
+    local b = BOOST_OF[skill]
+    kept = b ~= nil and (boost_kept(iic, b) or (opts.n ~= nil and keeps_boosts() and n >= RANK_MAX))
+  end
+  local cost = opts.cost
+  if cost == nil then cost = row and cost_of(iic, row) or 0 end
+  local base = { iic = iic, skill = skill, slot = row or 0, rank = rank, n = n, cost = cost,
+    caller = "lua", kept = kept, player = opts.player == true, mod = rq.mod.id(), preview = true }
+  local total = 0
+  for _, e in ipairs({ table.unpack(forget_fns) }) do
+    local ctx = {}
+    for k, v in pairs(base) do ctx[k] = v end
+    local ok, v = pcall(e.fn, ctx)
+    if not ok then
+      logf("on_forget error (forget_points): %s", tostring(v))
+    elseif type(v) == "number" or type(v) == "string" then
+      -- As the game's erasure counts them: a whole number above 0.
+      local x = math.tointeger(tonumber(v) or 0)
+      if x and x > 0 then total = total + x end
+    end
+  end
+  return total
 end
 
 function chara.price(iic, skill, from, to)
