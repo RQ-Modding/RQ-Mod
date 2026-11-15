@@ -2870,7 +2870,7 @@ function chara.max_uses(iic, skillId) end
 ---@field skill integer The skill number.
 ---@field slot integer The skill-list row.
 ---@field rank integer The skill's rank.
----@field cost integer The purchase record (since 2.45.0): the skill points paid for the row's bought steps, in the skill window or through `rq.chara.learn`; -1 for a skill a mod gave (`rq.chara.grant`, `edit`'s `learn`, `learn` with `pay = false`); 0 when nothing was recorded (a starting skill, or one bought before loader 2.45.0 and not upgraded since). Before 2.45.0 it was always 0.
+---@field cost integer The purchase record (since 2.45.0): the skill points paid for the row's bought steps, in the skill window or through `rq.chara.learn`; -1 for a skill a mod gave (`rq.chara.grant`, `edit`'s `learn`, `learn` with `pay = false`); 0 when nothing was recorded (a starting skill, or one bought before loader 2.45.0 and not upgraded since); what a mod wrote with `rq.chara.set_cost` (since 2.53.0). Before 2.45.0 it was always 0.
 ---@field caller string The AIN function that removed it, or "lua" for `rq.chara.forget`.
 ---@field kept boolean Whether the skill is a Boost whose effect the character keeps without it (since 2.48.0), as `rq.BoostRow.kept`: erasing it loses nothing until the game's reset. false for every other skill.
 ---@field player boolean Whether the player chose this erasure (since 2.51.0): the skill window's ERASE (`caller` "キャラスキル_消去"), or a mod's `rq.chara.forget` with `player = true`. false for the game's other removals (its recalculation, the story, the reset) and a plain `rq.chara.forget`.
@@ -3209,6 +3209,38 @@ function chara.forget(iic, skill, opts) end
 ---@return integer back The points the callbacks would give back; 0 when the character does not have the skill and no `n` is given.
 ---@see rq.chara.forget
 function chara.forget_points(iic, skill, opts) end
+
+---Writes the purchase record of a skill the character holds.
+---
+---The record is what `rq.chara.on_forget`'s `cost` and `rq.chara.slots`' `cost` read, and what a
+---mod that gives points back for an erasure (Skill Removal Payback) gives back. The loader writes it
+---at each purchase. A mod whose skill takes the place of others writes the points paid for those
+---into the new skill's row, so erasing it later gives back everything paid for the set; Better
+---Elemental Knowledge does this when its skill folds the single ones into one row. -1 marks a skill
+---a mod gave, 0 a skill with nothing recorded.
+---
+---Raises an error for a slot with no character, a skill number the game does not have, or a `cost`
+---that is not a whole number from -1.
+---
+---Since: 2.53.0
+---
+---```lua
+----- The new skill's row also counts the points paid for the two it replaced.
+---local rows = {}
+---for _, s in ipairs(rq.chara.slots(iic)) do rows[s.skill] = s end
+---local paid = rows[NEW].cost
+---for _, old in ipairs({ OLD_A, OLD_B }) do
+---  if rows[old] and rows[old].cost > 0 then paid = paid + rows[old].cost end
+---  rq.chara.forget(iic, old)
+---end
+---rq.chara.set_cost(iic, NEW, paid)
+---```
+---@param iic integer The character's roster slot.
+---@param skill integer The skill number.
+---@param cost integer The record: the skill points paid, -1 for given, 0 for none.
+---@return boolean written false when the character does not have the skill.
+---@see rq.ForgetCtx.cost
+function chara.set_cost(iic, skill, cost) end
 
 ---Calls `fn` after any character is created (`Ｃ生成`), base game or mod.
 ---
@@ -9047,7 +9079,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.52.1"
+rq.version = "2.53.0"
 
 rq.units = units
 rq.items = items

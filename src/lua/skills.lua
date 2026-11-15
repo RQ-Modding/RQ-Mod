@@ -32,6 +32,8 @@
 --                              until its remover runs) called with the ctx the erasure would have,
 --                              preview true
 --   on_forget's n and preview  (2.52.0) the skill's level in its row (n_at); false for an erasure
+--   rq.chara.set_cost          (2.53.0) writes the purchase record of a row the character holds, for
+--                              a mod whose skill takes the place of others (their records added)
 --
 -- Built on public calls (rq.ain.call, global, set_global, global_len, hook) and two private ones:
 -- priv.keep (modloader_scene.c) and priv.forget_quiet (modloader_roster.c), so on_forget does not
@@ -645,6 +647,17 @@ function chara.forget_points(iic, skill, opts)
     end
   end
   return total
+end
+
+-- rq.chara.set_cost (2.53.0): the purchase record of the character's row of the skill.
+function chara.set_cost(iic, skill, cost)
+  need_chara(iic, "rq.chara.set_cost")
+  need_skill(skill, "rq.chara.set_cost")
+  if not int(cost) or cost < -1 then error("rq.chara.set_cost: cost is a whole number from -1", 2) end
+  local row = row_of(iic, skill)
+  if not row then return false end
+  set_cost(iic, row, cost)
+  return true
 end
 
 function chara.price(iic, skill, from, to)
