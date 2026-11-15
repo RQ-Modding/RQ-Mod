@@ -1146,6 +1146,18 @@ static void add_vault_json(cJSON *root);
 /* The choice menu's text rows, one line each (rq.ui.get's select.message, 2.19.0). */
 static char g_select_msg[2048];
 
+static int module_int(const char *module, const char *name);
+
+/* rq.knownskills' page of the known skills and the count (2.54.0), once a mod installed it. */
+static void add_known_pages(cJSON *o)
+{
+	int n = module_int("knownskills", "page_count");
+	if (n <= 0)
+		return;
+	cJSON_AddNumberToObject(o, "knownPage", module_int("knownskills", "page"));
+	cJSON_AddNumberToObject(o, "knownPages", n);
+}
+
 static void add_status_json(cJSON *root)
 {
 	cJSON *o, *eq, *st;
@@ -1166,6 +1178,7 @@ static void add_status_json(cJSON *root)
 	cJSON_AddNumberToObject(o, "exp", g_status.exp);
 	cJSON_AddNumberToObject(o, "expMax", g_status.exp_max);
 	cJSON_AddNumberToObject(o, "storedPoints", g_status.points);
+	add_known_pages(o);
 	st = cJSON_AddObjectToObject(o, "stats");
 	cJSON_AddNumberToObject(st, "hp", g_status.hp);
 	cJSON_AddNumberToObject(st, "hpMax", g_status.hp_max);
@@ -1273,6 +1286,7 @@ static void build_json(char *dst, int dstsz)
 		cJSON_AddNumberToObject(sk, "page", g_skill_page);
 		cJSON_AddNumberToObject(sk, "pages", g_skill_pages);
 		cJSON_AddNumberToObject(sk, "storedPoints", g_skill_points);
+		add_known_pages(sk);
 	}
 	{
 		struct rq_debug_view dv;
@@ -4866,15 +4880,16 @@ static void emit_indexed_skills(struct page *group, struct page *mgr, const char
 	}
 }
 
-/* rq.skilllist.page() / page_count() (Lua since 2.18.0); 0 before install or on an error. */
-static int skilllist_int(const char *name)
+/* rq.skilllist.page() / page_count() (Lua since 2.18.0), rq.knownskills' (2.54.0); 0 before
+ * install or on an error. */
+static int module_int(const char *module, const char *name)
 {
 	lua_State *L = rq_lua();
 	int top, v = 0;
 	if (!L)
 		return 0;
 	top = lua_gettop(L);
-	if (lua_getglobal(L, "rq") == LUA_TTABLE && lua_getfield(L, -1, "skilllist") == LUA_TTABLE
+	if (lua_getglobal(L, "rq") == LUA_TTABLE && lua_getfield(L, -1, module) == LUA_TTABLE
 	    && lua_getfield(L, -1, name) == LUA_TFUNCTION && lua_pcall(L, 0, 1, 0) == LUA_OK
 	    && lua_isinteger(L, -1))
 		v = (int)lua_tointeger(L, -1);
@@ -4893,8 +4908,8 @@ static int fill_skillshop(struct page *sp)
 	emit_indexed_skills(fpage(hold, "m_sButton"), hold, "m_rfsList", 300001, 17, "upgrade");
 	emit_indexed_skills(fpage(sp, "m_sButton"), hold, "m_rfsList", 0, 0, "forget");
 	g_has_skillshop = 1;
-	g_skill_page = skilllist_int("page");
-	g_skill_pages = skilllist_int("page_count");
+	g_skill_page = module_int("skilllist", "page");
+	g_skill_pages = module_int("skilllist", "page_count");
 	g_skill_points = fint(fpage(fpage(sp, "m_sCard"), "m_sPoint"), "m_nValue");
 	snprintf(g_screen, sizeof g_screen, "skill-shop");
 	hover_from_rects();

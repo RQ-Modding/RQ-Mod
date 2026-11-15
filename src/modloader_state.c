@@ -221,6 +221,9 @@ void rq_state_private(lua_State *L, int priv)
 	lua_setfield(L, priv, "keep");
 	lua_pushcfunction(L, rq_lua_forget_quiet);
 	lua_setfield(L, priv, "forget_quiet");
+	/* 2.54.0: the skill rows' numbers in the game's code (lua/knownskills.lua). */
+	lua_pushcfunction(L, rq_lua_ain_patch_imm);
+	lua_setfield(L, priv, "patch_imm");
 }
 
 int rq_lua_random_seed(lua_State *L)

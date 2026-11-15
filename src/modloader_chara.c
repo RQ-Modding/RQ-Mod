@@ -80,6 +80,8 @@ static int g_loc_hcond = -1;
 static int g_loc_ccond = -1;
 static int g_gi_dm = -1;
 static int g_gi_offers = -1;
+/* Ｃ and sＣ's スキル member: rq.chara.slots walks the rows the array has (2.54.0). */
+static int g_gi_chara = -1, g_m_skill = -1;
 static int g_gi_offer_pts = -1;
 static int g_gi_offer_n = -1;
 static int g_f_max_uses = -1;
@@ -735,6 +737,22 @@ int rq_chara_install(struct ain *a)
 	g_f_race = find_fn(a, "Ｃ種族");
 	g_gi_dm = find_global(a, "◆戦闘／ＤＭ");
 	g_gi_offers = find_global(a, "取得可能スキル");
+	g_gi_chara = find_global(a, "Ｃ");
+	g_m_skill = -1;
+	if (g_gi_chara >= 0) {
+		int st = a->globals[g_gi_chara].type.struc;
+		char *want = utf2sjis("スキル", 0);
+		if (want && st >= 0 && st < a->nr_structures) {
+			struct ain_struct *s = &a->structures[st];
+			for (int i = 0; i < s->nr_members; i++) {
+				if (s->members[i].name && !strcmp(s->members[i].name, want)) {
+					g_m_skill = i;
+					break;
+				}
+			}
+		}
+		free(want);
+	}
 	g_gi_offer_pts = find_global(a, "取得可能スキルポイント");
 	g_gi_offer_n = find_global(a, "◆取得可能スキル番号");
 	g_f_max_uses = find_fn(a, "ＣＳ有無／最大回数");
@@ -890,15 +908,35 @@ int rq_lua_chara_rank(lua_State *L)
 	return 1;
 }
 
+/* The size of Ｃ[iic].スキル: 21 in the game (rows 1 to 20), more with rq.knownskills (2.54.0). */
+static int chara_skill_rows(int iic)
+{
+	struct page *arr, *c, *sk;
+	int slot;
+	if (g_m_skill < 0)
+		return 21;
+	arr = global_array(g_gi_chara);
+	if (!arr || iic < 0 || iic >= arr->nr_vars)
+		return 21;
+	slot = arr->values[iic].i;
+	if (!heap_index_valid(slot) || !(c = heap_get_page(slot)) || g_m_skill >= c->nr_vars)
+		return 21;
+	slot = c->values[g_m_skill].i;
+	if (!heap_index_valid(slot) || !(sk = heap_get_page(slot)))
+		return 21;
+	return sk->nr_vars;
+}
+
 int rq_lua_chara_slots(lua_State *L)
 {
 	int iic = (int)luaL_checkinteger(L, 1);
-	int slot, n = 0;
+	int slot, rows, n = 0;
 	int args[3];
 	lua_newtable(L);
 	if (!rq_chara_exists(iic))
 		return 1;
-	for (slot = 1; slot <= 20; slot++) {
+	rows = chara_skill_rows(iic);
+	for (slot = 1; slot < rows; slot++) {
 		int owned, skill;
 		args[0] = iic;
 		args[1] = slot;

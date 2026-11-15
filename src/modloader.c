@@ -1144,6 +1144,60 @@ int rq_lua_ain_patch_local_int(lua_State *L)
 	return 1;
 }
 
+/* knownskills.lua's (2.54.0), not part of rq: a whole number in a function's code, found with
+ * the instruction table so fused instructions are stepped over whole. With a local's name, the
+ * number a fused instruction compares that local with (SH_IF_LOC_GE_IMM %iic_s 21, the loops and
+ * row checks the game compiles that way); without one (nil), a plain PUSH.
+ * priv.patch_imm(name, local|nil, from, to) -> count. */
+int rq_lua_ain_patch_imm(lua_State *L)
+{
+	const char *name = luaL_checkstring(L, 1);
+	const char *local = luaL_optstring(L, 2, NULL);
+	int32_t from = (int32_t)luaL_checkinteger(L, 3);
+	int32_t to = (int32_t)luaL_checkinteger(L, 4);
+	uint32_t ip, end;
+	int fno, body, li = -1, hit = 0;
+	if (!g_ain)
+		return luaL_error(L, "AIN not loaded");
+	fno = find_func_utf8(g_ain, name);
+	if (fno < 0)
+		return luaL_error(L, "function not found: %s", name);
+	body = body_fno(g_ain, fno);
+	if (local) {
+		struct ain_function *f = &g_ain->functions[body];
+		char *sjis = utf2sjis(local, 0);
+		for (int i = 0; sjis && i < f->nr_vars; i++) {
+			if (f->vars[i].name && !strcmp(f->vars[i].name, sjis)) {
+				li = i;
+				break;
+			}
+		}
+		free(sjis);
+		if (li < 0)
+			return luaL_error(L, "%s has no local %s", name, local);
+	}
+	end = code_end(g_ain, body);
+	for (ip = code_start(g_ain, body); ip + 2 <= end; ) {
+		unsigned op = rd16(g_ain->code + ip) & 0x3FFFu;
+		int n = op < NR_OPCODES ? instructions[op].nr_args : 0;
+		if (n < 0 || n > 4)
+			n = 0;
+		if (ip + 2 + (uint32_t)n * 4 > end)
+			break;
+		if (local && n >= 2 && instructions[op].args[0] == T_LOCAL && instructions[op].args[1] == T_INT
+		    && rd32(g_ain->code + ip + 2) == li && rd32(g_ain->code + ip + 6) == from) {
+			memcpy(g_ain->code + ip + 6, &to, 4);
+			hit++;
+		} else if (!local && op == PUSH && rd32(g_ain->code + ip + 2) == from) {
+			memcpy(g_ain->code + ip + 2, &to, 4);
+			hit++;
+		}
+		ip += 2 + (uint32_t)n * 4;
+	}
+	lua_pushinteger(L, hit);
+	return 1;
+}
+
 /* rq.ain.patch_int_after(name, global, from, to [, nth_ref [, window]]) */
 static int l_patch_int_after(lua_State *L)
 {

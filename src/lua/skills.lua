@@ -42,7 +42,6 @@ local rq, priv = ...
 local call, hook, g, set, len = rq.ain.call, rq.ain.hook, rq.ain.global, rq.ain.set_global, rq.ain.global_len
 local chara = rq.chara
 
-local ROWS = 20           -- Ｃ[iic].スキル[1..20]
 local USES_MAX = 99       -- スキルポン stops listing a use-count skill there
 local RANK_MAX = 4        -- and a ranked skill there
 local LIST = { { "取得可能スキル" }, { "取得可能スキルポイント" }, { "取得不可能スキル説明" }, { "◆取得可能スキル番号" } }
@@ -145,7 +144,8 @@ end
 
 local function rows(iic)
   local out = {}
-  for r = 1, ROWS do
+  -- Rows 1 to 20 in the game; more with rq.knownskills (2.54.0).
+  for r = 1, len("Ｃ", iic, "スキル") - 1 do
     local id = g("Ｃ", iic, "スキル", r, "番号")
     if id > 0 and g("Ｃ", iic, "スキル", r, "保有") == 1 then
       out[#out + 1] = { id = id, n = n_at(iic, r, id) }
@@ -484,11 +484,11 @@ function chara.skill_points_max(iic)
 end
 
 -- Free skill rows for a new skill: the game's own check (キャラスキル_空き確認, have < 18 - keep - 1)
--- as a count, without its message.
+-- as a count, without its message. rq.knownskills sets priv.skill_cap, the game's 18 (2.54.0).
 local function free_rows(iic)
   local have = call("キャラスキル_保有数", iic, false)
   local keep = call("キャラ_スキル枠キープ数", iic)
-  return math.max(0, 18 - keep - 1 - have)
+  return math.max(0, (priv.skill_cap or 18) - keep - 1 - have)
 end
 
 local function room(iic)
