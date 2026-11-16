@@ -8,8 +8,9 @@ RQ MOD is a fork. Most of this code was written by other people.
 | [libsys4](https://github.com/nunuhara/libsys4) | Nunuhara Cabbage and contributors | GPL-2.0-or-later | `subprojects/libsys4` |
 | [Lua 5.4.7](https://www.lua.org/) | Lua.org, PUC-Rio | MIT | `third_party/lua` |
 | [cJSON](https://github.com/DaveGamble/cJSON) | Dave Gamble and contributors | MIT | `src/cJSON.c` |
-| [Dear ImGui 1.92.9](https://github.com/ocornut/imgui) | Omar Cornut and contributors | MIT | `third_party/cimgui/imgui`, in RQ Browser (`rq-browser.exe`) only |
-| [cimgui 1.92.9b](https://github.com/cimgui/cimgui) | Stephan Dilly and contributors | MIT | `third_party/cimgui`, in RQ Browser only |
+| [Rance Browser](https://github.com/RQ-Modding/rance-browser) | RQ Modding, with code of xsystem4 and libsys4 | GPL-2.0-or-later | `subprojects/rance-browser` (`rance-browser.exe`), its own repository |
+| [Dear ImGui 1.92.9](https://github.com/ocornut/imgui) | Omar Cornut and contributors | MIT | in Rance Browser only (`subprojects/rance-browser/third_party/cimgui/imgui`) |
+| [cimgui 1.92.9b](https://github.com/cimgui/cimgui) | Stephan Dilly and contributors | MIT | in Rance Browser only (`subprojects/rance-browser/third_party/cimgui`) |
 | VL Gothic / VL PGothic | Daisuke Suzuki, Project Vine, M+ FONTS PROJECT and others | BSD-style, see `fonts/VL-*.license` | `fonts/` |
 | Hanazono Mincho A | GlyphWiki project | Hanazono Font License / OFL, see `fonts/HanaMinA.license` | `fonts/` |
 
