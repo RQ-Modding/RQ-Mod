@@ -99,6 +99,8 @@ enum vm_extra_syscall {
 	VM_XSYS_STATE_CLEAR = 0x80000050,
 	VM_XSYS_CONFIG_TAB = 0x80000051,
 	VM_XSYS_IMAGE_STRETCH = 0x80000052,
+	VM_XSYS_HUD_RESULT_ON = 0x80000053,
+	VM_XSYS_HUD_RESULT_OFF = 0x80000054,
 };
 
 // Non-heap values. Stored in pages and on the stack.

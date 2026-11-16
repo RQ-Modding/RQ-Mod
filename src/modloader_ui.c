@@ -806,6 +806,53 @@ static int stack_has(const char *s)
 	return s && g_stackblob[0] && strstr(g_stackblob, s) != NULL;
 }
 
+/* What the game runs under the screen, `busy` in rq.ui.get (2.56.0): one of a quest's own events
+ * (クエスト処理: its messages, scenes and fight, with the map read between them) or the wait for a
+ * click after a fight (戦闘後処理, over the map). The inner one when both are on the VM's stack;
+ * empty when neither is, as on an idle map. */
+static char g_busy[16];
+
+static int busy_fno(const char *utf8)
+{
+	char *sjis = utf2sjis(utf8, 0);
+	int fno;
+	if (!sjis)
+		return -1;
+	fno = ain_get_function(ain, sjis);
+	free(sjis);
+	return fno;
+}
+
+/* vm_frame_name gives the function's own name pointer, so a frame is matched by that pointer. */
+static void find_busy(void)
+{
+	static int looked = 0;
+	static const char *event, *fight_end;
+	const char *name;
+	int i;
+	g_busy[0] = 0;
+	if (!ain)
+		return;
+	if (!looked) {
+		int fe = busy_fno("クエスト処理"), ff = busy_fno("戦闘後処理");
+		looked = 1;
+		event = fe >= 0 ? ain->functions[fe].name : NULL;
+		fight_end = ff >= 0 ? ain->functions[ff].name : NULL;
+	}
+	if (!event && !fight_end)
+		return;
+	for (i = 0; i < 4096 && (name = vm_frame_name(i)) != NULL; i++) {
+		if (fight_end && name == fight_end) {
+			snprintf(g_busy, sizeof g_busy, "fight-end");
+			return;
+		}
+		if (event && name == event) {
+			snprintf(g_busy, sizeof g_busy, "event");
+			return;
+		}
+	}
+}
+
 /* Trivia, CG mode, Music mode and the castle's Gal monsters' and Poster rooms run inside the
  * town's or the castle's loop, over its screen. They are `other`, with the footer, not the
  * screen under them (2.22.1). */
@@ -1255,6 +1302,8 @@ static void build_json(char *dst, int dstsz)
 		cJSON_AddStringToObject(root, "hover", g_hover);
 	else
 		cJSON_AddNullToObject(root, "hover");
+	if (g_busy[0])
+		cJSON_AddStringToObject(root, "busy", g_busy);
 	if (g_has_party)
 		add_party_json(root);
 	if (g_has_units)
@@ -6221,6 +6270,7 @@ static void publish(void)
 	g_nvstock = 0;
 	g_has_vstock = 0;
 	collect_stack();
+	find_busy();
 
 	scene_for_each_sprite(on_scene_sprite, NULL);
 	PARTS_LIST_FOREACH(parts) {
@@ -6852,6 +6902,21 @@ int rq_ui_cmd_ui(char **json_out, char *err, int errsz)
 	return 1;
 }
 
+/* The game's choice menu (T_Select) selects a row only when the mouse moves: a mouse that already
+ * rests on the row's centre selects nothing (Advance Worlds' "Go to World 3" sits where "Go to World 2"
+ * was, and a player's clicks through the scene between do not move it). Such a mouse, and every second
+ * try, goes a pixel to the side for a published frame first (2.56.0). */
+static void hover_place(int cx, int cy, int nudge)
+{
+	int ax, ay, active;
+	mouse_agent_pos(&ax, &ay, &active);
+	if (nudge || (active && ax == cx && ay == cy)) {
+		mouse_force_pos(cx + 1, cy);
+		wait_published_after(rd_ll(&g_present_gen), FRAME_MS);
+	}
+	mouse_force_pos(cx, cy);
+}
+
 int rq_ui_cmd_hover(const char *id, char *err, int errsz)
 {
 	long long start;
@@ -6888,7 +6953,7 @@ int rq_ui_cmd_hover(const char *id, char *err, int errsz)
 			snprintf(err, errsz, "unknown-control");
 		return 0;
 	}
-	mouse_force_pos(cx, cy);
+	hover_place(cx, cy, 0);
 	start = rd_ll(&g_present_gen);
 	t0 = GetTickCount64();
 	while (GetTickCount64() - t0 < FRAME_MS) {
@@ -6899,7 +6964,7 @@ int rq_ui_cmd_hover(const char *id, char *err, int errsz)
 		Sleep(2);
 	}
 	if (ctrl_center(id, &cx, &cy)) {
-		mouse_force_pos(cx, cy);
+		hover_place(cx, cy, 1);
 		start = rd_ll(&g_present_gen);
 		t0 = GetTickCount64();
 		while (GetTickCount64() - t0 < FRAME_MS) {

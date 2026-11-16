@@ -371,9 +371,12 @@ function dungeon.active() end
 ---Returns whether the player walks the map.
 ---
 ---False when the map is hidden or suspended (a join dialog), and during a fight, a character profile,
----Config, the result and appraisal screens, and a scene or choice on the map.
+---Config, the result and appraisal screens (from the fade-in of their background, which shows the
+---map, also at the end of a quest with no map), and a scene or choice on the map.
 ---
 ---Since: 0.2.0
+---Changed: 2.56.0 False while the result screen's background fades in. It read true for a moment
+---there, as at the end of a quest with fights and no map (Incident at the Church).
 ---@return boolean exploring true while the player can walk.
 function dungeon.exploring() end
 
@@ -927,6 +930,13 @@ local ui = {}
 ---`no` for Give Up, and its tiles `item-1` to `item-15` in the window's order, with the item
 ---instance as the value (see `rq.ui.quest_storage`).
 ---
+---`busy` says what the game runs under the screen, when it runs one of these two: `"event"` while one
+---of a quest's own events runs (its messages, its scenes, its fight, and the map read between them,
+---`dungeon` with ABANDON, as before a goal's first line), and `"fight-end"` while the game waits for a
+---click after a fight before it goes on (the map shows under it, and a placed enemy is counted and
+---removed only after it). The inner one when both run. It is absent otherwise: an idle map has none.
+---A quest of kind `"menu"` (Advance Worlds) runs as an event too, so its menu has `busy = "event"`.
+---
 ---It builds the whole list, so do not call it on every `rq.on_frame`.
 ---
 ---Since: 0.20.0
@@ -948,10 +958,12 @@ local ui = {}
 ---Changed: 2.41.0 The appraisal after a quest's success is the screen `appraisal`, with `finish` and
 ---`close` (it was not listed).
 ---Changed: 2.47.0 The Quest Storage window's tiles, `item-1` to `item-15` (they were not listed).
+---Changed: 2.56.0 `busy`: a quest's event (`"event"`) or the wait after a fight (`"fight-end"`).
 ---
 ---```lua
 ---local s = rq.ui.get()
 ---if s and s.screen == "camp" then rq.log(#s.controls, "controls") end
+---if s and s.screen == "dungeon" and not s.busy then rq.log("the map is the player's") end
 ---```
 ---@return table|nil screen The screen data, or nil before the game is ready.
 ---@see rq.ui.aim
@@ -1017,8 +1029,9 @@ function ui.shot_result() end
 ---under it waits until the player picks, as under the vault's sort menu. It waits to open while the
 ---System menu or Config is open, while a scene plays, while another choice menu shows, and while the
 ---game saves (its "Auto-Saving" message holds 700 ms, and the game draws frames under it). The
----menu does not scroll, so it takes at most 20 rows. With fewer than 3 rows it draws the game's tall
----buttons.
+---menu does not scroll, so it takes at most 20 rows. It opens at the game's place (its top at y 360),
+---and a menu too tall to fit under it goes up just enough to fit on the screen. With fewer than 3 rows
+---it draws the game's tall buttons.
 ---
 ---Under the menu, the HUD still draws (a mod's page stays on the screen, under the menu), but
 ---`rq.uikit` widgets take no input and `rq.hud.capture_mouse` does nothing, so the menu gets the
@@ -1031,6 +1044,8 @@ function ui.shot_result() end
 ---
 ---Since: 2.7.0
 ---Changed: 2.50.0 Waits for the game's save to end.
+---Changed: 2.56.0 A menu too tall for the room under y 360 goes up to fit. Before, past about 12
+---rows its last rows were off the screen.
 ---
 ---```lua
 ---rq.ui.choose({ "Sell all", { id = "keep", text = "Keep the rare ones" }, "-", "Sort first" },
@@ -1158,7 +1173,8 @@ function ui.notice(text, opts) end
 ---question is turned off, whichever row they picked (a cancel turns nothing off).
 ---
 ---The window does not scroll: the rows to pick and the lines of text together are at most 20 (two
----separators count as one), for example 9 lines and 11 rows, or 20 rows and no text. With
+---separators count as one), for example 9 lines and 11 rows, or 20 rows and no text. A window too
+---tall for the room under its place goes up just enough to fit on the screen (since 2.56.0). With
 ---`opts.remember`, the "don't ask again" row and its note count as 2 more, and the separator over
 ---them as one more separator.
 ---
@@ -1170,6 +1186,7 @@ function ui.notice(text, opts) end
 ---Since: 2.19.0
 ---Changed: 2.28.0 Shown over Config; `remember`, `remember_label` and `remember_answer`.
 ---Changed: 2.44.0 `remember_checked`.
+---Changed: 2.56.0 A window too tall for the room under its place goes up to fit.
 ---
 ---```lua
 ---local pick = rq.ui.ask("Take Quest@Gem Lady?", {
@@ -1202,8 +1219,9 @@ function ui.ask(text, rows, opts) end
 ---What `rq.ui.quest_storage` returns.
 ---
 ---Since: 2.47.0
+---Changed: 2.56.0 `"failure"` explained: the game's mode that never shows a window.
 ---@class rq.UiQuestStorage
----@field mode "view"|"give-up"|"failure" Why it shows: `"view"` from the map panel's button (its close and erase buttons), `"give-up"` from Give Up (Yes and No; the items go with the quest), `"failure"` at a failed quest's end (the items go).
+---@field mode "view"|"give-up"|"failure" Why it shows: `"view"` from the map panel's button (its close and erase buttons), `"give-up"` from Give Up (Yes and No; the items go with the quest). `"failure"` is the game's call at a failed quest's end (a party defeat or a give-up, `Ｒ８クエスト倉庫(2)`), which never shows a window: the quest's end has deleted every Quest Storage item before it, so it finds none and opens nothing. It is listed as the game has it; a mod never sees it.
 ---@field z integer The window's z (`rq.sprite.scene`'s numbers).
 ---@field tiles rq.UiQuestStorageTile[] The tiles with an item, in the window's order.
 ---@field dialog boolean true while the game's question shows over it (the erase button's, Give Up's).
@@ -8047,7 +8065,12 @@ function scene.register_face(cg, name, tone) end
 
 ---Shows a list of choices and waits until the player picks one.
 ---
+---A list too tall for the room under its `y` goes up just enough to fit on the screen; one that fits
+---keeps its place.
+---
 ---Since: 0.18.0
+---Changed: 2.56.0 A list too tall for the room under its `y` goes up to fit. Before, its last rows
+---could be off the screen.
 ---
 ---```lua
 ---local pick = s.choice({ "Yes", "-", { id = 42, text = "No" } })
@@ -9306,7 +9329,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.55.1"
+rq.version = "2.56.0"
 
 rq.units = units
 rq.items = items

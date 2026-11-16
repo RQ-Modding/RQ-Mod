@@ -543,9 +543,15 @@ int rq_dungeon_active(void)
 	return g_dungeon;
 }
 
+/* Calls of the game's result flow (Ｒ８リザルト画面) under way. Its background (T_ResultBack) builds
+ * the map again, so T_MapParts@create turns the map on and clears the modal counts, and the map
+ * read as walked during the background's fade-in (2.56.0): this count is not cleared by it. */
+static int g_result_flow;
+
 int rq_dungeon_exploring(void)
 {
-	return g_dungeon && g_shown && !g_suspended && !g_battle && !g_profile && !modal_any();
+	return g_dungeon && g_shown && !g_suspended && !g_battle && !g_profile && !modal_any()
+		&& g_result_flow <= 0;
 }
 
 static void log_exploring_change(void)
@@ -588,6 +594,8 @@ static void log_exploring_change(void)
 		rq_log("Item Previews hidden: character profile");
 	else if (modal_any())
 		rq_log("Item Previews hidden: %s", modal_reason());
+	else if (g_result_flow > 0)
+		rq_log("Item Previews hidden: the result flow runs");
 	else
 		rq_log("Item Previews hidden: exploring is false");
 }
@@ -936,6 +944,7 @@ void rq_hud_after_reset(void)
 	g_battle = 0;
 	g_profile = 0;
 	modal_clear();
+	g_result_flow = 0;
 	g_block_mouse = 0;
 	g_capture_mouse = 0;
 	g_capture_last = 0;
@@ -1005,6 +1014,15 @@ int rq_hud_syscall(int code)
 			g_modal_n[i]--;
 		log_exploring_change();
 		return 1;
+	case VM_XSYS_HUD_RESULT_ON:
+		g_result_flow++;
+		log_exploring_change();
+		return 1;
+	case VM_XSYS_HUD_RESULT_OFF:
+		if (g_result_flow > 0)
+			g_result_flow--;
+		log_exploring_change();
+		return 1;
 	default:
 		return 0;
 	}
@@ -1059,6 +1077,16 @@ int rq_hud_install(struct ain *ain)
 	wrap_blocking(ain, "T_ResultItem@select", MODAL_RESULT_ITEM, 0);
 	wrap_blocking(ain, "リザルト鑑定", MODAL_RESULT_ITEM, 0);
 	wrap_lifetime(ain, "T_Result", MODAL_RESULT);
+	{
+		/* The whole result flow, its background's fade-in included (2.56.0). */
+		int f_result = find_fn(ain, "Ｒ８リザルト画面");
+		if (f_result >= 0) {
+			wrap_func_around(ain, f_result, VM_XSYS_HUD_RESULT_ON, VM_XSYS_HUD_RESULT_OFF);
+			rq_log("HUD: the result flow (Ｒ８リザルト画面) is not walking the map");
+		} else {
+			rq_log("HUD: Ｒ８リザルト画面 is not in this AIN, so it was not wrapped");
+		}
+	}
 	wrap_lifetime(ain, "T_ResultItem", MODAL_RESULT_ITEM);
 	wrap_blocking(ain, "T_MapMessage@select", MODAL_ADV, 0);
 	wrap_blocking(ain, "T_MapMessage@wait", MODAL_ADV, 0);

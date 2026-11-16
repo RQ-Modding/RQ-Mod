@@ -180,6 +180,38 @@ rq.on_reset(function()
   raise(false) -- going to the title from Config does not come back to T_Config::run's after
 end)
 
+-- ---- A long menu moved up (2.56.0) ----
+-- Every choice menu of the game opens at the place in its data (選択初期: y 360, where rq.ui.choose
+-- and rq.scene.choice put it without x and y) and grows down. Past about 12 rows it ran past the
+-- bottom of the screen and its last rows could not be clicked (Pluepet Rare Contract's "More...",
+-- the Lab's catch-up A3). T_Select::createBase gets the rows' height (its frame, 選択ＣＧ_土台作成, is
+-- 6 more): a menu that does not fit under its place goes up just enough, and the place in the data
+-- is put back after. A menu that fits, and a centred one (y -1), keep the game's place.
+local SCREEN_H, FRAME_H = 768, 6
+do
+  local moved
+  local ok, err = pcall(rq.ain.hook, "T_Select@createBase", {
+    before = function(h)
+      moved = nil
+      local nh = tonumber(h.args[2]) or 0
+      local x, y = call("選択データ_位置Ｘ"), call("選択データ_位置Ｙ")
+      if y < 0 then return end
+      local top = math.max(0, SCREEN_H - FRAME_H - nh)
+      if y > top then
+        moved = { x = x, y = y }
+        call("選択データ_位置設定", x, top)
+      end
+    end,
+    after = function()
+      if moved then
+        call("選択データ_位置設定", moved.x, moved.y)
+        moved = nil
+      end
+    end,
+  })
+  if not ok then logf("a long choice menu can run past the screen: %s", tostring(err)) end
+end
+
 -- ---- Checks ----
 
 local function running(where)
