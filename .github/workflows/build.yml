@@ -53,6 +53,11 @@ jobs:
             mingw-w64-x86_64-libsndfile
             mingw-w64-x86_64-glew
 
+      # libjpeg-turbo 3.2.1 puts a copy of zlib inside its static library, so a static link beside
+      # zlib fails (z_errmsg defined twice). 3.2.0 links. Rance Browser's workflow pins it the same way.
+      - name: Pin libjpeg-turbo 3.2.0
+        run: pacman -U --noconfirm https://repo.msys2.org/mingw/mingw64/mingw-w64-x86_64-libjpeg-turbo-3.2.0-1-any.pkg.tar.zst
+
       # rq.ids: the module, the annotations and ids.json must be what data/ids gives.
       - name: Check rq.ids
         run: python tools/ids/gen_ids.py --check
@@ -62,7 +67,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: FFmpeg/destdir
-          key: ${{ runner.os }}-ffmpeg-n7.1.2
+          key: ${{ runner.os }}-ffmpeg-n7.1.2-licenses
 
       - name: Build FFmpeg
         if: ${{ steps.cache-ffmpeg.outputs.cache-hit != 'true' }}
@@ -97,6 +102,10 @@ jobs:
           make -j$(nproc)
           mkdir destdir
           DESTDIR=destdir make install
+          # FFmpeg (LGPL-2.1-or-later, no --enable-gpl) is linked into xsystem4.exe: its license
+          # goes beside MSYS2's, so the Package step puts it in the zip.
+          mkdir -p destdir/mingw64/share/licenses/ffmpeg
+          cp LICENSE.md COPYING.LGPLv2.1 destdir/mingw64/share/licenses/ffmpeg/
 
       - name: Install FFmpeg
         run: cp -a FFmpeg/destdir/. /
@@ -144,10 +153,28 @@ jobs:
           name: RQ-MOD-${{ steps.version.outputs.version }}-windows
           path: RQ-MOD-${{ steps.version.outputs.version }}-windows.zip
 
+      # The release page: what RQ MOD is, how to install it, and this version's CHANGELOG section.
+      - name: Release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          v="${{ steps.version.outputs.version }}"
+          cat > notes.md <<'EOF'
+          Mod support for **Rance Quest Magnum**: mods in Lua, loaded at runtime. RQ MOD is a fork of [xsystem4](https://github.com/nunuhara/xsystem4); see [CREDITS.md](https://github.com/RQ-Modding/RQ-Mod/blob/main/CREDITS.md).
+
+          **Install:** extract the zip into the game's folder and start `xsystem4\xsystem4.exe`. Put each mod's folder under `mods`. The [install guide](https://rq-modding.github.io/rq-modding-docs/guide/install) has the details, and where the logs are when something goes wrong.
+
+          **Docs and the API reference:** https://rq-modding.github.io/rq-modding-docs/
+
+          EOF
+          printf '## Changes in %s\n' "$v" >> notes.md
+          awk -v v="$v" '/^## / { p = ($2 == v); next } p' CHANGELOG.md >> notes.md
+          printf '\nEvery version: [CHANGELOG.md](https://github.com/RQ-Modding/RQ-Mod/blob/main/CHANGELOG.md)\n' >> notes.md
+
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           name: RQ MOD ${{ steps.version.outputs.version }}
+          body_path: notes.md
           files: RQ-MOD-${{ steps.version.outputs.version }}-windows.zip
           fail_on_unmatched_files: true

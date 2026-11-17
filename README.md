@@ -91,14 +91,14 @@ ninja -C build
 
 This gives `build/src/xsystem4.exe` and `build/tools/rqmod-ctl/rqmod-ctl.exe`. To run it, copy into the game's `xsystem4` folder: `xsystem4.exe`, `glew32.dll` (from `/mingw64/bin`), and the `fonts` and `shaders` folders. Then copy the contents of `dist/` into the game folder.
 
-Movie playback with FFmpeg is optional; the [release workflow](.github/workflows/build.yml) shows how to build the small static FFmpeg it uses.
+Movie playback with [FFmpeg](https://ffmpeg.org/) is optional; the [release workflow](.github/workflows/build.yml) shows how to build the small static FFmpeg it uses.
 
 ### Repository layout
 
 | Path | What it is |
 | --- | --- |
 | `src/modloader*.c`, `src/lua/` | The mod loader and the `rq.*` API |
-| `dist/` | Files shipped into the game folder (`config.json`, `lua/rq.lua`, `lua/rq_ids.lua`, `.luarc.json`) |
+| `dist/` | Files shipped into the game folder (`config.json`, `lua/rq.lua`, `lua/rq_ids.lua`, `.luarc.json`, two license files MSYS2 does not install) |
 | `data/ids/` | The game's names and numbers behind `rq.ids`, read from the game by `tools/ids/extract.lua` |
 | `tools/ids/` | `gen_ids.py` builds `src/lua/ids.lua`, `dist/lua/rq_ids.lua` and `data/ids/ids.json` from `data/ids` |
 | `tools/apidoc/` | The API reference generator and the docs coverage check |
@@ -109,4 +109,4 @@ Movie playback with FFmpeg is optional; the [release workflow](.github/workflows
 
 ## License
 
-GPL-2.0-or-later, the same as xsystem4. See [COPYING](COPYING) and [CREDITS.md](CREDITS.md).
+GPL-2.0-or-later, the same as xsystem4. See [COPYING](COPYING) and [CREDITS.md](CREDITS.md), which also names the libraries in the Windows build: FFmpeg for the game's movies (LGPL-2.1-or-later), SDL2, FreeType, libsndfile and the rest, each with its license in the release zip.
