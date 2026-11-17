@@ -927,6 +927,17 @@ static int chara_skill_rows(int iic)
 	return sk->nr_vars;
 }
 
+/* A skill-list row for the calls that write one: 1 to the last row the array has. The game checks
+ * only the top (21), so a negative row was a fatal VM error (2.57.0). */
+static int need_row(lua_State *L, int iic, int idx)
+{
+	int slot = (int)luaL_checkinteger(L, idx);
+	int rows = chara_skill_rows(iic);
+	if (slot < 1 || slot >= rows)
+		return luaL_error(L, "no skill slot %d (1 to %d)", slot, rows - 1);
+	return slot;
+}
+
 int rq_lua_chara_slots(lua_State *L)
 {
 	int iic = (int)luaL_checkinteger(L, 1);
@@ -966,7 +977,7 @@ int rq_lua_chara_set_slot(lua_State *L)
 {
 	int args[3];
 	args[0] = need_chara(L, 1);
-	args[1] = (int)luaL_checkinteger(L, 2);
+	args[1] = need_row(L, args[0], 2);
 	args[2] = need_skill(L, 3, 0);
 	call_ints(g_f_slot, args, 3);
 	return 0;
@@ -975,12 +986,10 @@ int rq_lua_chara_set_slot(lua_State *L)
 int rq_lua_chara_set_flavor(lua_State *L)
 {
 	int iic = need_chara(L, 1);
-	int slot = (int)luaL_checkinteger(L, 2);
+	int slot = need_row(L, iic, 2);
 	int args[3];
 	int skill;
 	char *flavor;
-	if (slot < 1)
-		return luaL_error(L, "no skill slot %d", slot);
 	args[0] = iic;
 	args[1] = slot;
 	args[2] = -1;
@@ -1093,7 +1102,7 @@ int rq_lua_chara_set_uses(lua_State *L)
 {
 	int args[3];
 	args[0] = need_chara(L, 1);
-	args[1] = (int)luaL_checkinteger(L, 2);
+	args[1] = need_row(L, args[0], 2);
 	args[2] = (int)luaL_checkinteger(L, 4);
 	call_ints(g_f_uses_max, args, 3);
 	args[2] = (int)luaL_checkinteger(L, 3);
@@ -1105,7 +1114,7 @@ int rq_lua_chara_set_bar(lua_State *L)
 {
 	int args[3];
 	args[0] = need_chara(L, 1);
-	args[1] = (int)luaL_checkinteger(L, 2);
+	args[1] = need_row(L, args[0], 2);
 	args[2] = (int)luaL_checkinteger(L, 3);
 	call_ints(g_f_hotbar, args, 3);
 	return 0;
@@ -1115,7 +1124,7 @@ int rq_lua_chara_clear_slot(lua_State *L)
 {
 	int args[2];
 	args[0] = need_chara(L, 1);
-	args[1] = (int)luaL_checkinteger(L, 2);
+	args[1] = need_row(L, args[0], 2);
 	call_ints(g_f_clear, args, 2);
 	return 0;
 }

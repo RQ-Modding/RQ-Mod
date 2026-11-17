@@ -20,7 +20,8 @@
 --                          page's rows; the game then sorts them with compSkill as before.
 -- The page controls (install's controls, default on) are drawn for the mod that installs: a slim
 -- scroll bar beside the status page's known skills, the wheel over them, and two arrows beside the
--- skill window's KNOWN SKILLS heading.
+-- skill window's KNOWN SKILLS heading; Page Up and Page Down on both screens (2.57.0; the game reads
+-- Page Up only in a message's wait, for the backlog, and both in Config's sliders).
 local rq, priv = ...
 local ain = rq.ain
 local hook, g, set, call, len, set_len = ain.hook, ain.global, ain.set_global, ain.call, ain.global_len,
@@ -314,6 +315,39 @@ local function turn(p)
   redraw()
 end
 
+-- Page Up and Page Down where the controls show (2.57.0): a press turns a page; held, it turns again
+-- after 400 ms and then every 150 ms, as the kit's keys. A key already down when the controls come up
+-- does not count.
+local PGUP, PGDN = 33, 34
+local KEY_FIRST, KEY_NEXT = 400, 150
+local key_at, keys_on = {}, false
+
+local function page_keys(first)
+  keys_on = true
+  local function hit(code)
+    if not rq.input.key(code) then
+      key_at[code] = nil
+      return false
+    end
+    local now, at = rq.time_ms(), key_at[code]
+    if at == nil then
+      key_at[code] = first and math.huge or now + KEY_FIRST
+      return not first
+    end
+    if now >= at then
+      key_at[code] = now + KEY_NEXT
+      return true
+    end
+    return false
+  end
+  local up, down = hit(PGUP), hit(PGDN)
+  if up and not down then
+    turn(page - 1)
+  elseif down and not up then
+    turn(page + 1)
+  end
+end
+
 -- The status page: rows known-0 to known-16 at x 271 to 413, y 127 to 567; the equipment column
 -- from x 428. The bar fits the gap, as tall as the 17 rows.
 local BAR = { x = 414, y = 127, h = 440, wheel = { 271, 127, 157, 440 } }
@@ -322,9 +356,12 @@ local PREV, NEXT = { x = 274, y = 95 }, { x = 470, y = 95 }
 
 local function draw()
   local ui = rq.uikit
+  local was_on = keys_on
+  keys_on = false
   if window_chara() then
     local chara = window_chara()
     if chara ~= built_for or pages <= 1 then return end
+    page_keys(not was_on)
     local _, swt = themes()
     local old = ui.theme
     ui.use(swt)
@@ -341,6 +378,7 @@ local function draw()
   end
   local chara = status_shown()
   if not chara or chara ~= built_for or pages <= 1 then return end
+  page_keys(not was_on)
   local th = themes()
   local old = ui.theme
   ui.use(th)

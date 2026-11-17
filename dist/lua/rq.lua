@@ -2265,10 +2265,14 @@ function skilllist.page_count() end
 ---
 ---The page controls are drawn for the mod that calls `install`: a scroll bar 14 pixels wide between
 ---the known skills and the equipment on the status page (the wheel over the skills turns it too) and
----the game's two arrows beside KNOWN SKILLS in the skill window. `install{ controls = false }` leaves
----them out, for a mod with its own; it then turns pages with `set_page`.
+---the game's two arrows beside KNOWN SKILLS in the skill window. Page Up and Page Down turn the page
+---on both screens (held, they turn again after 400 ms and then every 150 ms); the game reads neither
+---there. `install{ controls = false }` leaves all of them out, for a mod with its own; it then turns
+---pages with `set_page`.
 ---
 ---Since: 2.54.0
+---
+---Changed: 2.57.0 Page Up and Page Down with the controls.
 ---
 ---```lua
 ---rq.knownskills.install({ most = 34 })
@@ -2290,7 +2294,7 @@ local knownskills = {}
 ---or game code that is not as expected.
 ---
 ---Since: 2.54.0
----@param opts? {most?: integer, controls?: boolean} `most`: the most known skills, 17 to 102 (17 is the game's own, 17 more for each page). Default 34. `controls = false` leaves out the scroll bar and the arrows. Default true.
+---@param opts? {most?: integer, controls?: boolean} `most`: the most known skills, 17 to 102 (17 is the game's own, 17 more for each page). Default 34. `controls = false` leaves out the scroll bar, the arrows and the keys. Default true.
 ---@return boolean ok true when the rows are longer (or were already).
 ---@see rq.knownskills.set_page
 function knownskills.install(opts) end
@@ -2804,9 +2808,10 @@ function chara.slots(iic) end
 ---
 ---Only the number changes; the uses and the battle-log line stay. See `rq.chara.set_flavor`.
 ---
----Raises an error for a slot with no character or a skill number outside 0 to 1000.
+---Raises an error for a slot with no character, a row outside 1 to the list's last row (20, more with `rq.knownskills`) or a skill number outside 0 to 1000.
 ---
 ---Since: 0.2.0
+---Changed: 2.57.0 A row out of the list is an error; before, a negative row closed the game with a fatal VM error.
 ---@param iic integer The character's roster slot.
 ---@param slot integer The skill-list row.
 ---@param skillId integer The skill number; 0 empties the number.
@@ -2816,9 +2821,10 @@ function chara.set_slot(iic, slot, skillId) end
 ---
 ---The game's own slot swaps skip this, so call it after `rq.chara.set_slot`.
 ---
----Raises an error for a slot with no character or a row under 1.
+---Raises an error for a slot with no character or a row outside 1 to the list's last row (20, more with `rq.knownskills`).
 ---
 ---Since: 0.2.0
+---Changed: 2.57.0 A row out of the list is an error; before, a negative row closed the game with a fatal VM error.
 ---@param iic integer The character's roster slot.
 ---@param slot integer The skill-list row.
 function chara.set_flavor(iic, slot) end
@@ -2902,9 +2908,10 @@ function chara.set_offer(index, skillId, points) end
 ---
 ---The most uses is written first; the game caps it at 99.
 ---
----Raises an error for a slot with no character.
+---Raises an error for a slot with no character or a row outside 1 to the list's last row (20, more with `rq.knownskills`).
 ---
 ---Since: 0.2.0
+---Changed: 2.57.0 A row out of the list is an error; before, a negative row closed the game with a fatal VM error.
 ---@param iic integer The character's roster slot.
 ---@param slot integer The skill-list row.
 ---@param uses integer Uses left.
@@ -2913,9 +2920,10 @@ function chara.set_uses(iic, slot, uses, max) end
 
 ---Puts a skill-list row on the hotbar, or takes it off (`ＣＳ実装中`).
 ---
----Raises an error for a slot with no character.
+---Raises an error for a slot with no character or a row outside 1 to the list's last row (20, more with `rq.knownskills`).
 ---
 ---Since: 0.2.0
+---Changed: 2.57.0 A row out of the list is an error; before, a negative row closed the game with a fatal VM error.
 ---@param iic integer The character's roster slot.
 ---@param slot integer The skill-list row.
 ---@param pos integer The hotbar position, 1 to 6; 0 takes it off.
@@ -2923,9 +2931,10 @@ function chara.set_bar(iic, slot, pos) end
 
 ---Empties a skill-list row (`ＣＳ初期化`).
 ---
----Raises an error for a slot with no character.
+---Raises an error for a slot with no character or a row outside 1 to the list's last row (20, more with `rq.knownskills`).
 ---
 ---Since: 0.2.0
+---Changed: 2.57.0 A row out of the list is an error; before, a negative row closed the game with a fatal VM error.
 ---@param iic integer The character's roster slot.
 ---@param slot integer The skill-list row.
 function chara.clear_slot(iic, slot) end
@@ -4529,7 +4538,7 @@ function item.on_can_equip(fn) end
 ---screen's drag, the status page, buying onto a character in the shop, `rq.item.give` with `to`
 ---and `rq.item.equip`. It runs once the slot holds the item, after the game has worked out the
 ---stats again and, for a Special item, done its own effects (Skill Again, a Morurun). Putting the
----same instance on again does not call it. An item taken off does not call it.
+---same instance on again does not call it. An item taken off calls `rq.item.on_unequip` instead.
 ---
 ---This is the place for an item that does something once, when equipped: give a skill, then
 ---`rq.chara.recalc`. With `vanishes = true` in `rq.item.define`, the game deletes the item when it
@@ -4552,7 +4561,56 @@ function item.on_can_equip(fn) end
 ---@param fn fun(ctx: rq.EquipCtx) Gets the item and the character. Its return value is not used.
 ---@return fun() remove Removes this callback.
 ---@see rq.item.on_can_equip
+---@see rq.item.on_unequip
 function item.on_equip(fn) end
+
+---What `rq.item.on_unequip` gets.
+---
+---Since: 2.57.0
+---@class rq.UnequipCtx
+---@field ii integer The item instance that came off. With `vanished`, the game has already deleted it; after a Morurun absorbs a Special item, it deletes it right after the callbacks.
+---@field no integer The item number (`Ｉ固有番号`), read before it came off.
+---@field id? string A mod item's text id, as `rq.item.define` named it; nil for a game item.
+---@field iic integer The character's roster slot.
+---@field chara integer The character number (`Ｃ番号`).
+---@field slot "special"|"weapon"|"armor"|"item" The slot.
+---@field kind integer The slot as the game numbers it: 21 special, 1 weapon, 11 armor, 17 item.
+---@field equip boolean true when it came off through the game's equip call (`キャラ_装備設定`: REMOVE, a drag, a swap, `rq.item.equip`, and `rq.item.remove`, `sell` and `donate` on a worn item); false when the game took it off itself (a character removed, a Morurun absorbing it, a quest's event).
+---@field by integer The instance put on in its place by the same equip call, 0 for none.
+---@field vanished boolean true when the game deleted it as it came off: an item that vanishes when taken off (Rocky Chunk, `vanishes` in `rq.item.define`), through the equip call.
+
+---Calls `fn` each time an item comes off a character.
+---
+---It runs for every way an item leaves a character's slot: the vault's and the status page's REMOVE,
+---a drag to another place, a swap for another item (`by`), `rq.item.equip`, `rq.item.remove`,
+---`sell` and `donate` on a worn item, and the game's own (a character removed from the roster, a Morurun absorbing a Special item, a
+---quest's event that takes an item off). They all go through `Ｃアイテム外す`. Through the game's
+---equip call (`equip` true) it runs once that call has ended, before `rq.item.on_equip` for the item
+---put in its place; otherwise it runs as the item comes off. Putting the same instance on again does
+---not call it.
+---
+---This is the place for what an item gives only while it is worn: take it back here. The stats are
+---worked out again after the equip call; for the game's own removals, call `rq.chara.recalc`.
+---
+---A callback's error is logged once per mod.
+---
+---Since: 2.57.0
+---
+---```lua
+---local SKILL = 373 -- a skill the ring gives while it is worn
+---local RING = rq.item.define({ id = "mymod:ring", name = "Ring", type = "special", icon = 6331,
+---  price = 500, info = "Worn: the wearer knows the skill." })
+---rq.item.on_equip(function(ctx)
+---  if ctx.no == RING then rq.chara.grant(ctx.iic, SKILL, 0) rq.chara.recalc(ctx.iic) end
+---end)
+---rq.item.on_unequip(function(ctx)
+---  if ctx.no == RING then rq.chara.forget(ctx.iic, SKILL) rq.chara.recalc(ctx.iic) end
+---end)
+---```
+---@param fn fun(ctx: rq.UnequipCtx) Gets the item and the character. Its return value is not used.
+---@return fun() remove Removes this callback.
+---@see rq.item.on_equip
+function item.on_unequip(fn) end
 
 ---What `rq.item.find` and `rq.item.count` take.
 ---
@@ -9343,7 +9401,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.56.1"
+rq.version = "2.57.0"
 
 rq.units = units
 rq.items = items

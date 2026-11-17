@@ -556,69 +556,139 @@ function text_install()
   end })
 end
 
--- ---- rq.item.on_equip (2.55.0) ----
+-- ---- rq.item.on_equip (2.55.0) and on_unequip (2.57.0) ----
 -- キャラ_装備設定(iic, kind, ii) is the one call the game equips through: the vault's and the
 -- storage screen's drag and the shop's buy for a character (T_EquitItem::setItem), the status
 -- page (キャラ_装備変更) and rq.item.equip. It returns true once the slot holds the item, the item
 -- it replaced deleted when that one vanishes (アイテム_消滅します), the stats worked out again and,
 -- for the Special slot, the game's own item effects done (Ｃオプション装備後). The before side keeps
 -- the item it replaces; the after side calls the callbacks for an item put on.
+-- Ｃアイテム外す(iic, kind) is the one place an item comes off a character: inside キャラ_装備設定
+-- (each slot's setter takes the old item off first, or with 0), and by the game itself in Ｃ削除 (a
+-- character removed), a Morurun absorbing a Special item (Ｃ体内特殊アイテムの取得処理, then Ｉ初期化)
+-- and a few quests' events. Its before side reads the item, since one that vanishes is deleted right
+-- after; inside キャラ_装備設定 the callbacks wait for that call's end (the item off first, then the
+-- one put on), elsewhere they run when Ｃアイテム外す returns.
 
 local SLOT_NAMES = { [21] = "special", [1] = "weapon", [11] = "armor", [17] = "item" }
-local equip_list, equip_hooked, equip_old = {}, false, nil
+local SLOT_GET = { [21] = "Ｃオプション", [1] = "Ｃ武器", [11] = "Ｃ防具", [17] = "Ｃ持ち物" }
+local equip_list, unequip_list = {}, {}
+local equip_hooked, unequip_hooked = false, false
+-- One entry per キャラ_装備設定 running: the item it puts on, the one it replaces, and the items
+-- Ｃアイテム外す took off inside it. One per Ｃアイテム外す running: the item it takes off.
+local equipping, taking = {}, {}
+
+local function call_back(list, name, ctx)
+  for _, x in ipairs({ table.unpack(list) }) do
+    local ok, r = pcall(x.fn, ctx)
+    if not ok then
+      r = tostring(r)
+      if not x.seen[r] then
+        x.seen[r] = true
+        rq.log(("rq.item.%s (%s): %s"):format(name, x.mod, r))
+      end
+    end
+  end
+end
+
+local function slot_ctx(ii, no, iic, kind)
+  local okc, chara = pcall(call, "キャラ_番号", iic)
+  local ctx = { ii = ii, no = no, iic = iic, chara = okc and int(chara) and chara or 0,
+    slot = SLOT_NAMES[kind], kind = kind }
+  local oki, id = pcall(item.id_of, no)
+  if oki and type(id) == "string" then ctx.id = id end
+  return ctx
+end
 
 local function equip_install()
   if equip_hooked then return end
   equip_hooked = true
   rq.ain.hook("キャラ_装備設定", {
     before = function(h)
-      equip_old = nil
-      if #equip_list == 0 then return end
       local iic, kind = h.args[1], h.args[2]
-      if not int(iic) or not int(kind) then return end
-      local ok, old = pcall(call, "キャラ_装備取得", iic, kind)
-      equip_old = { iic = iic, kind = kind, old = ok and int(old) and old > 0 and old or 0 }
+      local e = { iic = iic, kind = kind, ii = h.args[3], old = 0, off = {} }
+      if (#equip_list > 0 or #unequip_list > 0) and int(iic) and int(kind) and SLOT_NAMES[kind] then
+        local ok, old = pcall(call, "キャラ_装備取得", iic, kind)
+        e.old = ok and int(old) and old > 0 and old or 0
+      end
+      equipping[#equipping + 1] = e
     end,
     after = function(h)
-      local before = equip_old
-      equip_old = nil
+      local e = table.remove(equipping)
+      if not e then return end
+      for _, ctx in ipairs(e.off) do call_back(unequip_list, "on_unequip", ctx) end
       if h.result ~= true or #equip_list == 0 then return end
       local iic, kind, ii = h.args[1], h.args[2], h.args[3]
       if not int(iic) or not int(kind) or not int(ii) or ii <= 0 or not SLOT_NAMES[kind] then return end
-      local old = before and before.iic == iic and before.kind == kind and before.old or 0
+      local old = e.iic == iic and e.kind == kind and e.old or 0
       if old == ii then return end
       local okn, no = pcall(call, "Ｉ固有番号", ii, -1)
-      local okc, chara = pcall(call, "キャラ_番号", iic)
-      local ctx = { ii = ii, no = okn and int(no) and no or 0, iic = iic,
-        chara = okc and int(chara) and chara or 0, slot = SLOT_NAMES[kind], kind = kind, old = old }
-      local oki, id = pcall(item.id_of, ctx.no)
-      if oki and type(id) == "string" then ctx.id = id end
-      for _, x in ipairs({ table.unpack(equip_list) }) do
-        local ok, r = pcall(x.fn, ctx)
-        if not ok then
-          r = tostring(r)
-          if not x.seen[r] then
-            x.seen[r] = true
-            rq.log(("rq.item.on_equip (%s): %s"):format(x.mod, r))
-          end
-        end
-      end
+      local ctx = slot_ctx(ii, okn and int(no) and no or 0, iic, kind)
+      ctx.old = old
+      call_back(equip_list, "on_equip", ctx)
     end,
   })
 end
 
-function item.on_equip(fn)
-  if type(fn) ~= "function" then error("rq.item.on_equip: expected a function", 2) end
+local function unequip_install()
+  if unequip_hooked then return end
+  unequip_hooked = true
+  equip_install()
+  rq.ain.hook("Ｃアイテム外す", {
+    before = function(h)
+      local iic, kind = h.args[1], h.args[2]
+      local t = false
+      if #unequip_list > 0 and int(iic) and int(kind) and SLOT_GET[kind] then
+        local ok, ii = pcall(call, SLOT_GET[kind], iic, -1)
+        if ok and int(ii) and ii > 0 then
+          local okn, no = pcall(call, "Ｉ固有番号", ii, -1)
+          local okv, v = pcall(call, "アイテム_消滅します", ii)
+          t = { iic = iic, kind = kind, ii = ii, no = okn and int(no) and no or 0,
+            vanishes = okv and int(v) and v > 0 or false }
+        end
+      end
+      taking[#taking + 1] = t
+    end,
+    after = function()
+      local t = table.remove(taking)
+      if not t or #unequip_list == 0 then return end
+      local ctx = slot_ctx(t.ii, t.no, t.iic, t.kind)
+      local e = equipping[#equipping]
+      if e and e.iic == t.iic and e.kind == t.kind then
+        -- The setter takes the slot's item off before it puts one on, the same one too.
+        if int(e.ii) and e.ii == t.ii then return end
+        ctx.equip = true
+        ctx.by = int(e.ii) and e.ii > 0 and e.ii or 0
+        ctx.vanished = t.vanishes
+        e.off[#e.off + 1] = ctx
+        return
+      end
+      ctx.equip, ctx.by, ctx.vanished = false, 0, false
+      call_back(unequip_list, "on_unequip", ctx)
+    end,
+  })
+end
+
+local function add_cb(list, name, fn, install)
+  if type(fn) ~= "function" then error("rq.item." .. name .. ": expected a function", 3) end
   local id = "?"
   pcall(function() id = rq.mod.id() or "?" end)
   local x = { fn = fn, mod = id, seen = {} }
-  equip_list[#equip_list + 1] = x
-  equip_install()
+  list[#list + 1] = x
+  install()
   return function()
-    for i, y in ipairs(equip_list) do
-      if y == x then table.remove(equip_list, i) return end
+    for i, y in ipairs(list) do
+      if y == x then table.remove(list, i) return end
     end
   end
+end
+
+function item.on_equip(fn)
+  return add_cb(equip_list, "on_equip", fn, equip_install)
+end
+
+function item.on_unequip(fn)
+  return add_cb(unequip_list, "on_unequip", fn, unequip_install)
 end
 
 -- ---- rq.ItemDef.keep (2.50.0) ----
