@@ -4450,7 +4450,10 @@ static void fill_status_from_chara(int chara)
 	g_status.level = fint_utf(c, "\xEF\xBC\xAC\xEF\xBC\xB6");
 	lv_max = fint_utf(c, "\xEF\xBC\xAC\xEF\xBC\xB6\xE6\x9C\x80\xE5\xA4\xA7");
 	g_status.level_max = lv_max;
-	g_status.no_limit = (lv_max == 2147483647);
+	/* The card's m_bInfinity, read in fill_status, is the game's answer (its no-cap
+	 * check by the character's number); a cap in the data is never 2147483647 (2.59.1). */
+	if (lv_max == 2147483647)
+		g_status.no_limit = 1;
 	g_status.exp = fint_utf(c, "\xEF\xBC\xA5\xEF\xBC\xB8\xEF\xBC\xB0"); /* ï¼¥ï¼¸ï¼° */
 	g_status.exp_max = fint_utf(c, "\xEF\xBC\xA5\xEF\xBC\xB8\xEF\xBC\xB0\xE6\x9C\x80\xE5\xA4\xA7");
 	g_status.hp = fint_utf(c, "\xE4\xBD\x93\xE5\x8A\x9B"); /* ä½“åŠ› */
