@@ -438,6 +438,7 @@ int rq_lua_hud_set_under_z(struct lua_State *L);
 int rq_lua_menu_comment(struct lua_State *L);
 int rq_lua_ain_patch_local_int(struct lua_State *L);
 int rq_lua_ain_patch_imm(struct lua_State *L);
+int rq_lua_ain_patch_call_local(struct lua_State *L);
 /* modloader_scene.c: where rq.ain.hook's stubs jump, for the code patches (2.34.0). */
 int rq_hook_codes(const uint32_t **out);
 int rq_lua_hud_screen(struct lua_State *L);
@@ -527,7 +528,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.56.0"
+#define RQ_VERSION "2.56.1"
 
 struct rq_qbattle_skill {
 	int id;

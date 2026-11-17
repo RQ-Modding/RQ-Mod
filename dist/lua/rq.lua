@@ -5021,10 +5021,16 @@ function combat.on_counter(fn) end
 ---gives at least 1 HP. A heal the game makes 0 (a downed target, Medicine on Suzume, skill 366) is
 ---not reported.
 ---
+---A skill on the whole party (Recovery Rain) gives one heal to each ally in the fight, a downed one
+---too; the party's empty places get none.
+---
 ---Regeneration at a turn start is not a skill: give or take it with `rq.battle.on_turn`'s
 ---`ctx:heal`. Outside fights the game's heals are `rq.chara.heal` and `rq.party.heal`.
 ---
 ---Since: 2.37.0
+---Changed: 2.56.1 The game's whole-party support (`戦闘味方_全体補助`) checked its user at each of
+---the five places, not the place, so an empty place was healed too: a callback with `target` 0 and
+---a line with no name in the log. The loader makes it check the place.
 ---
 ---```lua
 ---rq.combat.on_heal(function(ctx)
@@ -5954,19 +5960,24 @@ function battle.on_hit(fn) end
 ---@field attacker integer The attacker's roster slot.
 ---@field defender integer The target's roster slot.
 ---@field skill integer The skill number.
----@field text string The game's line so far, such as "Battle Forecast:  Accuracy 85%  Stun 10%　△Medium damage"; "" for a skill the game makes no forecast for.
+---@field text string The game's line so far, such as "Battle Forecast:  Accuracy 85%  Stun 10%　△Medium damage"; "" for a skill the game makes no forecast for, as a support skill (Am Powder on an enemy).
 
 ---Calls `fn` each time the game builds a battle forecast line, to add text to it.
 ---
 ---With Battle Forecast (488) in the party, the game shows the line when the player points a skill
----at a target: the hit chance, the stun chance and a damage word for an attack, the capture rate
----for a capture. The line is built again on every hover, so `fn` must be quick and roll no dice.
----The strings of every callback are added in load order. The damage word already counts mod states
----and the `rq.combat` callbacks, which run with `ctx.forecast` true.
+---at an enemy: the hit chance, the stun chance and a damage word for an attack, the capture rate
+---for a capture. A skill aimed at an ally (a heal, a support skill on the party) gets no line and
+---no call, whatever `fn` would return. For a support skill aimed at an enemy the game builds
+---nothing (`ctx.text` is ""), and `fn` is still called: its text is the whole line. The line is
+---built again on every hover, so `fn` must be quick and roll no dice. The strings of every callback
+---are added in load order. The damage word already counts mod states and the `rq.combat`
+---callbacks, which run with `ctx.forecast` true.
 ---
 ---Raises an error, logged, for a return that is not a string or nil.
 ---
 ---Since: 2.26.0
+---Changed: 2.56.1 The doc: the line only for a skill aimed at an enemy, and a support skill's
+---`text` "".
 ---
 ---```lua
 ---rq.battle.on_forecast(function(ctx)
@@ -6771,7 +6782,7 @@ function battle.skill_usable(actor, skill_no) end
 
 ---How a fight from `rq.battle.start` ended, its second value.
 ---@class rq.FightResult
----@field code integer The game's end (`rq.battle.on_end`'s `result`): 1 won, 2 lost, 3 a draw (the enemies gone with no ally standing), 4 the actions ran out and the enemies left, 5 the party fled (Escape), 6 fled by skill 217.
+---@field code integer The game's end (`rq.battle.on_end`'s `result`): 1 won, 2 lost, 3 a draw (the enemies gone with no ally standing: the game's log says "Draw", as for 4; before 2.56.1 it froze the game), 4 the actions ran out and the enemies left, 5 the party fled (Escape), 6 fled by skill 217.
 ---@field how "won"|"lost"|"draw"|"time"|"fled"|"other" The end in a word.
 ---@field exp integer The fight's EXP the result screen showed, after every `rq.battle.on_reward` callback; 0 when the fight paid nothing.
 ---@field gold integer The gold paid, after every `rq.battle.on_reward` callback; 0 when the fight paid nothing.
@@ -7645,7 +7656,10 @@ local world = {}
 ---```lua
 ---if rq.world.current() == 3 then rq.log("last world") end
 ---```
----@return integer|nil world 1 to 3, or nil before a save is loaded.
+---Changed: 2.56.1 nil at the title: the game sets the world to 1 when it starts, before the
+---title, and this answered 1 there. A save counts as loaded from the game's load (the autosave or
+---the suspend save) or a new game's first quest until the title shows again.
+---@return integer|nil world 1 to 3, or nil before a save is loaded (at the title too).
 function world.current() end
 
 ---What `rq.world.on_transfer` and `on_transfer_after` callbacks get.
@@ -9329,7 +9343,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.56.0"
+rq.version = "2.56.1"
 
 rq.units = units
 rq.items = items

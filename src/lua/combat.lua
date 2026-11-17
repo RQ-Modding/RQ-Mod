@@ -1052,5 +1052,19 @@ function combat.set_rules(skill, rules)
   return combat.rules(skill)
 end
 
+-- The game's whole-party support (戦闘味方_全体補助: Recovery Rain, the party's buffs, the
+-- familiar's) asked at each of the five places whether its user stood, not whether anyone stood
+-- there, so an empty place got the skill too: rq.combat.on_heal with target 0 and a blank line in
+-- the log. It asks about the place now, as the game's own 戦闘味方_全体加護 does (2.56.1). A downed
+-- character still counts: the check is the place's character, not its HP.
+do
+  local ok, n = pcall(priv.patch_call_local, "戦闘味方_全体補助", "戦闘番号_存在確認", "nNo", "nTargetNo")
+  if ok and n == 1 then
+    logf("rq.combat: the whole-party support skips the empty places")
+  else
+    logf("rq.combat: the whole-party support's check not changed (%s)", tostring(n))
+  end
+end
+
 -- choices.lua (2.38.0) runs after this file and shares the callback lists' helpers.
 priv.callbacks = { handlers = handlers, run = run, report = report }

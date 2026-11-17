@@ -50,7 +50,43 @@ local function world_now()
   return 0
 end
 
+-- Whether a save is loaded (2.56.1). The game sets ◆ワールド to 1 at boot (Ｔ初期化, before the
+-- title), so the world alone said 1 at the title. タイトル画面 (each time the title shows) clears it;
+-- Ｔロード直後処理 (the autosave's and the suspend save's load) and Ｔクエスト (each quest's start,
+-- the new game's prologue first) set it. Each hook is placed once; one that fails is tried again
+-- each frame, as savedata.lua's are.
+local loaded = false
+local LOADED_HOOKS = {
+  { "タイトル画面", false },
+  { "Ｔロード直後処理", true },
+  { "Ｔクエスト", true },
+}
+local loaded_placed = {}
+
+local function hook_loaded()
+  local all = true
+  for i, h in ipairs(LOADED_HOOKS) do
+    if not loaded_placed[i] then
+      local value = h[2]
+      if pcall(hook, h[1], { before = function() loaded = value end }) then
+        loaded_placed[i] = true
+      else
+        all = false
+      end
+    end
+  end
+  return all
+end
+
+if not hook_loaded() then
+  local stop
+  stop = rq.on_frame(function()
+    if hook_loaded() and stop then stop() end
+  end)
+end
+
 function world.current()
+  if not loaded then return nil end
   local w = world_now()
   return w >= 1 and w or nil
 end

@@ -775,7 +775,12 @@ int rq_events_syscall(int code)
 		rq_battle_flames_clear();
 		rq_battle_marks_live(0);
 		run_cbs(g_end_cb, g_nend, 0, re, 0);
-		stack_push(re);
+		/* A draw (3: the last enemy fell in an action that left no ally standing) reaches the
+		 * game's 戦闘後処理 as 4 (2.56.1): its log loop leaves for 1, 2, 4, 5 and 6 only and
+		 * spun for good on 3. The callbacks above saw the 3; 4's line says "Draw" too, and the
+		 * value matters nowhere else there (the item pickup is re == 1). The callers keep their
+		 * own result. This wrapper is always placed (flame_install, after the mods load). */
+		stack_push(re == 3 ? 4 : re);
 		return 1;
 	}
 	default:

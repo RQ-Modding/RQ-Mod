@@ -1198,6 +1198,76 @@ int rq_lua_ain_patch_imm(lua_State *L)
 	return 1;
 }
 
+static int local_index(struct ain_function *f, const char *utf8)
+{
+	char *sjis = utf2sjis(utf8, 0);
+	int li = -1;
+	for (int i = 0; sjis && i < f->nr_vars; i++) {
+		if (f->vars[i].name && !strcmp(f->vars[i].name, sjis)) {
+			li = i;
+			break;
+		}
+	}
+	free(sjis);
+	return li;
+}
+
+/* combat.lua's (2.56.1), not part of rq: the local a function hands to a one-argument call,
+ * changed to another of its locals: SH_LOCALREF from; CALLFUNC callee, or the long form
+ * PUSHLOCALPAGE; PUSH from; REF; CALLFUNC callee. For the game's 戦闘味方_全体補助, which checked
+ * the user (nNo) where it meant each place (nTargetNo).
+ * priv.patch_call_local(name, callee, from, to) -> count. */
+int rq_lua_ain_patch_call_local(lua_State *L)
+{
+	const char *name = luaL_checkstring(L, 1);
+	const char *callee = luaL_checkstring(L, 2);
+	const char *from = luaL_checkstring(L, 3);
+	const char *to = luaL_checkstring(L, 4);
+	uint32_t ip, end, prev[3] = { 0, 0, 0 };
+	int fno, cno, body, lf, lt, seen = 0, hit = 0;
+	if (!g_ain)
+		return luaL_error(L, "AIN not loaded");
+	fno = find_func_utf8(g_ain, name);
+	if (fno < 0)
+		return luaL_error(L, "function not found: %s", name);
+	cno = find_func_utf8(g_ain, callee);
+	if (cno < 0)
+		return luaL_error(L, "function not found: %s", callee);
+	body = body_fno(g_ain, fno);
+	lf = local_index(&g_ain->functions[body], from);
+	lt = local_index(&g_ain->functions[body], to);
+	if (lf < 0 || lt < 0)
+		return luaL_error(L, "%s has no local %s", name, lf < 0 ? from : to);
+	end = code_end(g_ain, body);
+	for (ip = code_start(g_ain, body); ip + 2 <= end; ) {
+		unsigned op = rd16(g_ain->code + ip) & 0x3FFFu;
+		int n = op < NR_OPCODES ? instructions[op].nr_args : 0;
+		if (n < 0 || n > 4)
+			n = 0;
+		if (ip + 2 + (uint32_t)n * 4 > end)
+			break;
+		if (op == CALLFUNC && rd32(g_ain->code + ip + 2) == cno && seen >= 1) {
+			uint8_t *p0 = g_ain->code + prev[0];
+			if (rd16(p0) == SH_LOCALREF && rd32(p0 + 2) == lf) {
+				wr32(p0 + 2, lt);
+				hit++;
+			} else if (seen >= 3 && rd16(p0) == REF && rd16(g_ain->code + prev[1]) == PUSH
+				   && rd32(g_ain->code + prev[1] + 2) == lf
+				   && rd16(g_ain->code + prev[2]) == PUSHLOCALPAGE) {
+				wr32(g_ain->code + prev[1] + 2, lt);
+				hit++;
+			}
+		}
+		prev[2] = prev[1];
+		prev[1] = prev[0];
+		prev[0] = ip;
+		seen++;
+		ip += 2 + (uint32_t)n * 4;
+	}
+	lua_pushinteger(L, hit);
+	return 1;
+}
+
 /* rq.ain.patch_int_after(name, global, from, to [, nth_ref [, window]]) */
 static int l_patch_int_after(lua_State *L)
 {

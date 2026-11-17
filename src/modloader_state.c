@@ -224,6 +224,9 @@ void rq_state_private(lua_State *L, int priv)
 	/* 2.54.0: the skill rows' numbers in the game's code (lua/knownskills.lua). */
 	lua_pushcfunction(L, rq_lua_ain_patch_imm);
 	lua_setfield(L, priv, "patch_imm");
+	/* 2.56.1: a local handed to a call, changed to another (lua/combat.lua, the whole-party support). */
+	lua_pushcfunction(L, rq_lua_ain_patch_call_local);
+	lua_setfield(L, priv, "patch_call_local");
 }
 
 int rq_lua_random_seed(lua_State *L)
