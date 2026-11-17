@@ -4612,6 +4612,53 @@ function item.on_equip(fn) end
 ---@see rq.item.on_equip
 function item.on_unequip(fn) end
 
+---What `rq.item.on_try_equip` gets.
+---
+---Since: 2.58.0
+---@class rq.TryEquipCtx
+---@field ii integer The item instance the player puts on.
+---@field no integer The item number (`Ｉ固有番号`).
+---@field id? string A mod item's text id, as `rq.item.define` named it; nil for a game item.
+---@field iic integer The character's roster slot.
+---@field chara integer The character number (`Ｃ番号`).
+---@field slot "special"|"weapon"|"armor"|"item" The slot.
+---@field kind integer The slot as the game numbers it: 21 special, 1 weapon, 11 armor, 17 item.
+---@field old integer The instance the slot holds now, 0 for none.
+---@field from "vault"|"storage"|"shop"|"status" Where the player does it: a drag from the vault, from the storage screen or from the shop's rack onto a character's row, or a pick in the status page's item list.
+
+---Calls `fn` when the player puts an item on a character, before anything happens, so a mod can ask
+---first or stop it.
+---
+---It runs for the player's own equips on the game's screens: a drag onto a character's row in the
+---vault's or the storage screen's equip list, a drag from the shop's rack onto one (a purchase), and a
+---pick in the status page's item list. It runs before the game's own questions (taking the old item
+---off, "Purchase X?"), and only where the game would go on: a grey row, a refusal (the game's or
+---`rq.item.on_can_equip`'s, with its text), `rq.shop.on_can_buy` and not enough money stop the
+---attempt first, and then it does not run. Equips a mod makes (`rq.item.equip`, `rq.item.give` with
+---`to`, `rq.item.buy`) do not call it.
+---
+---`fn` returns false to stop the attempt: nothing changes, the dragged tile goes back, the status page
+---stays as it was. Any other answer goes on, and the next callback is asked. `fn` may ask the player:
+---`rq.ui.confirm` waits for the answer there.
+---
+---A callback's error is logged once per mod, and the attempt goes on.
+---
+---Since: 2.58.0
+---
+---```lua
+---local ROCKY_CHUNK = 310
+---rq.item.on_try_equip(function(ctx)
+---  if ctx.no == ROCKY_CHUNK and rq.ain.call("ＣＦＡ", ctx.iic, 36, -1) == 7 then
+---    return rq.ui.confirm("Rock On's points are already there.\nEquip it anyway?", { cursor = "no" }) == true
+---  end
+---end)
+---```
+---@param fn fun(ctx: rq.TryEquipCtx): boolean? Returns false to stop the attempt.
+---@return fun() remove Removes this callback.
+---@see rq.item.on_can_equip
+---@see rq.item.on_equip
+function item.on_try_equip(fn) end
+
 ---What `rq.item.find` and `rq.item.count` take.
 ---
 ---A place is `"vault"` (7), `"storage"` (11), `"quest"` (8, quest storage), `"worn"` (on a
@@ -8343,17 +8390,18 @@ function castle.rooms() end
 ---@class rq.GameButtonSpec
 ---@field id string The mod's own name for the entry; one per mod.
 ---@field label string The text of its row in the list.
----@field on_click fun(entry: rq.GameButtonHandle) Runs when the player picks it: in "system-menu" after the menus close; in "skill-window", "status" and "map" with the window, page or map still there, after the game's click sound.
+---@field on_click? fun(entry: rq.GameButtonHandle) Runs when the player picks it: in "system-menu" after the menus close; in "skill-window", "status" and "map" with the window, page or map still there, after the game's click sound. Needed everywhere but in "status"'s `spot = "left"`, whose icons take no click (an error there).
 ---@field group? "system-menu"|"skill-window"|"status"|"map" The game's group. Default "system-menu". "map" since 2.32.0.
+---@field spot? "title"|"left" "status" only: `"title"` (the default), a button in the title row by the X; `"left"`, an icon that is not a button at the left end of the LV row, under the class icon (see `rq.gamebutton`). Since 2.58.0.
 ---@field enabled? boolean|fun(chara?: integer): boolean "system-menu": false leaves it out of the list. "skill-window", "status" and "map": false greys the button (a click plays the deny sound and runs nothing). A function is asked each time the list or the window's skill list is built, in "status" on every draw of the card, with the character shown, and in "map" every 200 ms while the map shows, with no argument. Default true.
 ---@field tip? string|fun(chara: integer): string? The game's comment while the entry is under the mouse or the keys: beside the list ("system-menu"), under the button with the label as its title ("skill-window"), or beside the icon with the label as its title ("status", also on a greyed one; "map", left of the tab). A function only in "status" and "map", asked when the tip opens (in "status" with the character shown); nil or "" shows none. In "status" and "map", `\n` starts a line.
----@field icon? integer "status" and "map" only, and needed there: the CG drawn as the button, such as one from `rq.image.add` or `rq.image.compose`. The cell is 32 × 29 in "status" and 32 × 34 inside the 40 × 44 tab in "map": a smaller icon is centered, a larger one shrunk to fit. Since 2.20.0.
+---@field icon? integer|fun(chara: integer, mode: rq.StatusPageMode?): integer "status" and "map" only, and needed there: the CG drawn as the button, such as one from `rq.image.add` or `rq.image.compose`. The cell is 32 × 29 in "status"'s title row, 32 × 26 in its left spot, and 32 × 34 inside the 40 × 44 tab in "map": a smaller icon is centered, a larger one shrunk to fit. In "status" it may be a function, asked on every draw of the card with the character shown and how the page was opened (since 2.58.0); an answer that is not a CG number leaves the entry out of that draw, and the log says so once. Since 2.20.0.
 ---@field shown? boolean|fun(chara: integer, mode: rq.StatusPageMode?): boolean "status" and "map" only: false leaves the button out, and the next entry takes its cell. A function is asked on every draw of the card in "status", and every 200 ms while the map shows in "map" (with no argument). Default true. Since 2.20.0.
 
 ---An entry, from `rq.gamebutton.add`.
 ---@class rq.GameButtonHandle
 ---@field id fun(): string `<mod id>.<id>`.
----@field set fun(opts: {label?: string, enabled?: boolean|fun(chara?: integer): boolean, tip?: string|fun(chara: integer): string?, icon?: integer, shown?: boolean|fun(chara: integer, mode: rq.StatusPageMode?): boolean}) Changes it; `tip = ""` removes the tip. In "skill-window" a new label or `enabled` shows from the next build of the skill list (`rq.skilllist.refresh` builds it at once). In "status" it shows at once while the page is open, and in "map" on the next frame; `icon` and `shown` are for "status" (2.20.0) and "map" (2.32.0) only.
+---@field set fun(opts: {label?: string, enabled?: boolean|fun(chara?: integer): boolean, tip?: string|fun(chara: integer): string?, icon?: integer|fun(chara: integer, mode: rq.StatusPageMode?): integer, shown?: boolean|fun(chara: integer, mode: rq.StatusPageMode?): boolean}) Changes it; `tip = ""` removes the tip. In "skill-window" a new label or `enabled` shows from the next build of the skill list (`rq.skilllist.refresh` builds it at once). In "status" it shows at once while the page is open, and in "map" on the next frame; `icon` and `shown` are for "status" (2.20.0) and "map" (2.32.0) only, and `icon` a function in "status" only (2.58.0). The `spot` stays as added.
 ---@field remove fun() Takes it out. "system-menu": with no entry left, the MODS row goes as well. "skill-window": the button goes at once; the others move up on the next build. "status": the button goes at once, and the next entry takes its cell. "map": the tab goes on the next frame, and the tabs under it move up.
 
 ---An entry, as `rq.gamebutton.groups` lists it.
@@ -8364,9 +8412,11 @@ function castle.rooms() end
 ---@field enabled boolean "system-menu": it is in the list now. "skill-window", "status" and "map": it is not greyed now.
 ---@field placed? boolean "skill-window", "status" and "map": it has a cell on the last build or draw (in "map": a tab on the map now). Since 2.17.0.
 ---@field shown? boolean "status" and "map": `shown` said yes on the last draw or ask. Since 2.20.0.
----@field button? integer "skill-window": its `T_Button` id on the window now, 200101 to 200104; "status": on the page now, 100101 or 100102; "map": on the map panel now, 700101 to 700104. Since 2.17.0.
+---@field button? integer "skill-window": its `T_Button` id on the window now, 200101 to 200104; "status": on the page now, 100101 or 100102 in the title row, 100103 or 100104 in the left spot; "map": on the map panel now, 700101 to 700104. Since 2.17.0.
 ---@field x? integer "skill-window", "status" and "map": its cell's left edge, in game pixels. Since 2.17.0.
 ---@field y? integer "skill-window", "status" and "map": its cell's top edge, in game pixels. Since 2.17.0.
+---@field spot? "title"|"left" "status": where it goes, as added. Since 2.58.0.
+---@field icon? integer "status": the CG it shows on the last draw, nil when it has no cell. Since 2.58.0.
 
 ---A group, from `rq.gamebutton.groups`.
 ---@class rq.GameButtonGroup
@@ -8406,6 +8456,15 @@ function castle.rooms() end
 ---other, Down to the Special slot, Up to SKILL SCREEN. Agents see each one as the control
 ---`<mod id>.<id>` of the `status` screen. See `rq.statuspage` for the page itself.
 ---
+---With `spot = "left"` (2.58.0), a `"status"` entry is an icon, not a button: it says something about
+---the character shown, as a mark. The left spot is the page's top left, at the left end of the LV row
+---under the class icon: two cells, x 20 and 56, y 90, 32 × 26 each, in the order those entries were
+---added, apart from the title row's two (a third shown left entry is not placed, and the log says so).
+---An icon has no `on_click`: no press, no sound, and the keys pass it by. Under the mouse it lights up
+---as the title buttons do, and its tip shows with the label as its title; `enabled` false darkens
+---it; `shown` false gives its cell to the next left entry. A mark that changes with the character
+---(faded or full, say) gives `icon` as a function.
+---
 ---`"map"` (2.32.0): tabs on a quest's map, on the 3D view's right edge against the map panel, under
 ---the area map (AREA DISPLAY) and above the Magnum gauge, the only free room there. The tabs are
 ---40 × 44 at x 768, from y 129, 47 apart, in the order entries were added; entries with `shown`
@@ -8428,10 +8487,19 @@ function castle.rooms() end
 ---Changed: 2.17.0 The group `"skill-window"`.
 ---Changed: 2.20.0 The group `"status"`; `enabled` gets the character there.
 ---Changed: 2.32.0 The group `"map"`.
+---Changed: 2.58.0 `"status"`'s left spot (`spot = "left"`, icons with no `on_click`), and `icon` as a function there.
 ---
 ---```lua
 ---rq.gamebutton.add({ id = "settings", label = "My Mod settings", tip = "Opens My Mod's page",
 ---  on_click = function() rq.log("open my page here") end })
+----- A mark on the status page: full for a character in the mod's list, faded for the others.
+---local FULL = rq.image.compose("my-mod:mark", { { cg = 6247, w = 26, h = 26 } }, { w = 26, h = 26 })
+---local FADED = rq.image.compose("my-mod:mark-faded", { { cg = 6247, w = 26, h = 26, alpha = 90 } },
+---  { w = 26, h = 26 })
+---local marked = {}
+---rq.gamebutton.add({ group = "status", spot = "left", id = "mark", label = "My Mark",
+---  icon = function(chara) return marked[chara] and FULL or FADED end,
+---  tip = function(chara) return marked[chara] and "Marked." or "Not marked yet." end })
 ---rq.gamebutton.add({ group = "skill-window", id = "plan", label = "Plan Skills",
 ---  on_click = function() rq.log("the skill window is still open") end })
 ---rq.gamebutton.add({ group = "status", id = "notes", label = "Notes", icon = 11158,
@@ -8447,13 +8515,15 @@ local gamebutton = {}
 
 ---Adds an entry to a game menu.
 ---
----Raises an error for a spec that is not a table, an unknown group, no id or label, no `on_click`,
----an `enabled`, `tip` or `shown` of the wrong type, a `"status"` or `"map"` entry with no `icon`, or
----an id the mod already has.
+---Raises an error for a spec that is not a table, an unknown group, no id or label, no `on_click`
+---(or one on a `"left"` entry), an `enabled`, `tip` or `shown` of the wrong type, a `"status"` or
+---`"map"` entry with no `icon`, a `spot` other than `"title"` or `"left"` or outside `"status"`, or an
+---id the mod already has.
 ---
 ---Since: 2.16.0
 ---Changed: 2.20.0 The group `"status"`, with `icon` and `shown`.
 ---Changed: 2.32.0 The group `"map"`, with `icon` and `shown`.
+---Changed: 2.58.0 `spot` in `"status"`, and `icon` as a function there.
 ---@param spec rq.GameButtonSpec The entry.
 ---@return rq.GameButtonHandle entry The entry, to change or remove it.
 function gamebutton.add(spec) end
@@ -9401,7 +9471,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.57.0"
+rq.version = "2.58.0"
 
 rq.units = units
 rq.items = items

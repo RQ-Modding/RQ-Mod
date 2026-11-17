@@ -7,8 +7,9 @@
 -- "skill-window" (2.17.0): buttons under the Potential Skills list, in the game's look (CG 11153,
 -- as the castle's buttons), two to a row, up to four. See the skill window's part below.
 --
--- "status" (2.20.0): icon buttons in a character's status page's title row, up to two. See the
--- status page's part below.
+-- "status" (2.20.0): icon buttons in a character's status page's title row, up to two, and (2.58.0)
+-- icons that are not buttons at the left end of the LV row, up to two. See the status page's part
+-- below.
 --
 -- "map" (2.32.0): tabs on a quest's map, attached to the panel's left edge under the area map, up to
 -- four. See the map panel's part below.
@@ -363,24 +364,40 @@ end
 -- ---- The status page ("status", 2.20.0) ----
 --
 -- The page is g_sStatus (T_Status); its buttons are one group, m_sButton, made by T_Status::create.
--- The only free room is the title row: the name is drawn from x 245 and the widest name ends at 435,
--- the X is at 510, 65. Two icon cells, right to left from the X.
+-- The free room is the title row (the name is drawn from x 245 and the widest name ends at 435, the
+-- X is at 510, 65): two button cells, right to left from the X, spot "title". And (2.58.0) the left
+-- end of the LV row, plain grey from x 10 to 91 and y 91 to 116 under the class icon (47 to 79, 63
+-- to 90) and left of "LV." (from 92): two icon cells, spot "left" (notes/plans/
+-- plan-rocky-chunk-indicator.md in the workspace).
 -- Built on public calls only:
---   rq.statuspage.on_open      the cells as buttons of that group, ids 100101 and 100102
+--   rq.statuspage.on_open      the cells as buttons of that group, ids 100101 to 100104
 --                              (T_ButtonGroup::addButtonRect, its three sprites set to faces composed
---                              from the page's own background, CG 11501, under the cell and the icon)
---   rq.statuspage.on_update    shown, enabled and tip asked again on every draw of the card
+--                              from the page's own background, CG 11501, under the cell and the icon;
+--                              a left cell also from the window's left strip, CG 11500 at 8, 59, which
+--                              covers 11501 there and is the grey the screen shows)
+--   rq.statuspage.on_update    shown, enabled, icon and tip asked again on every draw of the card
 --   after T_Status@checkSelect a click: the page stays, on_click runs there
---   after ステータス_上/下/左/右矢印  the keys: Up from the special slot reaches the cells
+--   after ステータス_上/下/左/右矢印  the keys: Up from the special slot reaches the title cells
 --   after T_Status@showComment the tip, in the game's comment window
 -- Inactive (status 1) is the face darkened, as T_Button::createSp darkens its base; pressed is the
 -- icon moved 1 right and 1 down, as the game's two-cell CG buttons (10007, 11505, 11506).
+-- A left cell is an icon: always inactive (the game's keys skip it, and a click does nothing), its
+-- three faces alike (darkened only when `enabled` says false). T_Button shows the frame of the face
+-- under the mouse whether the button is active or not, so the inactive face's frame is the title
+-- buttons' highlight (yellow-green, 102) instead of the game's red: the mark lights up under the
+-- mouse as they do. The page shows its comment under the mouse, as for any greyed button.
 local ST_GRID = { "g_sStatus", "m_sButton" }
 local ST_WIN = { "g_sStatus" }
 local ST_BASE = 100100
-local ST_CELLS = { { 472, 61 }, { 436, 61 } }
-local ST_W, ST_H = 32, 29
+-- x, y, w, h, spot. Ids ST_BASE + the index.
+local ST_CELLS = {
+  { 472, 61, 32, 29, "title" }, { 436, 61, 32, 29, "title" },
+  { 20, 90, 32, 26, "left" }, { 56, 90, 32, 26, "left" },
+}
+local ST_SPOTS = { title = { 1, 2 }, left = { 3, 4 } }
 local ST_BACK = 11501
+-- The window's left strip (the scroll bar's column and the grey corner), drawn over ST_BACK.
+local ST_STRIP, ST_STRIP_X, ST_STRIP_Y = 11500, 8, 59
 
 local st = {
   hooked = false,
@@ -402,44 +419,68 @@ local function ask(e, field, ...)
   return r
 end
 
--- The icon fitted in the cell: centered, shrunk with its proportions when larger.
-local function icon_layer(icon, dx, dy)
+-- The icon fitted in a w × h cell: centered, shrunk with its proportions when larger.
+local function icon_layer(icon, cw, ch, dx, dy)
   local w, h = rq.hud.cg_size(icon)
   if not w or w <= 0 or h <= 0 then return nil end
-  local s = math.min(1, ST_W / w, ST_H / h)
+  local s = math.min(1, cw / w, ch / h)
   local fw, fh = math.max(1, math.floor(w * s + 0.5)), math.max(1, math.floor(h * s + 0.5))
-  return { cg = icon, x = (ST_W - fw) // 2 + dx, y = (ST_H - fh) // 2 + dy, w = fw, h = fh }
+  return { cg = icon, x = (cw - fw) // 2 + dx, y = (ch - fh) // 2 + dy, w = fw, h = fh }
 end
 
-local function st_faces(icon, cell)
-  local key = icon .. ":" .. cell
+-- The three faces (normal, inactive, pressed) of an icon in a cell. A button's: darkened when
+-- inactive, moved when pressed. An icon's (a left cell): all alike, darkened when `dark`.
+local function st_faces(icon, cell, dark)
+  local c = ST_CELLS[cell]
+  local is_icon = c[5] == "left"
+  local key = icon .. ":" .. cell .. (is_icon and (dark and ":dark" or ":icon") or "")
   local f = st.faces[key]
   if f then return f, key end
   st.nfaces = st.nfaces + 1
-  local cx, cy = ST_CELLS[cell][1], ST_CELLS[cell][2]
-  local function face(state, dx, dark)
-    local layers = { { cg = ST_BACK, src = { cx, cy, ST_W, ST_H }, mode = "copy" } }
-    local il = icon_layer(icon, dx, dx)
-    if il then layers[#layers + 1] = il end
-    if dark then layers[#layers + 1] = { fill = { 0, 0, 0, 128 } } end
-    return rq.image.compose(string.format("rq.gamebutton:status:%d:%d", st.nfaces, state), layers,
-      { w = ST_W, h = ST_H })
+  local cx, cy, cw, ch = c[1], c[2], c[3], c[4]
+  -- The part of the cell the left strip covers (a left cell only).
+  local over = 0
+  if is_icon then
+    local sw = rq.hud.cg_size(ST_STRIP)
+    if sw and cx >= ST_STRIP_X then over = math.min(cw, ST_STRIP_X + sw - cx) end
   end
-  f = { face(0, 0, false), face(1, 0, true), face(2, 1, false) }
+  local function face(state, dx, darken)
+    local layers = { { cg = ST_BACK, src = { cx, cy, cw, ch }, mode = "copy" } }
+    if over > 0 then
+      layers[#layers + 1] = { cg = ST_STRIP, src = { cx - ST_STRIP_X, cy - ST_STRIP_Y, over, ch }, w = over, h = ch }
+    end
+    local il = icon_layer(icon, cw, ch, dx, dx)
+    if il then layers[#layers + 1] = il end
+    if darken then layers[#layers + 1] = { fill = { 0, 0, 0, 128 } } end
+    return rq.image.compose(string.format("rq.gamebutton:status:%d:%d", st.nfaces, state), layers,
+      { w = cw, h = ch })
+  end
+  if is_icon then
+    local one = face(0, 0, dark)
+    f = { one, one, one }
+  else
+    f = { face(0, 0, false), face(1, 0, true), face(2, 1, false) }
+  end
   st.faces[key] = f
   return f, key
 end
 
 local function st_make()
   st.by_id, st.shown_face = {}, {}
-  for cell = 1, #ST_CELLS do
+  for cell, c in ipairs(ST_CELLS) do
     local id = ST_BASE + cell
-    m(ST_GRID, "T_ButtonGroup@addButtonRect", id, ST_W, ST_H, ST_W, ST_H, ST_W, ST_H)
+    -- Frame 1 is the inactive face's: the game's red, but on a left cell (always inactive) the
+    -- title buttons' highlight, so the mark lights up under the mouse as they do.
+    local r1, g1, a1 = 255, 0, 128
+    if c[5] == "left" then r1, g1, a1 = 216, 255, 102 end
+    m(ST_GRID, "T_ButtonGroup@addButtonRect", id, c[3], c[4], c[3], c[4], c[3], c[4])
     m(ST_GRID, "T_ButtonGroup@setButtonFrame", id, 0, -1, -1, 216, 255, 0, 102, MIN_INT, MIN_INT, 0)
-    m(ST_GRID, "T_ButtonGroup@setButtonFrame", id, 1, -1, -1, 255, 0, 0, 128, MIN_INT, MIN_INT, 0)
+    m(ST_GRID, "T_ButtonGroup@setButtonFrame", id, 1, -1, -1, r1, g1, 0, a1, MIN_INT, MIN_INT, 0)
     m(ST_GRID, "T_ButtonGroup@setButtonFrame", id, 2, -1, -1, 216, 255, 0, 102, MIN_INT, MIN_INT, 0)
-    m(ST_GRID, "T_ButtonGroup@setButtonPos", id, ST_CELLS[cell][1], ST_CELLS[cell][2])
+    m(ST_GRID, "T_ButtonGroup@setButtonPos", id, c[1], c[2])
     m(ST_GRID, "T_ButtonGroup@setButtonSoundClick", id, 0)
+    -- A left cell is never active: T_Button::checkDown would play the deny sound on its click.
+    if c[5] == "left" then m(ST_GRID, "T_ButtonGroup@setButtonSoundError", id, 0) end
     m(ST_GRID, "T_ButtonGroup@setButtonShow", id, false)
     m(ST_GRID, "T_ButtonGroup@setButtonActive", id, false)
   end
@@ -455,31 +496,46 @@ local function st_control(e, id)
   end
 end
 
--- Every draw of the card: the entries shown get the cells in load order.
+-- An entry's icon for this draw: the CG, or a function's answer (2.58.0). nil for none.
+local function st_icon(e, chara, mode)
+  local v, bad = ask(e, "icon", chara, mode)
+  if bad then return nil end
+  if math.type(v) == "integer" and v > 0 then return v end
+  if not e.warned_icon then
+    e.warned_icon = true
+    logf("%s %s icon: expected a CG number, got %s", e.mod, e.id, tostring(v))
+  end
+  return nil
+end
+
+-- Every draw of the card: the entries shown get their spot's cells in load order.
 local function st_place(chara)
   if not st.made then return end
   local mode = rq.statuspage.mode()
   local old = st.by_id
   st.by_id = {}
-  local cell = 0
+  local used = { title = 0, left = 0 }
   for _, e in ipairs(entries) do
     if e.group == "status" then
       local was = e.button
-      e.button, e.cell, e.active, e.placed, e.shown_now = nil, nil, nil, false, false
+      e.button, e.cell, e.active, e.placed, e.shown_now, e.icon_now = nil, nil, nil, false, false, nil
       if not e.removed then
         local shown, bad = ask(e, "shown", chara, mode)
         if shown == nil and not bad then shown = true end
         e.shown_now = shown == true
-        if e.shown_now then
-          cell = cell + 1
-          if cell > #ST_CELLS then
+        local icon = e.shown_now and st_icon(e, chara, mode)
+        if icon then
+          local cells = ST_SPOTS[e.spot]
+          used[e.spot] = used[e.spot] + 1
+          local cell = cells[used[e.spot]]
+          if not cell then
             if not e.warned then
               e.warned = true
-              logf("%s %s: no cell left in the status page's title row (up to %d)", e.mod, e.id, #ST_CELLS)
+              logf("%s %s: no cell left in the status page's %s spot (up to %d)", e.mod, e.id, e.spot, #cells)
             end
           else
             local id = ST_BASE + cell
-            e.button, e.cell, e.placed = id, cell, true
+            e.button, e.cell, e.placed, e.icon_now = id, cell, true, icon
             e.active = is_enabled(e, chara)
             st.by_id[id] = e
           end
@@ -488,11 +544,11 @@ local function st_place(chara)
       if was and was ~= e.button then st_control(e, nil) end
     end
   end
-  for c = 1, #ST_CELLS do
+  for c, cell in ipairs(ST_CELLS) do
     local id = ST_BASE + c
     local e = st.by_id[id]
     if e then
-      local f, key = st_faces(e.icon, c)
+      local f, key = st_faces(e.icon_now, c, not e.active)
       if st.shown_face[id] ~= key then
         local idx = m(ST_GRID, "T_ButtonGroup@getButtonIndex", id)
         if idx and idx >= 0 then
@@ -505,12 +561,13 @@ local function st_place(chara)
           local xi = m(ST_GRID, "T_ButtonGroup@getButtonIndex", 100009)
           local z = xi and xi >= 0 and m({ "g_sStatus", "m_sButton", "m_asButton", xi }, "T_Button@getZ")
           if z and z > 0 then m(ST_GRID, "T_ButtonGroup@setButtonZ", id, z) end
-          m(ST_GRID, "T_ButtonGroup@setButtonPos", id, ST_CELLS[c][1], ST_CELLS[c][2])
+          m(ST_GRID, "T_ButtonGroup@setButtonPos", id, cell[1], cell[2])
           st.shown_face[id] = key
         end
       end
       m(ST_GRID, "T_ButtonGroup@setButtonShow", id, true)
-      m(ST_GRID, "T_ButtonGroup@setButtonActive", id, e.active)
+      -- An icon is always inactive: the keys skip it and a click does nothing.
+      m(ST_GRID, "T_ButtonGroup@setButtonActive", id, e.spot == "title" and e.active)
       if old[id] ~= e then st_control(e, id) end
     else
       m(ST_GRID, "T_ButtonGroup@setButtonShow", id, false)
@@ -519,9 +576,10 @@ local function st_place(chara)
   end
 end
 
+-- A title cell's button, when it is active (the keys reach only those).
 local function st_at(cell)
   local e = st.by_id[ST_BASE + cell]
-  if e and e.active then return e.button end
+  if e and e.active and e.spot == "title" then return e.button end
 end
 
 -- The rightmost active cell (the first), else the other.
@@ -535,7 +593,7 @@ local function st_install()
     for _, e in ipairs(entries) do
       if e.group == "status" then
         if e.button then st_control(e, nil) end
-        e.button, e.cell, e.active, e.placed, e.shown_now = nil, nil, nil, false, false
+        e.button, e.cell, e.active, e.placed, e.shown_now, e.icon_now = nil, nil, nil, false, false, nil
       end
     end
     st.made, st.by_id, st.shown_face = false, {}, {}
@@ -545,6 +603,8 @@ local function st_install()
   hook("T_Status@checkSelect", { after = function(h)
     local e = st.by_id[h.result]
     if not e then return end
+    -- An icon (a left cell) takes no click: no sound, and its tip stays.
+    if e.spot == "left" then return end
     m(ST_WIN, "T_Status@hideComment", -1)
     if e.removed or not e.active then
       call("効果音_エラー")
@@ -560,22 +620,22 @@ local function st_install()
     if id == SPECIAL or id == REMOVE then
       local to = st_first()
       if to then h.result = to end
-    elseif st.by_id[id] then
+    elseif st_at(id - ST_BASE) then
       h.result = 100002
     end
   end })
   hook("ステータス_下矢印", { after = function(h)
-    if not st.by_id[h.args[1]] then return end
+    if not st_at(h.args[1] - ST_BASE) then return end
     h.result = rq.statuspage.mode() == "battle-result" and 100002 or SPECIAL
   end })
   -- Left goes to the cell on the left (cell 2), Right to the one on the right (cell 1).
   hook("ステータス_左矢印", { after = function(h)
     local e = st.by_id[h.args[1]]
-    if e then h.result = (e.cell == 1 and st_at(2)) or h.args[1] end
+    if e and e.spot == "title" then h.result = (e.cell == 1 and st_at(2)) or h.args[1] end
   end })
   hook("ステータス_右矢印", { after = function(h)
     local e = st.by_id[h.args[1]]
-    if e then h.result = (e.cell == 2 and st_at(1)) or h.args[1] end
+    if e and e.spot == "title" then h.result = (e.cell == 2 and st_at(1)) or h.args[1] end
   end })
   hook("T_Status@showComment", { after = function(h)
     local id = h.args[1]
@@ -585,7 +645,7 @@ local function st_install()
     if type(tip) ~= "string" or tip == "" then return end
     local c = ST_CELLS[e.cell]
     -- The comment window starts a line at "@", as the game's own texts do.
-    call("ボタン説明_表示", id, e.label, (tip:gsub("\n", "@")), c[1] + ST_W, c[2], 500)
+    call("ボタン説明_表示", id, e.label, (tip:gsub("\n", "@")), c[1] + c[3], c[2], 500)
     pcall(rq.ain.set_global, "g_sStatus", "m_nCommentID", id)
   end })
 end
@@ -864,13 +924,30 @@ function gamebutton.add(spec)
   if not GROUPS[group] then error("rq.gamebutton.add: unknown group " .. tostring(group), 2) end
   check_text(spec.id, "id", "rq.gamebutton.add")
   check_text(spec.label, "label", "rq.gamebutton.add")
-  if type(spec.on_click) ~= "function" then error("rq.gamebutton.add: on_click must be a function", 2) end
+  -- "status" (2.58.0): spot "title" (the default, buttons) or "left" (icons, with no on_click).
+  local spot = nil
+  if group == "status" then
+    spot = spec.spot == nil and "title" or spec.spot
+    if not ST_SPOTS[spot] then error("rq.gamebutton.add: spot must be \"title\" or \"left\"", 2) end
+  elseif spec.spot ~= nil then
+    error("rq.gamebutton.add: spot is for the \"status\" group only", 2)
+  end
+  if spot == "left" then
+    if spec.on_click ~= nil then
+      error("rq.gamebutton.add: a \"left\" entry is an icon, with no on_click", 2)
+    end
+  elseif type(spec.on_click) ~= "function" then
+    error("rq.gamebutton.add: on_click must be a function", 2)
+  end
   if spec.enabled ~= nil and type(spec.enabled) ~= "boolean" and type(spec.enabled) ~= "function" then
     error("rq.gamebutton.add: enabled must be a boolean or a function", 2)
   end
   if group == "status" or group == "map" then
-    if math.type(spec.icon) ~= "integer" or spec.icon <= 0 then
-      error("rq.gamebutton.add: a \"" .. group .. "\" entry needs icon, a CG number", 2)
+    local icon_ok = math.type(spec.icon) == "integer" and spec.icon > 0
+    if group == "status" and type(spec.icon) == "function" then icon_ok = true end
+    if not icon_ok then
+      error("rq.gamebutton.add: a \"" .. group .. "\" entry needs icon, a CG number"
+        .. (group == "status" and " or a function" or ""), 2)
     end
     if spec.tip ~= nil and type(spec.tip) ~= "string" and type(spec.tip) ~= "function" then
       error("rq.gamebutton.add: tip must be a string or a function", 2)
@@ -888,7 +965,7 @@ function gamebutton.add(spec)
     end
   end
   local e = { group = group, mod = mod or "?", id = spec.id, label = spec.label, tip = spec.tip,
-    enabled = spec.enabled, on_click = spec.on_click, icon = spec.icon, shown = spec.shown }
+    enabled = spec.enabled, on_click = spec.on_click, icon = spec.icon, shown = spec.shown, spot = spot }
   local handle = {}
   function handle.id() return e.mod .. "." .. e.id end
   function handle.set(opts)
@@ -903,10 +980,14 @@ function gamebutton.add(spec)
     end
     if group == "status" or group == "map" then
       if opts.icon ~= nil then
-        if math.type(opts.icon) ~= "integer" or opts.icon <= 0 then
-          error("rq.gamebutton handle set: icon must be a CG number", 2)
+        local icon_ok = math.type(opts.icon) == "integer" and opts.icon > 0
+        if group == "status" and type(opts.icon) == "function" then icon_ok = true end
+        if not icon_ok then
+          error("rq.gamebutton handle set: icon must be a CG number"
+            .. (group == "status" and " or a function" or ""), 2)
         end
         e.icon = opts.icon
+        e.warned_icon = nil
       end
       if opts.shown ~= nil then
         if type(opts.shown) ~= "boolean" and type(opts.shown) ~= "function" then
@@ -980,7 +1061,8 @@ function gamebutton.groups()
     status[#status + 1] = { id = e.mod .. "." .. e.id, mod = e.mod, label = e.label,
       enabled = e.placed and e.active == true or (not e.placed and is_enabled(e, rq.statuspage.chara())),
       shown = e.shown_now == true, placed = e.placed == true, button = e.button,
-      x = e.cell and ST_CELLS[e.cell][1], y = e.cell and ST_CELLS[e.cell][2] }
+      x = e.cell and ST_CELLS[e.cell][1], y = e.cell and ST_CELLS[e.cell][2], spot = e.spot,
+      icon = e.icon_now }
   end
   local map = {}
   for _, e in ipairs(live("map")) do

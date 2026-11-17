@@ -691,6 +691,90 @@ function item.on_unequip(fn)
   return add_cb(unequip_list, "on_unequip", fn, unequip_install)
 end
 
+-- ---- rq.item.on_try_equip (2.58.0, notes/plans/plan-rocky-chunk-indicator.md in the workspace) ----
+-- The player puts an item on a character in two places: T_EquitItem::setItem (the vault's and the
+-- storage screen's drag onto a character's row, and the shop's drag onto one) and キャラ_装備変更
+-- from T_Status::equipItem (the status page's pick). Both ask the game's take-off question
+-- (キャラ_装備外し確認), and the shop "Purchase X?", before キャラ_装備設定 equips. The callbacks run
+-- in a before hook, ahead of those questions, and only where the game would go on: what stops the
+-- attempt first (a grey row, the check saying no with or without a mod's text, rq.shop.on_can_buy,
+-- not enough money) is checked here again, so the hooks of those may run before or after this one.
+-- A callback may ask (rq.ui.confirm waits there). false stops the attempt: the drag's tile goes
+-- back, the status page stays as it was.
+
+local try_list, try_hooked = {}, false
+
+local function try_run(ii, iic, kind, from)
+  if not SLOT_NAMES[kind] then return true end
+  local okn, no = pcall(call, "Ｉ固有番号", ii, -1)
+  local ctx = slot_ctx(ii, okn and int(no) and no or 0, iic, kind)
+  local oko, old = pcall(call, "キャラ_装備取得", iic, kind)
+  ctx.old = oko and int(old) and old > 0 and old or 0
+  ctx.from = from
+  for _, x in ipairs({ table.unpack(try_list) }) do
+    local ok, r = pcall(x.fn, ctx)
+    if not ok then
+      r = tostring(r)
+      if not x.seen[r] then
+        x.seen[r] = true
+        rq.log(("rq.item.on_try_equip (%s): %s"):format(x.mod, r))
+      end
+    elseif r == false then
+      return false
+    end
+  end
+  return true
+end
+
+-- The check the game makes before it equips, run again here (a mod's refusal included).
+local function wearable(ii, iic)
+  local ok, yes = pcall(call, "アイテム_装備可能", ii, iic)
+  return ok and yes == true
+end
+
+local function try_install()
+  if try_hooked then return end
+  try_hooked = true
+  rq.ain.hook("T_EquitItem@setItem", { before = function(h)
+    if h.skip or #try_list == 0 then return end
+    local index, ii = h.args[1], h.args[2]
+    if not int(index) or index == 999 or not int(ii) or ii <= 0 then return end
+    local okr, real = pcall(call, "アイテム_確認", ii)
+    if not okr or not real then return end
+    local oka, active = pcall(rq.ain.method, EQUIP_DRAG, "T_EquitItem@getActive", index)
+    if not oka or not (active == true or active == 1) then return end
+    local okc, iic = pcall(rq.ain.method, EQUIP_DRAG, "T_EquitItem@getCharaNo", index)
+    if not okc or not int(iic) or iic <= 0 or not wearable(ii, iic) then return end
+    local okp, place = pcall(call, "アイテム_存在", ii)
+    place = okp and place or 0
+    if place == SHOP then
+      if not can_buy(ii, "character") then return end
+      local okg, price = pcall(call, "アイテム_価格", ii)
+      local okm, money = pcall(call, "所持金")
+      if not okg or not okm or price < 0 or price > money then return end
+    end
+    local okk, kind = pcall(call, "アイテム_種類", ii)
+    if not okk or not int(kind) then return end
+    local from = place == SHOP and "shop" or place == STORAGE and "storage" or "vault"
+    if try_run(ii, iic, kind, from) then return end
+    h.skip = true
+    h.result = false
+  end })
+  rq.ain.hook("キャラ_装備変更", { before = function(h)
+    if h.skip or #try_list == 0 then return end
+    local iic, kind, ii = h.args[1], h.args[2], h.args[3]
+    if not int(iic) or iic <= 0 or not int(kind) or not int(ii) or ii <= 0 then return end
+    if not called_from("T_Status@equipItem") or not wearable(ii, iic) then return end
+    if try_run(ii, iic, kind, "status") then return end
+    h.skip = true
+    h.result = false
+  end })
+end
+
+function item.on_try_equip(fn)
+  return add_cb(try_list, "on_try_equip", fn, try_install)
+end
+
 -- ---- rq.ItemDef.keep (2.50.0) ----
 -- アイテム_破棄可能 says whether an item may go: false for Chaos (100) and quest items (type 22).
 -- アイテム_売却, アイテム_寄付 and アイテム_破棄 ask it before they do anything, and rq.item.sell and
