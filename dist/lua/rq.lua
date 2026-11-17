@@ -8395,13 +8395,28 @@ function castle.rooms() end
 ---@field spot? "title"|"left" "status" only: `"title"` (the default), a button in the title row by the X; `"left"`, an icon that is not a button at the left end of the LV row, under the class icon (see `rq.gamebutton`). Since 2.58.0.
 ---@field enabled? boolean|fun(chara?: integer): boolean "system-menu": false leaves it out of the list. "skill-window", "status" and "map": false greys the button (a click plays the deny sound and runs nothing). A function is asked each time the list or the window's skill list is built, in "status" on every draw of the card, with the character shown, and in "map" every 200 ms while the map shows, with no argument. Default true.
 ---@field tip? string|fun(chara: integer): string? The game's comment while the entry is under the mouse or the keys: beside the list ("system-menu"), under the button with the label as its title ("skill-window"), or beside the icon with the label as its title ("status", also on a greyed one; "map", left of the tab). A function only in "status" and "map", asked when the tip opens (in "status" with the character shown); nil or "" shows none. In "status" and "map", `\n` starts a line.
----@field icon? integer|fun(chara: integer, mode: rq.StatusPageMode?): integer "status" and "map" only, and needed there: the CG drawn as the button, such as one from `rq.image.add` or `rq.image.compose`. The cell is 32 × 29 in "status"'s title row, 32 × 26 in its left spot, and 32 × 34 inside the 40 × 44 tab in "map": a smaller icon is centered, a larger one shrunk to fit. In "status" it may be a function, asked on every draw of the card with the character shown and how the page was opened (since 2.58.0); an answer that is not a CG number leaves the entry out of that draw, and the log says so once. Since 2.20.0.
+---@field icon? integer|fun(chara: integer, mode: rq.StatusPageMode?): integer "status" and "map" only, and needed there (but for a "status" entry with `list = true` and a `text`): the CG drawn as the button, such as one from `rq.image.add` or `rq.image.compose`. The cell is 32 × 29 in "status"'s title row, 32 × 26 in its left spot, and 32 × 34 inside the 40 × 44 tab in "map": a smaller icon is centered, a larger one shrunk to fit. In the MODS list's row it is fitted in 26 × 24 at the row's left. In "status" it may be a function, asked on every draw of the card with the character shown and how the page was opened (since 2.58.0); an answer that is not a CG number leaves the entry out of that draw, and the log says so once (an entry with `list = true` and a text shows its row without an icon then, with no log line). Since 2.20.0.
 ---@field shown? boolean|fun(chara: integer, mode: rq.StatusPageMode?): boolean "status" and "map" only: false leaves the button out, and the next entry takes its cell. A function is asked on every draw of the card in "status", and every 200 ms while the map shows in "map" (with no argument). Default true. Since 2.20.0.
+---@field list? boolean "status"'s title spot only: whether the entry goes in the MODS list (see `rq.gamebutton`). nil: in the list whenever the list shows. false: never in it; while the list shows, the entry has no button (its state is `"aside"`), and the mod shows it another way or does something else. true: the list shows whenever this entry is shown, even alone, and the entry may have a `text` instead of an `icon`. Default nil. Since 2.59.0.
+---@field text? string|fun(chara: integer, mode: rq.StatusPageMode?): string? "status"'s title spot only: words beside the icon in the entry's MODS list row, in the game's font. A function is asked on every draw of the card; nil or "" shows the icon alone. Without it the row is the icon alone. Since 2.59.0.
+---@field on_state? fun(state: rq.GameButtonState, chara?: integer, mode?: rq.StatusPageMode) "status" only: runs after a draw of the card when the entry's place changed, with the new state, the character shown and how the page was opened, and with `"hidden"` (no character) when the page closes. Since 2.59.0.
+
+---Where a `"status"` entry is on the page's last draw, from `rq.GameButtonHandle`'s `state` and
+---`on_state`.
+---
+---- `"button"`: it has its cell: a button in the title row, or the icon in the left spot.
+---- `"row"`: it is a row of the MODS list.
+---- `"aside"`: it is shown but has no button: the MODS list shows and the entry has `list = false`,
+---  or no cell or row was left for it.
+---- `"hidden"`: it is not on the page: `shown` said no, it has no icon (or text) for this draw, it
+---  was removed, or the page is not open.
+---@alias rq.GameButtonState "button"|"row"|"aside"|"hidden"
 
 ---An entry, from `rq.gamebutton.add`.
 ---@class rq.GameButtonHandle
 ---@field id fun(): string `<mod id>.<id>`.
----@field set fun(opts: {label?: string, enabled?: boolean|fun(chara?: integer): boolean, tip?: string|fun(chara: integer): string?, icon?: integer|fun(chara: integer, mode: rq.StatusPageMode?): integer, shown?: boolean|fun(chara: integer, mode: rq.StatusPageMode?): boolean}) Changes it; `tip = ""` removes the tip. In "skill-window" a new label or `enabled` shows from the next build of the skill list (`rq.skilllist.refresh` builds it at once). In "status" it shows at once while the page is open, and in "map" on the next frame; `icon` and `shown` are for "status" (2.20.0) and "map" (2.32.0) only, and `icon` a function in "status" only (2.58.0). The `spot` stays as added.
+---@field set fun(opts: {label?: string, enabled?: boolean|fun(chara?: integer): boolean, tip?: string|fun(chara: integer): string?, icon?: integer|fun(chara: integer, mode: rq.StatusPageMode?): integer, shown?: boolean|fun(chara: integer, mode: rq.StatusPageMode?): boolean, text?: string|fun(chara: integer, mode: rq.StatusPageMode?): string?}) Changes it; `tip = ""` removes the tip, `text = ""` the text (an error for an entry with no icon). In "skill-window" a new label or `enabled` shows from the next build of the skill list (`rq.skilllist.refresh` builds it at once). In "status" it shows at once while the page is open, and in "map" on the next frame; `icon` and `shown` are for "status" (2.20.0) and "map" (2.32.0) only, `icon` a function in "status" only (2.58.0), and `text` for "status"'s title spot only (2.59.0). The `spot` and `list` stay as added.
+---@field state fun(): rq.GameButtonState|nil "status": where it is on the page's last draw (`"hidden"` while the page is closed); nil in the other groups. Since 2.59.0.
 ---@field remove fun() Takes it out. "system-menu": with no entry left, the MODS row goes as well. "skill-window": the button goes at once; the others move up on the next build. "status": the button goes at once, and the next entry takes its cell. "map": the tab goes on the next frame, and the tabs under it move up.
 
 ---An entry, as `rq.gamebutton.groups` lists it.
@@ -8413,10 +8428,24 @@ function castle.rooms() end
 ---@field placed? boolean "skill-window", "status" and "map": it has a cell on the last build or draw (in "map": a tab on the map now). Since 2.17.0.
 ---@field shown? boolean "status" and "map": `shown` said yes on the last draw or ask. Since 2.20.0.
 ---@field button? integer "skill-window": its `T_Button` id on the window now, 200101 to 200104; "status": on the page now, 100101 or 100102 in the title row, 100103 or 100104 in the left spot; "map": on the map panel now, 700101 to 700104. Since 2.17.0.
----@field x? integer "skill-window", "status" and "map": its cell's left edge, in game pixels. Since 2.17.0.
----@field y? integer "skill-window", "status" and "map": its cell's top edge, in game pixels. Since 2.17.0.
+---@field x? integer "skill-window", "status" and "map": its cell's left edge, in game pixels; "status", a row of the MODS list: the row's left edge (since 2.59.0). Since 2.17.0.
+---@field y? integer "skill-window", "status" and "map": its cell's top edge, in game pixels; "status", a row of the MODS list: the row's top edge (since 2.59.0). Since 2.17.0.
 ---@field spot? "title"|"left" "status": where it goes, as added. Since 2.58.0.
----@field icon? integer "status": the CG it shows on the last draw, nil when it has no cell. Since 2.58.0.
+---@field icon? integer "status": the CG it shows on the last draw, nil when it has no cell or row (or a row without an icon). Since 2.58.0.
+---@field state? rq.GameButtonState "status": where it is on the last draw. Since 2.59.0.
+---@field list? boolean "status": its `list`, as added. Since 2.59.0.
+---@field row? integer "status": its row in the MODS list on the last draw, from 1 at the top; nil when it is not a row. Since 2.59.0.
+---@field text? string "status": the text of its MODS list row on the last draw. Since 2.59.0.
+
+---The status page's MODS button and its list, as `rq.gamebutton.groups` gives them.
+---@class rq.GameButtonList
+---@field shown boolean MODS is on the page (on its last draw).
+---@field open boolean The list is open under it.
+---@field button? integer MODS's `T_Button` id, 100105, while it shows.
+---@field x? integer MODS's left edge, 436, while it shows.
+---@field y? integer MODS's top edge, 62, while it shows.
+---@field width? integer The rows' width, 68 to 320, while it shows; they end at x 504.
+---@field rows string[] The rows' entries (`<mod id>.<id>`), top to bottom; empty while MODS is not shown.
 
 ---A group, from `rq.gamebutton.groups`.
 ---@class rq.GameButtonGroup
@@ -8424,6 +8453,7 @@ function castle.rooms() end
 ---@field open boolean The group is on the screen now. "map": the map panel exists (a quest's map, also while it hides for a dialog or a fight).
 ---@field row? boolean "system-menu": the loader's row is in it (some entry exists).
 ---@field entries rq.GameButtonInfo[] The entries, in the order they were added.
+---@field list? rq.GameButtonList "status": the MODS button and its list. Since 2.59.0.
 
 ---Buttons of mods in the game's own menus, made by the game itself.
 ---
@@ -8447,7 +8477,7 @@ function castle.rooms() end
 ---`"status"` (2.20.0): icon buttons in a character's status page's title row, the only free room on
 ---the page. The cells are right to left from the X: x 472 and 436, y 61, 32 × 29 each, in the order
 ---entries were added; the widest name in the game ends at x 435. Entries with `shown` false give their
----cell to the next; a third shown entry is not placed (`placed` false, and the log says so). The
+---cell to the next; a third shown entry brings the MODS list (below). The
 ---button is the icon on the page's own background, as the game's CG buttons: the yellow frame under
 ---the mouse, the icon moved 1 pixel right and down while pressed, the whole cell darkened while
 ---greyed. `shown`, `enabled` and a function `tip` are asked on every draw of the card (open, another
@@ -8455,6 +8485,28 @@ function castle.rooms() end
 ---slot (or its REMOVE) goes to the first button not greyed; from a button Left and Right go to the
 ---other, Down to the Special slot, Up to SKILL SCREEN. Agents see each one as the control
 ---`<mod id>.<id>` of the `status` screen. See `rq.statuspage` for the page itself.
+---
+---**MODS** (2.59.0): when more than two title entries are shown on a draw of the card and one of them
+---may go in a list (`list` not false), or when a shown entry has `list = true`, the title row has one
+---button instead of the cells: **MODS**, over both cells (x 436, y 62, 68 × 27), the look of the
+---page's SKILL SCREEN button. Its click (or Enter on it) opens a list under it: one row per entry
+---that may go in it, in the order they were added, 30 high from y 91, right edges at x 504, as wide
+---as the widest row (68 to 320), up to 16 rows (more are left out, and the log says so). A row is the
+---map tabs' grey bar with the entry's icon at its left and its `text` beside it, the yellow frame
+---under the mouse or the keys, darkened while `enabled` is false. Under the mouse a row shows its tip
+---right of the list, with the label as its title. A click on a row closes the list and runs its
+---`on_click`, with the page still there (from the frame's update, as a kit widget's click, not from
+---the page's own loop); a darkened row plays the deny sound and the list stays. A click off the list
+---(MODS too), the right button or Esc only close the list; so do another character, the page
+---closing and a draw where the list is no longer wanted. While the list is open the page takes no
+---mouse and no keys: the arrows move between the rows and Enter clicks one. An entry with
+---`list = false` has no button while MODS shows; its `on_state` and the handle's `state` say so
+---(`"aside"`), and it shows its button another way or does something else. Whether MODS shows is
+---decided on every draw of the card, from the entries shown on that draw: it may come and go between
+---characters and between the ways the page opens. Up from the Special slot reaches MODS, Down from it
+---the Special slot, Up SKILL SCREEN; its tip lists the rows' labels. Agents see MODS as the control
+---`status-mods` of the `status` screen, and while the list is open each row as the kit's button
+---`button-<mod id>-<id>` (as `rq.uikit.icon_button` names it; the cells' own controls are gone then).
 ---
 ---With `spot = "left"` (2.58.0), a `"status"` entry is an icon, not a button: it says something about
 ---the character shown, as a mark. The left spot is the page's top left, at the left end of the LV row
@@ -8488,6 +8540,7 @@ function castle.rooms() end
 ---Changed: 2.20.0 The group `"status"`; `enabled` gets the character there.
 ---Changed: 2.32.0 The group `"map"`.
 ---Changed: 2.58.0 `"status"`'s left spot (`spot = "left"`, icons with no `on_click`), and `icon` as a function there.
+---Changed: 2.59.0 `"status"`'s MODS list for more than two title entries: `list`, `text`, `on_state` and the handle's `state`; a third title entry no longer goes unplaced.
 ---
 ---```lua
 ---rq.gamebutton.add({ id = "settings", label = "My Mod settings", tip = "Opens My Mod's page",
@@ -8505,6 +8558,14 @@ function castle.rooms() end
 ---rq.gamebutton.add({ group = "status", id = "notes", label = "Notes", icon = 11158,
 ---  tip = function(chara) return "Notes on " .. rq.chara.get(chara).name end,
 ---  on_click = function() rq.log("notes for", rq.statuspage.chara()) end })
+----- Always in the MODS list, as a row of words (no icon needed).
+---rq.gamebutton.add({ group = "status", id = "journal", label = "Journal", list = true,
+---  text = function(chara) return "Journal of " .. rq.chara.get(chara).name end,
+---  on_click = function() rq.log("journal") end })
+----- Never in it: while MODS shows, this mod has no button and says so in its own way.
+---rq.gamebutton.add({ group = "status", id = "quick", label = "Quick", icon = 11158, list = false,
+---  on_state = function(state) rq.log("quick is", state) end,
+---  on_click = function() rq.log("quick") end })
 ---local open = false
 ---rq.gamebutton.add({ group = "map", id = "bag", label = "My Bag", icon = 11329,
 ---  tip = "What is in my bag.", enabled = function() return rq.dungeon.exploring() end,
@@ -8517,13 +8578,16 @@ local gamebutton = {}
 ---
 ---Raises an error for a spec that is not a table, an unknown group, no id or label, no `on_click`
 ---(or one on a `"left"` entry), an `enabled`, `tip` or `shown` of the wrong type, a `"status"` or
----`"map"` entry with no `icon`, a `spot` other than `"title"` or `"left"` or outside `"status"`, or an
----id the mod already has.
+---`"map"` entry with no `icon` (a `"status"` entry with `list = true` may have a `text` instead), a
+---`spot` other than `"title"` or `"left"` or outside `"status"`, a `list` or `text` outside
+---`"status"`'s title spot or of the wrong type, an `on_state` outside `"status"` or not a function,
+---or an id the mod already has.
 ---
 ---Since: 2.16.0
 ---Changed: 2.20.0 The group `"status"`, with `icon` and `shown`.
 ---Changed: 2.32.0 The group `"map"`, with `icon` and `shown`.
 ---Changed: 2.58.0 `spot` in `"status"`, and `icon` as a function there.
+---Changed: 2.59.0 `list`, `text` and `on_state` in `"status"`.
 ---@param spec rq.GameButtonSpec The entry.
 ---@return rq.GameButtonHandle entry The entry, to change or remove it.
 function gamebutton.add(spec) end
@@ -9471,7 +9535,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.58.0"
+rq.version = "2.59.0"
 
 rq.units = units
 rq.items = items

@@ -378,6 +378,8 @@ local function draw()
   end
   local chara = status_shown()
   if not chara or chara ~= built_for or pages <= 1 then return end
+  -- rq.gamebutton's MODS list (2.59.0) is open over the page: the bar and Page Up / Page Down wait.
+  if priv.status_mods_open then return end
   page_keys(not was_on)
   local th = themes()
   local old = ui.theme
