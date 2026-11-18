@@ -5193,7 +5193,7 @@ function combat.on_escape(fn) end
 ---
 ---Since: 2.44.0
 ---@class rq.CombatRules
----@field crit boolean|"sometimes" Can it deal a critical hit: true where the game rolls the attacker's chance; "sometimes" where the game zeroes that chance (a multiplier over 150, or skill 120) but skill 549 or party item 91 can add to it; false for a skill that is not a physical attack.
+---@field crit boolean|"sometimes" Can it deal a critical hit: true where the game rolls the attacker's chance; "sometimes" where the game zeroes that chance (a multiplier over 150, or skill 120) but still adds to it in two cases: an attacker with Low Blow (549) against a man or race 4, on half the rolls, and an enemy while character 91 (Kojika) is in the party; false for a skill that is not a physical attack.
 ---@field stun boolean|"sometimes" Can it stun: true for a physical attack, function 59 and the skills that stun in their own code (149, 183, 422, 507); false for the skills the game never stuns with (120, Fortune 448, 152) and the rest.
 ---@field poison "own"|"coat"|"sometimes"|false Can it poison: "own" with a rate of its own (`poison_rate`), "coat" only through the attacker's weapon 118 or Poison Attack (264) on a physical attack, false never.
 ---@field poison_rate? integer The skill's own poison chance, 0 to 100, when it has one the loader knows (the game's table in `毒計算`, or a mod's rule).
@@ -5208,7 +5208,8 @@ function combat.on_escape(fn) end
 ---`rq.combat.set_rules`. For a skill's hover text, as Better Explained writes it.
 ---
 ---The game's own exceptions show as "sometimes": a skill whose crit chance the game zeroes can
----still crit with skill 549 or item 91. A rule a mod changes through a callback (`on_crit`,
+---still crit for an attacker with Low Blow (549) against a man or race 4, and for an enemy while
+---character 91 (Kojika) is in the party. A rule a mod changes through a callback (`on_crit`,
 ---`on_stun`, `on_poison`) does not show here unless that mod also calls `set_rules`.
 ---
 ---Raises an error when `skill` is not a whole number.

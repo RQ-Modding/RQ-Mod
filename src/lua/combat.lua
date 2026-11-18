@@ -33,9 +33,11 @@
 --                           a boss fight or FA[75] 3.
 --   戦闘ログ_追加(text, color, end)   every line of the battle log; an empty text adds nothing.
 --   クリティカル計算(a, d, skill, 条件)   the crit: the attacker's rate, +30 hidden, 0 for a multiplier
---                           (Ｓ倍率) over 150 and for skill 120; then +50 with skill 549 on half the
---                           rolls against race 4 or a woman, +30 with party item 91 on the enemies'
---                           turn, halved for all enemies (Ｓ対象 3 or 4) or FA[82]; rolls.
+--                           (Ｓ倍率) over 150 and for skill 120; then +50 with skill 549 (Low Blow)
+--                           on half the rolls against race 4 or a man (Ｃ性別 1; 2 is a woman), +30
+--                           on an enemy's action (◆敵側行動, slots 1 to 5) while character 91,
+--                           Kojika, is in the party (ＰＴＡ有無／固有(91)), halved for all enemies
+--                           (Ｓ対象 3 or 4) or FA[82]; rolls.
 local rq, priv = ...
 local call, hook, g, set = rq.ain.call, rq.ain.hook, rq.ain.global, rq.ain.set_global
 local battle, combat = rq.battle, rq.combat
@@ -957,7 +959,7 @@ local function game_rules(skill, s)
   if not physical then
     out.crit = false
   elseif mult > 150 or CRIT_ZERO[skill] then
-    out.crit = "sometimes" -- skill 549 and party item 91 add to a zeroed chance
+    out.crit = "sometimes" -- skill 549, and character 91 in the party for an enemy, add to a zeroed chance
   else
     out.crit = true
   end
