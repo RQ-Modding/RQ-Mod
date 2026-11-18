@@ -54,7 +54,7 @@ int main(int argc, char **argv)
 	}
 	if (argc < 2) {
 		fprintf(stderr,
-			"rqmod-ctl - send input to the running Mods-copy xsystem4.\n"
+			"rqmod-ctl - send input to the running game (RQ MOD's xsystem4.exe).\n"
 			"\n"
 			"  rqmod-ctl ui                 JSON screen dump (one object)\n"
 			"  rqmod-ctl mods               JSON mods:[{name,path}] of loaded mods\n"
@@ -163,7 +163,7 @@ int main(int argc, char **argv)
 	h = CreateFileA(PIPE_NAME, GENERIC_READ | GENERIC_WRITE, 0, NULL,
 			OPEN_EXISTING, 0, NULL);
 	if (h == INVALID_HANDLE_VALUE) {
-		fprintf(stderr, "rqmod-ctl: cannot open %s (is the Mods copy running?)\n", PIPE_NAME);
+		fprintf(stderr, "rqmod-ctl: cannot open %s (is the game running?)\n", PIPE_NAME);
 		return 1;
 	}
 	if (!WriteFile(h, line, (DWORD)used, &w, NULL)) {

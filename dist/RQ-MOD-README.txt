@@ -11,8 +11,8 @@ Install
 
 1. Extract this zip into the game's folder (the one with RanceQuest.exe), with
    its folders: xsystem4, lua and mods.
-2. Start the game with xsystem4\xsystem4.exe. The window title and the main
-   menu show "RQ MOD" and the version.
+2. Start the game with xsystem4\xsystem4.exe. The window title shows "RQ MOD"
+   and the version, and the main menu shows the version too.
 
 
 Mods
