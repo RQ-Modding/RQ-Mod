@@ -82,7 +82,7 @@ Windows, with [MSYS2](https://www.msys2.org/). In the **MINGW64** shell:
 pacman -S git flex bison mingw-w64-x86_64-gcc mingw-w64-x86_64-meson mingw-w64-x86_64-pkg-config \
   mingw-w64-x86_64-SDL2 mingw-w64-x86_64-freetype mingw-w64-x86_64-libjpeg-turbo \
   mingw-w64-x86_64-libwebp mingw-w64-x86_64-libpng mingw-w64-x86_64-libsndfile \
-  mingw-w64-x86_64-glew mingw-w64-x86_64-python
+  mingw-w64-x86_64-glew mingw-w64-x86_64-cglm mingw-w64-x86_64-python
 git clone --recurse-submodules https://github.com/RQ-Modding/RQ-Mod.git
 cd RQ-Mod
 meson setup build --buildtype=release
