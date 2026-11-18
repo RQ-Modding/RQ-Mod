@@ -48,10 +48,6 @@ RQ MOD targets Rance Quest Magnum on Windows. Other AliceSoft games are not supp
 
 To add a mod, extract its folder into `mods`. To remove it, delete the folder. `logs\rqmod.log` lists each mod it loaded (`Loading <id>`) and says why it skipped any other.
 
-## A gamepad
-
-A gamepad does nothing yet: Rance Quest reads the pad through `IbisInputEngine`'s joystick calls, which the engine does not implement (as upstream xsystem4). A tool that maps the pad to keys and the mouse (Steam Input, for one) can stand in until then.
-
 ## When something goes wrong
 
 Everything is written to the `logs` folder next to `mods`:
