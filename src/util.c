@@ -170,9 +170,9 @@ char *savedir_path(const char *path)
 #include <windows.h>
 #endif
 
-// The game builds its paths in SJIS, which has no letters such as 'á'.
+// The game builds its paths in SJIS, which has no letters such as 'é'.
 // A folder with one would come back with '?' in it, so on Windows such a
-// folder is given by its short name (C:\Users\USURIO~1), which is ASCII.
+// folder is given by its short name (C:\Users\JOS~1), which is ASCII.
 // The folder must exist.
 char *dir_to_sjis(const char *utf8)
 {

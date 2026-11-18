@@ -258,7 +258,7 @@ static void read_user_config(void)
 
 // Returns the variable as UTF-8, or NULL when it is unset or empty.
 // On Windows getenv answers in the ANSI code page, which turns a path
-// like C:\Users\Usuário into bytes the UTF-8 file calls cannot open.
+// like C:\Users\José into bytes the UTF-8 file calls cannot open.
 static char *getenv_utf8(const char *name)
 {
 #ifdef _WIN32

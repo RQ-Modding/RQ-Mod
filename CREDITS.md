@@ -47,8 +47,8 @@ The release's `xsystem4.exe` is linked with these libraries from [MSYS2](https:/
 | [libffi](https://sourceware.org/libffi/) | MIT | `libffi` |
 | [GLEW](https://glew.sourceforge.net/) | BSD-3-Clause and MIT | `glew` |
 | [cglm](https://github.com/recp/cglm) | MIT | `cglm` |
-| GCC runtime (libgcc, libstdc++, libssp, libatomic) | GPL-3.0-or-later with the GCC Runtime Library Exception 3.1 | `libgcc`, `libstdc++` |
-| [mingw-w64](https://www.mingw-w64.org/) runtime and winpthreads | ZPL-2.1, MIT and public domain | `crt`, `libwinpthread` |
+| GCC runtime (libgcc, libstdc++, libatomic) | GPL-3.0-or-later with the GCC Runtime Library Exception 3.1 | `gcc` |
+| [mingw-w64](https://www.mingw-w64.org/) runtime (with its libssp) and winpthreads | ZPL-2.1, MIT and public domain | `crt`, `winpthreads` |
 
 MSYS2 installs no license file for libvorbis and LAME, so this repository carries them in `dist/xsystem4/licenses/`. `rance-browser.exe` is linked with some of the same libraries; its own credits are in `xsystem4/licenses/rance-browser/`.
 
