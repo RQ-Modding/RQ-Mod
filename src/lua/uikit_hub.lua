@@ -2,7 +2,7 @@
 -- list, town tabs, Frostbuy's rack tiles, the sort column, the game's scroll bar, the close
 -- button and a page that covers the hub. Built from the game's own CGs (cgdump 10000 to 11430)
 -- and its font (font = "game"), with the numbers from its code (T_Castle, T_QuestList, T_Sort,
--- T_ScrollBar, C_Town). notes/plans/plan-ui-kit-hub.md has the research.
+-- T_ScrollBar, C_Town).
 local rq, ui, kit = ...
 local hud, input = rq.hud, rq.input
 local interact, show, place, play = kit.interact, kit.show, kit.place, kit.play

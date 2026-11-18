@@ -17,7 +17,7 @@ caller's frame in Lua 5.4.
 Why: the loader names the calling mod by the nearest stack frame that runs a file in a mod's folder
 (`rq.mod.id`, the sandbox's paths, the `rq.log` tag). A tail call such as
 `return rq.ui.confirm(...)` used to replace the mod's frame with the loader's Lua, so the call ran as
-if outside any mod. The plan is `notes/plans/plan-mod-tail-calls.md` in the workspace.
+if outside any mod.
 
 What it costs:
 

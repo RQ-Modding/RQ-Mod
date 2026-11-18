@@ -1,4 +1,4 @@
--- Timers and waiting (loader 2.33.0, notes/plans/plan-creator-basics.md in the workspace):
+-- Timers and waiting (loader 2.33.0):
 --   rq.after(ms, fn)          fn once, ms of real time from now
 --   rq.every(ms, fn)          fn every ms; false from fn stops it
 --   rq.spawn(fn, ...)         fn as a coroutine the loader drives; a handle with done/ok/value/error

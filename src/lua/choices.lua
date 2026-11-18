@@ -1,5 +1,4 @@
--- What enemies and the familiar choose (loader 2.38.0, notes/plans/plan-enemy-choices.md in the
--- workspace):
+-- What enemies and the familiar choose (loader 2.38.0):
 --   rq.battle.on_choose               the skill and the target of an enemy's or the familiar's turn
 --   rq.battle.taunt, set_taunt        the game's own taunt (◆戦闘タゲ取り)
 --

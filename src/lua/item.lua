@@ -184,7 +184,7 @@ end
 
 -- The shop's stock (place 6), bought as the shop's drag onto the vault or a party member does
 -- (T_EquitItem::setItem). 2.10.0.
--- ---- rq.shop.on_can_buy (2.50.0, notes/plans/plan-rare-contract.md in the workspace) ----
+-- ---- rq.shop.on_can_buy (2.50.0) ----
 -- The game buys in one place: T_EquitItem::setItem with m_nType 6, the drag from the rack to the
 -- vault (index 999) or onto a character's row. It checks the price, says "Not enough money.", asks
 -- "Purchase X?" and only then moves the item to the vault (place 7) and takes the money. A shop
@@ -373,7 +373,7 @@ function item.info(no)
   return hit.row and copy(hit.row) or nil
 end
 
--- ---- rq.item.on_can_equip (2.46.0, notes/plans/plan-new-mods.md in the workspace, step 2) ----
+-- ---- rq.item.on_can_equip (2.46.0) ----
 --
 -- アイテム_装備可能(ii, iic) is the one check of the vault, the status page, the shop, the storage
 -- screen's filters and the equip list (T_EquipList). Its order: the item's level (Ｉ装備ＬＶ, 0 for
@@ -501,7 +501,7 @@ function item.on_can_equip(fn)
   end
 end
 
--- ---- A refusal's text (2.55.0, notes/plans/plan-dynamic-immature.md in the workspace) ----
+-- ---- A refusal's text (2.55.0) ----
 -- The game says "Unable to equip." for a drop on a grey character row of the vault's equip list
 -- (T_EquitItem::setItem, the one instance in g_sEquipDrag.m_sEquip), and nothing on the status
 -- page, whose grey rows cannot be picked. Where a mod's callback refused with a text, the vault
@@ -691,7 +691,7 @@ function item.on_unequip(fn)
   return add_cb(unequip_list, "on_unequip", fn, unequip_install)
 end
 
--- ---- rq.item.on_try_equip (2.58.0, notes/plans/plan-rocky-chunk-indicator.md in the workspace) ----
+-- ---- rq.item.on_try_equip (2.58.0) ----
 -- The player puts an item on a character in two places: T_EquitItem::setItem (the vault's and the
 -- storage screen's drag onto a character's row, and the shop's drag onto one) and キャラ_装備変更
 -- from T_Status::equipItem (the status page's pick). Both ask the game's take-off question
@@ -901,7 +901,7 @@ if raw_stock then
   end
 end
 
--- ---- rq.shop.restocks, restock and next (2.49.0, notes/plans/plan-bulk-buy.md in the workspace) ----
+-- ---- rq.shop.restocks, restock and next (2.49.0) ----
 -- Ｔアイテム屋 refills the stock once a visit. Ｔアイテム屋／入荷品(no) puts a copy on sale when none
 -- is, and first adds 1 to ◆アイテム補充数[no] when it is not 0. A weapon's or armor's shop level is
 -- that count - 2 from 3 on, at most ⑨ (Ｉ生成／データ１: the name's " ①", the price and the stats).

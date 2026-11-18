@@ -368,8 +368,7 @@ end
 -- The free room is the title row (the name is drawn from x 245 and the widest name ends at 435, the
 -- X is at 510, 65): two button cells, right to left from the X, spot "title". And (2.58.0) the left
 -- end of the LV row, plain grey from x 10 to 91 and y 91 to 116 under the class icon (47 to 79, 63
--- to 90) and left of "LV." (from 92): two icon cells, spot "left" (notes/plans/
--- plan-rocky-chunk-indicator.md in the workspace).
+-- to 90) and left of "LV." (from 92): two icon cells, spot "left" (2.58.0).
 -- Built on public calls only:
 --   rq.statuspage.on_open      the cells as buttons of that group, ids 100101 to 100105
 --                              (T_ButtonGroup::addButtonRect, its three sprites set to faces composed
@@ -388,7 +387,7 @@ end
 -- buttons' highlight (yellow-green, 102) instead of the game's red: the mark lights up under the
 -- mouse as they do. The page shows its comment under the mouse, as for any greyed button.
 --
--- MODS (2.59.0, notes/plans/plan-status-mods-list.md in the workspace): when more than two title
+-- MODS (2.59.0): when more than two title
 -- entries are shown on a draw and one of them may go in a list (`list` not false), or one shown asks
 -- for the list (`list = true`), the title row has one button instead of the cells, MODS, over both
 -- cells (cell 5, id 100105): SKILL SCREEN's grey button (CG 11505) with the word in the game's font.
@@ -1074,7 +1073,7 @@ end
 -- m_sButton, made again for each area by T_MapParts::create. The panel has no free room, so a mod's
 -- buttons are tabs on its left edge, on the 3D view's right edge between the area map (AREA DISPLAY,
 -- CG 11371 at 695,11, 110x110) and the Magnum gauge (CG 11315 at 778,349): up to four of 40x44 at
--- x 768, from y 129, 47 apart (notes/plans/plan-map-panel-windows.md).
+-- x 768, from y 129, 47 apart.
 -- Built on public calls only:
 --   after T_MapParts@create    the shown entries as buttons of that group, ids 700101 to 700104
 --                              (T_ButtonGroup::addButtonRect, its three sprites set to faces composed

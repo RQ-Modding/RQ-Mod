@@ -1,5 +1,5 @@
 -- rq.ui.confirm, rq.ui.notice and rq.ui.ask (loader 2.19.0): the game's own dialogs, which wait for
--- the answer as the game's code does (notes/plans/plan-ui-kit-leftovers.md section 13).
+-- the answer as the game's code does.
 --
 -- Every dialog of the game is its choice menu, g_sSelect, filled from one list of rows
 -- (g_sSelectData) and opened by 選択_実行. These calls add the rows the game's own 選択_確認,

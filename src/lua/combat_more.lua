@@ -1,5 +1,5 @@
 -- The damage limit, a physical hit's element, Athena's Studies and the weakness reveal (loader
--- 2.46.0, notes/plans/plan-new-mods.md in the workspace, step 2):
+-- 2.46.0):
 --   rq.combat.on_cap             the damage limit of a hit, in 最終ダメージ計算
 --   rq.combat.on_element         the element of a physical hit, in 物理属性計算
 --   rq.battle.on_study           the five Studies of Athena 2.0 after a fight

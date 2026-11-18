@@ -1,4 +1,4 @@
--- Skill buying (loader 2.45.0, notes/plans/plan-new-mods.md in the workspace):
+-- Skill buying (loader 2.45.0):
 --   the purchase record        after キャラスキル_新規追加 and キャラスキル_更新 (the skill window's
 --                              buy and upgrade), the points paid are added to the row's own cost
 --                              field, Ｃ[iic].スキル[row].コスト, which the game writes only as 0 and
@@ -464,7 +464,7 @@ hook("Ｃスキルドレイン", { after = function(h)
   for _, r in ipairs({ table.unpack(resets) }) do cbs.run(r, "rq.chara.on_skill_reset", ctx) end
 end })
 
--- rq.chara.on_has_skill (2.55.0, notes/plans/plan-dynamic-immature.md in the workspace):
+-- rq.chara.on_has_skill (2.55.0):
 -- ＣＳ番号取得(iic, skill, fg) is the game's check for a skill: the row of the first copy held (fg
 -- 0, ＣＳ保有 1), set in an action slot (1, ＣＳ実装中 not 0) or held and not set (2), else 0.
 -- ＣＳ有無, ＣＳ有無／スタメン and ＣＳ総数取得／スタメン (the party) ask through it. ctx.caller is the

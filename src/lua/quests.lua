@@ -1,4 +1,4 @@
--- Quests and map objects (loader 2.39.0, notes/plans/plan-quests-map-objects.md in the workspace):
+-- Quests and map objects (loader 2.39.0):
 --   rq.quests.get, edit                  a quest's data as the quest list shows it; a mod's patch on it
 --   rq.quests.run, set_run               the counters, bonuses and rules of the quest being played
 --   rq.dungeon.objects, remove           the objects on the current map
@@ -6,11 +6,11 @@
 --                                        mod's own object ("custom")
 --   rq.dungeon.on_object, looks          a mod's own object: its callback, the props it can look like
 --   rq.dungeon.traps, set_traps, on_trap the trap kinds' weights, and a trap stepped on
--- Loader 2.41.0 (notes/plans/plan-new-quests.md):
+-- Loader 2.41.0:
 --   rq.quests.define, no                 a mod's own quest with no map: a number from 303 to 500 in
 --                                        the save, its data, its script (run) and how it opens
 --   the quest calls take a defined quest's id; get's text_id and main; the callbacks' ctx.id
--- Loader 2.42.0 (notes/plans/plan-new-dungeons.md):
+-- Loader 2.42.0:
 --   rq.quests.define's map              areas on the game's 4 by 4 grid, each a stock room of one
 --                                        of its tilesets or one of its fixed maps, set up as its
 --                                        quest scripts set theirs; get's map; set_run's progress

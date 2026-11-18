@@ -3,7 +3,7 @@
 -- own CGs (11401 to 11424, 11072 to 11089, 11200 to 11224) and its numbers (T_StoreList,
 -- T_StoreComment, T_StoreItem, T_LimitItem, T_LimitItemEx, T_LimitJob, T_LimitLock). The data
 -- comes from the game's own item calls, and the filters and sorts are the vault's own tests
--- (アイテム倉庫_一覧_*, compItem_*), through rq.ain.call. notes/plans/plan-ui-kit-hub.md has the research.
+-- (アイテム倉庫_一覧_*, compItem_*), through rq.ain.call.
 local rq, ui, kit = ...
 local hud = rq.hud
 local H = kit.hub

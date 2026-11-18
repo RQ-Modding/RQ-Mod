@@ -68,7 +68,7 @@ FIXED = {
         (4, "Second", "the second army"),
     ],
     # ＭＡＰ基礎型登録 (ＴＡＤＡ/関数／.jaf): the kinds the quests' scripts set, named by their look
-    # (each kind's CG, gＭ 5610 to 5795; plans/plan-dungeon-areas.md in the workspace); detail: places.
+    # (each kind's CG, gＭ 5610 to 5795); detail: places.
     "map_kind": [
         (1, "Cave", "Epiphany Cave, Cripple Dungeon, Despair"),
         (2, "Forest", "Kalar Forest, Mushroom Forest"),

@@ -1,18 +1,17 @@
--- The basics a new creator tries first (loader 2.33.0, notes/plans/plan-creator-basics.md in the
--- workspace):
+-- The basics a new creator tries first (loader 2.33.0):
 --   rq.game.gold, set_gold, add_gold                 the money
 --   rq.game.charisma, add_charisma, set_charisma     the rank and points of the system bar
 --   rq.encounters.info, hold, set_steps, on_steps, on_encounter   random fights on a quest's map
 --   rq.encounters.set_groups (2.40.0)                the area's groups, a mod's among them
 --   rq.chara.add_exp, level_up, on_level_up          EXP and levels, as the game gives them
 --   (rq.chara.get's uncapped is in C, modloader_roster.c, as the rest of get)
--- And a fight's rewards (loader 2.34.0, notes/plans/plan-rewards-savedata.md):
+-- And a fight's rewards (loader 2.34.0):
 --   rq.battle.on_reward                              the gold and EXP, before the result screen
 --   rq.battle.bags, set_bag                          the enemies' gold bags
--- And the party (loader 2.35.0, notes/plans/plan-creator-comfort.md):
+-- And the party (loader 2.35.0):
 --   rq.party.roster, state, set_state, heal          where each character is, the game's heals
 --   rq.chara.heal                                    one character's heal
--- And the mode and a mod's fights (loader 2.36.0, notes/plans/plan-monsters-modes.md):
+-- And the mode and a mod's fights (loader 2.36.0):
 --   rq.game.mode, set_mode                           Classic or TADA (◆２倍モード)
 --   rq.battle.start, backgrounds                     a fight of a mod's, the boss's rules and more
 --

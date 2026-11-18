@@ -4,7 +4,6 @@
 -- parchment, which rq.uikit.page draws with style = "parchment" (uikit_hub.lua). Built from the
 -- game's own CGs (11335, 11014, 11110, 20001; cgdump of 2026-11-11) and its numbers
 -- (T_StoreQuest, T_QuestComment, T_ShopMessage, T_KnowledgeList).
--- notes/plans/plan-map-panel-windows.md has the research.
 local rq, ui, kit = ...
 local hud, input = rq.hud, rq.input
 local H = kit.hub

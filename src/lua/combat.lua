@@ -1,5 +1,4 @@
--- Combat formulas and the last rq.ain hooks (loader 2.37.0, notes/plans/plan-combat-hooks.md in the
--- workspace):
+-- Combat formulas and the last rq.ain hooks (loader 2.37.0):
 --   rq.battle.on_order, on_order_after, familiar      the turn list and the familiar
 --   rq.combat.on_stun, on_poison, on_counter          the rolls, with the rate the game rolls
 --   rq.combat.on_heal                                 a skill's heal, a revive and HP absorb
@@ -7,7 +6,7 @@
 --   rq.battle.set_ambush                              the ambush (read in on_start's ctx, C)
 --   rq.battle.on_log, log                             each line of the battle log
 --   rq.combat.rules, set_rules                        what a skill can do: crit, stun, poison,
---                                                     accuracy (2.44.0, notes/plans/plan-mod-review.md)
+--                                                     accuracy (2.44.0)
 --
 -- Built only on public calls: rq.ain.call, global, set_global, hook, patch_int and stack.
 --   Ｔ順番生成(fg)          the whole turn list ◆戦闘順番[1..50] (roster slots), at a fight's start
@@ -908,8 +907,8 @@ end
 
 -- ---- The rules: what a skill can do in a fight (2.44.0) ----
 
--- The game's rules by skill number, written in its combat code (notes/plans/plan-mod-review.md
--- 1.1); the rest comes from the skill's data: 行動種類 (1 physical), 倍率 and 機能.
+-- The game's rules by skill number, written in its combat code; the rest comes from the skill's
+-- data: 行動種類 (1 physical), 倍率 and 機能.
 local CRIT_ZERO = { [120] = true }                          -- クリティカル計算: aa = 0
 local STUN_OWN = { [149] = true, [183] = true, [422] = true, [507] = true } -- stun in their own code
 local POISON_RATE = { [424] = 60, [404] = 50, [390] = 50, [539] = 80, [443] = 80, [560] = 80,

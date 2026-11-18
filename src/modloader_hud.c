@@ -147,7 +147,7 @@ static char g_on_frame_mod[HUD_MAX_FRAME_CB][48];
 
 /*
  * The stall watch (2.31.0). In four Lab stalls the game's loop ran and the Lab's on_frame callback
- * wrote no heartbeat for 60 s (ideas-later.md, "Test Lab: ..."). rq_hud_tick runs only from
+ * wrote no heartbeat for 60 s. rq_hud_tick runs only from
  * sact_Update; handle_events runs from every wait loop of the game. These say when the tick and
  * the callbacks last ran and which callback runs now; the pipe thread reads them for where.
  */

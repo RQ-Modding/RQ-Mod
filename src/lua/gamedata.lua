@@ -1,4 +1,4 @@
--- Game data for mods (loader 2.23.0, notes/plans/plan-game-data.md in the workspace):
+-- Game data for mods (loader 2.23.0):
 --   rq.world.current, on_transfer, on_transfer_after   the world and the game's world transfer
 --   rq.shop.donations, set_donations                   the donations count and Frostbuy's goal
 --   rq.quests.on_take, can_take, refresh               taking a quest from the list

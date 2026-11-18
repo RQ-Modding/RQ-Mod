@@ -1,5 +1,4 @@
--- rq.knownskills: more known skills than the game's 17, shown in pages (loader 2.54.0,
--- notes/plans/plan-known-skill-pages.md in the workspace).
+-- rq.knownskills: more known skills than the game's 17, shown in pages (loader 2.54.0).
 --
 -- Each character's skills are the rows of Ｃ[iic].スキル, 21 in the game: row 0 unused, rows 1 to 18
 -- for 17 skills and the item effect skill, rows 19 and 20 walked but never filled. With `most`
@@ -292,7 +291,7 @@ local function themes()
     return q
   end
   -- The game's scroll bar cut to 14 wide: one column of each bevel and the 12 middle ones (Moru chose
-  -- it on 2026-11-15 from shots of the status page, plan-known-skill-pages.md section 6).
+  -- it on 2026-11-15 from shots of the status page).
   local s = hub.scroll
   local slim = { w = 14, arrow = 40, min = 10,
     up = cut(s.up, 0, 0), up_hover = cut(s.up_hover, 0, 0),

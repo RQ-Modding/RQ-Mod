@@ -1,8 +1,8 @@
--- rq.monster (loader 2.36.0, notes/plans/plan-monsters-modes.md in the workspace):
+-- rq.monster (loader 2.36.0):
 --   rq.monster.get(no)              a monster's data, as the game's list has it
 --   rq.monster.edit(no, patch)      changes a monster each time the game builds it
 --   rq.monster.on_create(fn)        each enemy a fight builds, and the familiar
--- New monsters and enemy groups (loader 2.40.0, notes/plans/plan-new-monsters.md):
+-- New monsters and enemy groups (loader 2.40.0):
 --   rq.monster.define(def)          a monster of a mod's own on a game monster's data, its number
 --                                   1000 + an FNV-1a hash of its id; its capture and drops
 --   rq.monster.group(def)           an enemy group of a mod's own (rq.encounters.set_groups and

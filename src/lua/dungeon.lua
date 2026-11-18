@@ -1,4 +1,4 @@
--- Which dungeon and which area (loader 2.24.0, notes/plans/plan-dungeon-areas.md in the workspace):
+-- Which dungeon and which area (loader 2.24.0):
 --   rq.dungeon.on_area      once per area the party enters
 --   rq.dungeon.areas        the quest's area map, as the game draws it
 --   area, row, col, name, kind, first and stratum on rq.dungeon.on_map's ctx, and the same (but

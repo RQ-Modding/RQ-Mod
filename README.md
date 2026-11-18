@@ -39,14 +39,18 @@ RQ MOD targets Rance Quest Magnum on Windows. Other AliceSoft games are not supp
    │       ├── init.lua
    │       └── mod.json
    ├── xsystem4/
+   │   ├── api.html          the API reference, offline
    │   ├── config.json
    │   └── xsystem4.exe      start the game with this
-   └── RanceQuest.exe
+   ├── RanceQuest.exe
+   └── RQ-MOD-README.txt     these steps, in short
    ```
 
 4. Start the game with `xsystem4\xsystem4.exe`.
 
 To add a mod, extract its folder into `mods`. To remove it, delete the folder. `logs\rqmod.log` lists each mod it loaded (`Loading <id>`) and says why it skipped any other.
+
+Mods are shared by their authors. Some can be found in the [RQ-Modding organization's repositories](https://github.com/RQ-Modding) on GitHub until the RQ MOD site lists the checked mods.
 
 ## When something goes wrong
 
@@ -68,7 +72,7 @@ Mods are Lua 5.4. A mod is a folder in `mods` with an `init.lua` and a `mod.json
 
 - API definitions for your editor (VS Code with the Lua extension): `lua/rq.lua`, and the game's numbers by name for `rq.ids` in `lua/rq_ids.lua`. The release includes a `.luarc.json` that points the Lua extension at it.
 - Version history of the API: [CHANGELOG.md](CHANGELOG.md).
-- Full modding documentation: coming soon at the RQ Modding organization.
+- Guides and the API reference: [rq-modding.github.io/rq-modding-docs](https://rq-modding.github.io/rq-modding-docs/). The release has the reference offline too, in `xsystem4\api.html`.
 
 ## Building from source
 

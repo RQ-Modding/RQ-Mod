@@ -50,7 +50,7 @@
 #define SPR_ATTACH_DEPTH 8
 #define SPR_GIF_PIXELS (64u * 1024u * 1024u)
 #define SPR_META "rq.sprite"
-/* Named layers, from the z map (see plan-sprites.md):
+/* Named layers, from the z map:
  *   1-22 the hub and quest list pages, 101-262 the fight's field and cards and the dungeon view,
  *   801-823 the bar at the bottom, 8001-8301 messages, 9001-9002 fades, 9101 the System menu,
  *   15000-15010 Config. */

@@ -1,4 +1,4 @@
--- rq.savedata's moments (loader 2.34.0, notes/plans/plan-rewards-savedata.md in the workspace).
+-- rq.savedata's moments (loader 2.34.0).
 -- rq.savedata itself is in C (modloader_roster.c): kept in memory, written beside the game's slot
 -- file when the game writes it, read back when the game reads it, deleted with it.
 --
@@ -115,7 +115,7 @@ function saves.on_load(fn)
   return add_load(fn, "rq.saves.on_load")
 end
 
--- ---- rq.saves.autosave (2.50.0, notes/plans/plan-rare-contract.md in the workspace) ----
+-- ---- rq.saves.autosave (2.50.0) ----
 -- 自動セーブ(1) is the game's autosave: slot 30 and its "~~Auto-Saving~~" message (セーブメッセージ_表示(1),
 -- held 700 ms), as when a quest is taken and when it ends. The game saves its data (system.GroupSave
 -- of its globals), not the running code, so a call from a mod saves as the game's own does; the
