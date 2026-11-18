@@ -68,6 +68,7 @@ Making mods
 Guides and the API reference: https://rq-modding.github.io/rq-modding-docs/
 The same API reference offline: xsystem4\api.html
 lua\rq.lua gives your editor (VS Code with the Lua extension) the rq.* calls.
+A template to start a mod from: https://github.com/RQ-Modding/rq-mod-template
 
 
 Community

@@ -77,6 +77,7 @@ Mods are Lua 5.4. A mod is a folder in `mods` with an `init.lua` and a `mod.json
 - API definitions for your editor (VS Code with the Lua extension): `lua/rq.lua`, and the game's numbers by name for `rq.ids` in `lua/rq_ids.lua`. The release includes a `.luarc.json` that points the Lua extension at it.
 - Version history of the API: [CHANGELOG.md](CHANGELOG.md).
 - Guides and the API reference: [rq-modding.github.io/rq-modding-docs](https://rq-modding.github.io/rq-modding-docs/). The release has the reference offline too, in `xsystem4\api.html`.
+- A template to start a mod from, with a workflow that publishes its release zip: [rq-mod-template](https://github.com/RQ-Modding/rq-mod-template).
 
 ## Community
 
