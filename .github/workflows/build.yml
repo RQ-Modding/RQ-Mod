@@ -136,6 +136,8 @@ jobs:
           cp -r fonts shaders $pkg/xsystem4/
           cp -r dist/. $pkg/
           cp README.md CHANGELOG.md CREDITS.md COPYING $pkg/xsystem4/
+          # The API reference offline, one page, with the game's numbers (dist/ brings RQ-MOD-README.txt).
+          python tools/apidoc/rqdoc.py html dist/lua/rq.lua $pkg/xsystem4/api.html data/ids/ids.json
           mkdir -p $pkg/xsystem4/licenses && cp -r /mingw64/share/licenses/. $pkg/xsystem4/licenses/
           # Rance Browser (subprojects/rance-browser, GPL-2.0-or-later): its credits, and Dear ImGui and
           # cimgui (MIT), built into it.
@@ -166,7 +168,7 @@ jobs:
 
           **Install:** extract the zip into the game's folder and start `xsystem4\xsystem4.exe`. Put each mod's folder under `mods`. The [install guide](https://rq-modding.github.io/rq-modding-docs/guide/install) has the details, and where the logs are when something goes wrong.
 
-          **Docs and the API reference:** https://rq-modding.github.io/rq-modding-docs/
+          **Docs and the API reference:** https://rq-modding.github.io/rq-modding-docs/ (the reference is also in the zip, offline: `xsystem4\api.html`; `RQ-MOD-README.txt` has the steps).
 
           EOF
           printf '## Changes in %s\n' "$v" >> notes.md

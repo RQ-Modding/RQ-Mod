@@ -7,9 +7,14 @@ coverage check compares it with what the running engine really exposes.
 ```sh
 python tools/apidoc/rqdoc.py json  dist/lua/rq.lua api.json        # the model, for other tools
 python tools/apidoc/rqdoc.py md    dist/lua/rq.lua out/             # one page per namespace and type
+python tools/apidoc/rqdoc.py html  dist/lua/rq.lua api.html data/ids/ids.json   # one offline page
 python tools/apidoc/rqdoc.py stats dist/lua/rq.lua                  # what still needs the new format
 python tools/apidoc/rqdoc.py cover dist/lua/rq.lua apidump.json     # undocumented / stale entries
 ```
+
+`html` writes the release zip's `xsystem4/api.html` (the release workflow runs it): the same pages
+as `md` in one file with no network, a search box (names, summaries and, with `ids.json`, the
+game's numbers), both colour schemes, links between pages as anchors in the page.
 
 `apidump.json` comes from the running game: `rqmod-ctl apidump > apidump.json` (the workspace
 script `check-api-docs.ps1` boots the game and does both steps). The dump is taken after the
