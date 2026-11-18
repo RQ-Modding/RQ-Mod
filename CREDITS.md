@@ -8,7 +8,7 @@ RQ MOD is a fork. Most of this code was written by other people.
 | [libsys4](https://github.com/nunuhara/libsys4) | Nunuhara Cabbage and contributors | GPL-2.0-or-later | `subprojects/libsys4` |
 | [Lua 5.4.7](https://www.lua.org/) | Lua.org, PUC-Rio | MIT | `third_party/lua` |
 | [cJSON](https://github.com/DaveGamble/cJSON) | Dave Gamble and contributors | MIT | `src/cJSON.c` |
-| [FFmpeg n7.1.2](https://ffmpeg.org/) | The FFmpeg developers | LGPL-2.1-or-later | linked into `xsystem4.exe` for the game's movies (libavcodec, libavformat, libavutil, libswscale). The [release workflow](.github/workflows/build.yml) builds it from [its source at n7.1.2](https://github.com/FFmpeg/FFmpeg/tree/n7.1.2) with only the parts the movies need: the MPEG-1/2, VC-1, MP2 and WMA Pro decoders, the MPEG-PS/TS, MPEG video and ASF demuxers and the scale filter, without `--enable-gpl`. License in the release zip: `xsystem4/licenses/ffmpeg/` |
+| [PL_MPEG](https://github.com/phoboslab/pl_mpeg) | Dominic Szablewski | MIT | `include/pl_mpeg.h`, the movie player (`src/movie_plmpeg.c`); Rance Quest plays no movie |
 | [Rance Browser](https://github.com/RQ-Modding/rance-browser) | RQ Modding, with code of xsystem4 and libsys4 | GPL-2.0-or-later | `subprojects/rance-browser` (`rance-browser.exe`), its own repository |
 | [Dear ImGui 1.92.9](https://github.com/ocornut/imgui) | Omar Cornut and contributors | MIT | in Rance Browser only (`subprojects/rance-browser/third_party/cimgui/imgui`) |
 | [cimgui 1.92.9b](https://github.com/cimgui/cimgui) | Stephan Dilly and contributors | MIT | in Rance Browser only (`subprojects/rance-browser/third_party/cimgui`) |

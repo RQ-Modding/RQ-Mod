@@ -35,12 +35,14 @@ jobs:
           # flex and bison build libsys4's ini parser. base-devel brought them until its 2026.11 update.
           # cglm: without the package, meson builds its wrap (v0.9.2, from GitHub), not the cglm the
           # builds here link, and the zip gets no licenses/cglm.
+          # No FFmpeg: Rance Quest plays no movie (its AIN loads neither DrawMovie nor PlayMovie), so
+          # meson builds the movie player on pl_mpeg (include/pl_mpeg.h, MIT), as upstream does
+          # without FFmpeg.
           install: >-
             base-devel
             flex
             bison
             git
-            nasm
             diffutils
             zip
             mingw-w64-x86_64-gcc
@@ -64,54 +66,6 @@ jobs:
       # rq.ids: the module, the annotations and ids.json must be what data/ids gives.
       - name: Check rq.ids
         run: python tools/ids/gen_ids.py --check
-
-      - name: Cache FFmpeg
-        id: cache-ffmpeg
-        uses: actions/cache@v4
-        with:
-          path: FFmpeg/destdir
-          key: ${{ runner.os }}-ffmpeg-n7.1.2-licenses
-
-      - name: Build FFmpeg
-        if: ${{ steps.cache-ffmpeg.outputs.cache-hit != 'true' }}
-        run: |
-          git clone --depth 1 --branch n7.1.2 https://github.com/FFmpeg/FFmpeg.git
-          cd FFmpeg
-          ./configure --disable-everything \
-            --enable-decoder=mpegvideo \
-            --enable-decoder=mpeg1video \
-            --enable-decoder=mpeg2video \
-            --enable-decoder=mp2 \
-            --enable-parser=mpegaudio \
-            --enable-parser=mpegvideo \
-            --enable-demuxer=mpegps \
-            --enable-demuxer=mpegts \
-            --enable-demuxer=mpegtsraw \
-            --enable-demuxer=mpegvideo \
-            --enable-decoder=vc1 \
-            --enable-decoder=wmapro \
-            --enable-parser=vc1 \
-            --enable-hwaccel=vc1_d3d11va \
-            --enable-hwaccel=vc1_d3d11va2 \
-            --enable-hwaccel=vc1_dxva2 \
-            --enable-demuxer=asf \
-            --enable-protocol=file \
-            --enable-filter=scale \
-            --enable-static \
-            --disable-shared \
-            --extra-libs=-static \
-            --extra-cflags=--static \
-            --prefix=/mingw64
-          make -j$(nproc)
-          mkdir destdir
-          DESTDIR=destdir make install
-          # FFmpeg (LGPL-2.1-or-later, no --enable-gpl) is linked into xsystem4.exe: its license
-          # goes beside MSYS2's, so the Package step puts it in the zip.
-          mkdir -p destdir/mingw64/share/licenses/ffmpeg
-          cp LICENSE.md COPYING.LGPLv2.1 destdir/mingw64/share/licenses/ffmpeg/
-
-      - name: Install FFmpeg
-        run: cp -a FFmpeg/destdir/. /
 
       - name: Build
         run: |

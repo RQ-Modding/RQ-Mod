@@ -39,6 +39,16 @@ set, they go under that folder instead, and when only HOME is set, under
 of the save folder before you try a mod that adds characters or items.
 
 
+The network box
+---------------
+
+If the game shows "Failed to send data to server (getserverversion)", click
+OK and play on: RQ MOD does not connect to the game's online server, and
+nothing is lost. To stop the box, untick "Connect to network" in Config,
+Other 2. It is off in a new install; a save copied from the original game may
+have it on.
+
+
 When something goes wrong
 -------------------------
 
