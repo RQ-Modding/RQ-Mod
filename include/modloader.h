@@ -244,6 +244,8 @@ int rq_item_is_gear_key(const char *key);
 void rq_item_check_gear(struct lua_State *L, int t);
 void rq_item_give_gear(struct lua_State *L, int t, int iic);
 int rq_image_placeholder(void);
+/* The Discord icon the title screen's link shows, built into the exe (2.59.2). */
+int rq_image_discord(void);
 int rq_lua_shop_on_buy(struct lua_State *L);
 int rq_lua_loot_add(struct lua_State *L);
 int rq_lua_loot_remove(struct lua_State *L);
@@ -434,6 +436,8 @@ int rq_lua_hud_block(struct lua_State *L);
 int rq_lua_hud_capture_mouse(struct lua_State *L);
 int rq_lua_ui_choosing(struct lua_State *L);
 int rq_lua_hud_set_under_z(struct lua_State *L);
+/* The main menu's version banner: x, y, w, h while the title waits for a choice, else nil (2.59.2). */
+int rq_lua_title_banner(struct lua_State *L);
 /* A choice-menu row's comment as lines the game never cuts (2.45.1, modloader_scene.c). */
 int rq_lua_menu_comment(struct lua_State *L);
 int rq_lua_ain_patch_local_int(struct lua_State *L);
@@ -528,7 +532,10 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.59.1"
+#define RQ_VERSION "2.59.2"
+/* The project's stage, after the version in the window title and the main menu's banner (2.59.2):
+ * the tools that help make content are not done yet. "" when the stage ends. */
+#define RQ_STAGE "Public Beta"
 
 struct rq_qbattle_skill {
 	int id;

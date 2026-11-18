@@ -54,4 +54,6 @@ MSYS2 installs no license file for libvorbis and LAME, so this repository carrie
 
 Rance Quest Magnum is © AliceSoft. RQ MOD contains no game data; you need your own copy of the game.
 
+The Discord logo (`res/discord.png`, the main menu's link to the RQ MOD server) is a trademark of Discord Inc., used to link to that server.
+
 RQ MOD: the mod loader, the `rq.*` Lua API and the Rance Quest changes, by Moru and the RQ Modding contributors.

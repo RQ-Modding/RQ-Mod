@@ -8,6 +8,9 @@
 
 RQ MOD is a fork of [xsystem4](https://github.com/nunuhara/xsystem4), the open-source implementation of AliceSoft's System 4 engine, made for Rance Quest Magnum only. It adds a Lua mod loader and an `rq.*` API that lets mods change the HUD, skills, items, characters, battles, quests and more.
 
+> [!NOTE]
+> RQ MOD is a **public beta**: the tools that help make new content are not done yet.
+
 > [!IMPORTANT]
 > The engine itself is the work of the xsystem4 authors (Nunuhara Cabbage, kichikuou and contributors). RQ MOD builds on it; see [CREDITS.md](CREDITS.md).
 
@@ -18,6 +21,7 @@ RQ MOD is a fork of [xsystem4](https://github.com/nunuhara/xsystem4), the open-s
 - Debug overlay on F3 (mods can add to it).
 - Logs and crash reports in the `logs` folder.
 - Discord Rich Presence (can be turned off in Config, "Other 2").
+- A link to the RQ MOD Discord server on the main menu, by the version (the game asks before it opens the browser).
 
 RQ MOD targets Rance Quest Magnum on Windows. Other AliceSoft games are not supported; use [xsystem4](https://github.com/nunuhara/xsystem4) for those.
 
@@ -73,6 +77,12 @@ Mods are Lua 5.4. A mod is a folder in `mods` with an `init.lua` and a `mod.json
 - API definitions for your editor (VS Code with the Lua extension): `lua/rq.lua`, and the game's numbers by name for `rq.ids` in `lua/rq_ids.lua`. The release includes a `.luarc.json` that points the Lua extension at it.
 - Version history of the API: [CHANGELOG.md](CHANGELOG.md).
 - Guides and the API reference: [rq-modding.github.io/rq-modding-docs](https://rq-modding.github.io/rq-modding-docs/). The release has the reference offline too, in `xsystem4\api.html`.
+
+## Community
+
+- [RQ MOD on Discord](https://discord.gg/maCKqfTGne), the official server
+- [Rance & Alicesoft Western Community](https://discord.gg/RANCE) on Discord
+- [Moru on X (Twitter)](https://x.com/Moru_zerinho6)
 
 ## Building from source
 

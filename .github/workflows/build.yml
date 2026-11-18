@@ -77,6 +77,9 @@ jobs:
         run: |
           v=$(sed -n 's/^#define RQ_VERSION "\(.*\)"/\1/p' include/modloader.h)
           echo "version=$v" >> "$GITHUB_OUTPUT"
+          # The project's stage ("Public Beta"), after the version in the release's name.
+          stage=$(sed -n 's/^#define RQ_STAGE "\(.*\)"/\1/p' include/modloader.h)
+          echo "title=RQ MOD $v${stage:+ $stage}" >> "$GITHUB_OUTPUT"
           if [[ "$GITHUB_REF" == refs/tags/v* && "${GITHUB_REF#refs/tags/v}" != "$v" ]]; then
             echo "Tag ${GITHUB_REF#refs/tags/} does not match RQ_VERSION $v" >&2
             exit 1
@@ -120,9 +123,13 @@ jobs:
           cat > notes.md <<'EOF'
           Mod support for **Rance Quest Magnum**: mods in Lua, loaded at runtime. RQ MOD is a fork of [xsystem4](https://github.com/nunuhara/xsystem4); see [CREDITS.md](https://github.com/RQ-Modding/RQ-Mod/blob/main/CREDITS.md).
 
+          **Public beta:** the tools that help make new content are not done yet.
+
           **Install:** extract the zip into the game's folder and start `xsystem4\xsystem4.exe`. Put each mod's folder under `mods`. The [install guide](https://rq-modding.github.io/rq-modding-docs/guide/install) has the details, and where the logs are when something goes wrong.
 
           **Docs and the API reference:** https://rq-modding.github.io/rq-modding-docs/ (the reference is also in the zip, offline: `xsystem4\api.html`; `RQ-MOD-README.txt` has the steps).
+
+          **Community:** [RQ MOD on Discord](https://discord.gg/maCKqfTGne), the official server (also the Discord icon by the version on the main menu); [Rance & Alicesoft Western Community](https://discord.gg/RANCE) on Discord; [Moru on X (Twitter)](https://x.com/Moru_zerinho6).
 
           EOF
           printf '## Changes in %s\n' "$v" >> notes.md
@@ -133,7 +140,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          name: RQ MOD ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.title }}
           body_path: notes.md
           files: RQ-MOD-${{ steps.version.outputs.version }}-windows.zip
           fail_on_unmatched_files: true

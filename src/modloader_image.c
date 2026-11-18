@@ -50,6 +50,11 @@
 #define IMG_BASE 900000
 #define IMG_SPAN 90000
 #define PLACEHOLDER_ID (IMG_BASE + IMG_SPAN)
+/* The title screen's Discord icon (2.59.2): res/discord.png, built into the exe, at DISCORD_SIDE. */
+#define DISCORD_ID (PLACEHOLDER_ID + 1)
+#define DISCORD_SIDE 22
+extern const char rq_discord_png[];
+extern const unsigned rq_discord_png_len;
 #define PLACEHOLDER_SIZE_CG 6000 /* a game item icon */
 
 enum fit { FIT_STRETCH, FIT_CONTAIN, FIT_COVER, FIT_NONE };
@@ -778,6 +783,17 @@ static struct cg *decode(struct img *m)
 		return NULL;
 	if (m->id == PLACEHOLDER_ID)
 		return m->cg = make_placeholder();
+	if (m->id == DISCORD_ID) {
+		cg = cg_load_buffer((uint8_t *)rq_discord_png, rq_discord_png_len);
+		if (!cg || !cg->pixels) {
+			rq_log("image: cannot decode the built-in Discord icon");
+			if (cg)
+				cg_free(cg);
+			m->failed = 1;
+			return NULL;
+		}
+		return m->cg = fit_cg(cg, DISCORD_SIDE, DISCORD_SIDE, FIT_CONTAIN);
+	}
 	if (m->layers) {
 		m->building = 1;
 		m->cg = build_compose(m);
@@ -886,6 +902,17 @@ int rq_image_placeholder(void)
 		g_img[g_nimg++].id = PLACEHOLDER_ID;
 	}
 	return PLACEHOLDER_ID;
+}
+
+int rq_image_discord(void)
+{
+	if (!find_img(DISCORD_ID)) {
+		if (g_nimg >= IMG_MAX)
+			return 0;
+		memset(&g_img[g_nimg], 0, sizeof g_img[g_nimg]);
+		g_img[g_nimg++].id = DISCORD_ID;
+	}
+	return DISCORD_ID;
 }
 
 /* ---- bitmaps inside the game's Flash files (2.25.0) ----

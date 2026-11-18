@@ -1893,7 +1893,21 @@ int rq_lua_hud_capture_mouse(lua_State *L)
 	return 0;
 }
 
-/* Engine banner, bottom-left of the main menu. Mods cannot remove it. */
+/* Engine banner, bottom-left of the main menu. Mods cannot remove it. The project's stage follows
+ * the version (2.59.2); the title's Discord link (src/lua/title.lua) goes right of it. */
+#define BANNER_X 8
+#define BANNER_SIZE 14.0f
+#define BANNER_LIFT 32 /* from the bottom of the view to the text's top */
+
+static const char *banner_text(void)
+{
+	static char text[96];
+	if (!text[0])
+		snprintf(text, sizeof text, "Xsystem4 - [RQ_Modding " RQ_VERSION "%s" RQ_STAGE "]",
+			 RQ_STAGE[0] ? " " : "");
+	return text;
+}
+
 static void draw_version_banner(void)
 {
 	struct hud_cmd *c;
@@ -1902,12 +1916,32 @@ static void draw_version_banner(void)
 	c = push_cmd(HUD_TEXT);
 	if (!c)
 		return;
-	c->text = strdup("Xsystem4 - [RQ_Modding " RQ_VERSION "]");
-	c->x = 8;
-	c->y = config.view_height - 32;
-	c->size = 14.0f;
+	c->text = strdup(banner_text());
+	c->x = BANNER_X;
+	c->y = config.view_height - BANNER_LIFT;
+	c->size = BANNER_SIZE;
 	c->r = c->g = c->b = 230;
 	c->a = 255;
+}
+
+/* For the title's Discord link: the banner's box while the title waits for a choice, else nil. */
+int rq_lua_title_banner(lua_State *L)
+{
+	static int w;
+	struct text_style ts;
+	if (!rq_saves_title_active()) {
+		lua_pushnil(L);
+		return 1;
+	}
+	if (!w) {
+		hud_make_ts(&ts, BANNER_SIZE, 255, 255, 255);
+		w = (int)ceilf(gfx_size_text(&ts, banner_text())); /* ASCII: its SJIS is the same */
+	}
+	lua_pushinteger(L, BANNER_X);
+	lua_pushinteger(L, config.view_height - BANNER_LIFT);
+	lua_pushinteger(L, w);
+	lua_pushinteger(L, (int)BANNER_SIZE + 2);
+	return 4;
 }
 
 int rq_hud_tick(void)

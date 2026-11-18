@@ -7,6 +7,9 @@
 
 #ifdef RQ_MODLOADER
 
+#include <string.h>
+#include <SDL.h>
+
 #include "lua.h"
 #include "lauxlib.h"
 
@@ -23,6 +26,31 @@ extern const char rq_uikit_windows_lua[];
 extern const unsigned rq_uikit_windows_lua_len;
 extern const char rq_dialog_lua[];
 extern const unsigned rq_dialog_lua_len;
+extern const char rq_title_lua[];
+extern const unsigned rq_title_lua_len;
+
+/* kit.discord_icon(): the CG number of the built-in Discord icon (2.59.2). */
+static int l_discord_icon(lua_State *L)
+{
+	lua_pushinteger(L, rq_image_discord());
+	return 1;
+}
+
+/* kit.open_url(url): opens an https address in the player's browser (2.59.2). */
+static int l_open_url(lua_State *L)
+{
+	const char *url = luaL_checkstring(L, 1);
+	if (strncmp(url, "https://", 8))
+		return luaL_error(L, "open_url: only https addresses");
+	if (SDL_OpenURL(url) < 0) {
+		rq_log("title: could not open %s: %s", url, SDL_GetError());
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+	rq_log("title: opened %s in the browser", url);
+	lua_pushboolean(L, 1);
+	return 1;
+}
 
 /* Stack: ui, kit. Runs one part of the kit with rq, ui and kit; leaves the stack as it was. */
 static void run_part(lua_State *L, int rq_index, const char *buf, unsigned len, const char *name)
@@ -42,7 +70,8 @@ static void run_part(lua_State *L, int rq_index, const char *buf, unsigned len, 
 }
 
 /* Runs uikit.lua with rq, then uikit_hub.lua (2.6.0), uikit_vault.lua (2.8.0), uikit_windows.lua
- * (2.32.0) and dialog.lua (2.19.0) with rq, the kit and its internals, and sets the kit as rq.uikit. */
+ * (2.32.0), dialog.lua (2.19.0) and title.lua (2.59.2) with rq, the kit and its internals, and sets
+ * the kit as rq.uikit. */
 void rq_uikit_open(lua_State *L, int rq_index)
 {
 	if (luaL_loadbuffer(L, rq_uikit_lua, rq_uikit_lua_len, "=uikit") != LUA_OK) {
@@ -73,6 +102,15 @@ void rq_uikit_open(lua_State *L, int rq_index)
 	lua_pushcfunction(L, rq_lua_ain_patch_local_int);
 	lua_setfield(L, -2, "patch_local_int");
 	run_part(L, rq_index, rq_dialog_lua, rq_dialog_lua_len, "=dialog");
+	/* The title screen's link to the RQ MOD Discord server (2.59.2): an icon button right of the
+	 * version banner, asking with rq.ui.confirm. The engine's, with or without mods. */
+	lua_pushcfunction(L, rq_lua_title_banner);
+	lua_setfield(L, -2, "title_banner");
+	lua_pushcfunction(L, l_discord_icon);
+	lua_setfield(L, -2, "discord_icon");
+	lua_pushcfunction(L, l_open_url);
+	lua_setfield(L, -2, "open_url");
+	run_part(L, rq_index, rq_title_lua, rq_title_lua_len, "=title");
 	lua_pop(L, 1);
 	lua_setfield(L, rq_index, "uikit");
 }

@@ -125,12 +125,13 @@ void rq_window_title(char *buf, size_t n, const char *game_utf)
 {
 	const char *game = (game_utf && *game_utf) ? game_utf : "Rance Quest";
 	const char *stamp = rq_build_stamp();
+	const char *gap = RQ_STAGE[0] ? " " : ""; /* "Public Beta" after the version (2.59.2) */
 	if (!buf || !n)
 		return;
 	if (stamp && *stamp)
-		snprintf(buf, n, "%s - RQ MOD " RQ_VERSION " - Build %s", game, stamp);
+		snprintf(buf, n, "%s - RQ MOD " RQ_VERSION "%s" RQ_STAGE " - Build %s", game, gap, stamp);
 	else
-		snprintf(buf, n, "%s - RQ MOD " RQ_VERSION, game);
+		snprintf(buf, n, "%s - RQ MOD " RQ_VERSION "%s" RQ_STAGE, game, gap);
 }
 
 static void rq_print_banner(void)

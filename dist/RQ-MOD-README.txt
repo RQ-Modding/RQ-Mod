@@ -5,6 +5,8 @@ RQ MOD runs Rance Quest Magnum on its own engine, a fork of xsystem4, and loads
 mods written in Lua. The game's own files stay as they are: RanceQuest.exe still
 starts the game without mods.
 
+RQ MOD is a public beta: the tools that help make new content are not done yet.
+
 
 Install
 -------
@@ -12,7 +14,9 @@ Install
 1. Extract this zip into the game's folder (the one with RanceQuest.exe), with
    its folders: xsystem4, lua and mods.
 2. Start the game with xsystem4\xsystem4.exe. The window title shows "RQ MOD"
-   and the version, and the main menu shows the version too.
+   and the version, and the main menu shows the version too, with a Discord
+   icon beside it: click it to open the RQ MOD server in your browser (the
+   game asks first).
 
 
 Mods
@@ -64,6 +68,14 @@ Making mods
 Guides and the API reference: https://rq-modding.github.io/rq-modding-docs/
 The same API reference offline: xsystem4\api.html
 lua\rq.lua gives your editor (VS Code with the Lua extension) the rq.* calls.
+
+
+Community
+---------
+
+RQ MOD on Discord, the official server: https://discord.gg/maCKqfTGne
+Rance & Alicesoft Western Community on Discord: https://discord.gg/RANCE
+Moru on X (Twitter): https://x.com/Moru_zerinho6
 
 
 More
