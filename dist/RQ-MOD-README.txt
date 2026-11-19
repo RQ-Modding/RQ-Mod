@@ -28,9 +28,9 @@ the folder to remove the mod. Restart the game after you add or remove one.
 logs\rqmod.log has a "Loading <id>" line for each mod that loaded, and says why
 for any other.
 
-Mods are shared by their authors. Some can be found in the RQ-Modding
-organization's repositories, https://github.com/RQ-Modding, until the RQ MOD
-site lists the checked mods.
+The mods we checked are on the Mods page, each with its download:
+https://rq-modding.github.io/rq-modding-docs/mods
+Other mods are shared by their authors.
 
 
 Saves

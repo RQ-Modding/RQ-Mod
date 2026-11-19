@@ -28,7 +28,7 @@ RQ MOD targets Rance Quest Magnum on Windows. Other AliceSoft games are not supp
 ## Installing
 
 1. Install Rance Quest Magnum.
-2. Download the latest `RQ-MOD-*.zip` from the [Releases page](https://github.com/RQ-Modding/RQ-Mod/releases).
+2. Download the latest `RQ-MOD-*.zip` from the [Download page](https://rq-modding.github.io/rq-modding-docs/download) (or the [Releases page](https://github.com/RQ-Modding/RQ-Mod/releases)).
 3. Extract it into the game folder, so it looks like this:
 
    ```text
@@ -54,7 +54,7 @@ RQ MOD targets Rance Quest Magnum on Windows. Other AliceSoft games are not supp
 
 To add a mod, extract its folder into `mods`. To remove it, delete the folder. `logs\rqmod.log` lists each mod it loaded (`Loading <id>`) and says why it skipped any other.
 
-Mods are shared by their authors. Some can be found in the [RQ-Modding organization's repositories](https://github.com/RQ-Modding) on GitHub until the RQ MOD site lists the checked mods.
+The mods we checked are on the [Mods page](https://rq-modding.github.io/rq-modding-docs/mods), each with its download. Other mods are shared by their authors.
 
 ## When something goes wrong
 
