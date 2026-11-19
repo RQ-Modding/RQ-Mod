@@ -27,7 +27,7 @@ RQ MOD targets Rance Quest Magnum on Windows. Other AliceSoft games are not supp
 
 ## Installing
 
-The easy way is [RQ Manager](https://github.com/RQ-Modding/rq-manager): it installs RQ MOD and the mods you pick, keeps them up to date, turns mods off and on, and puts the last version back. Get it from the [Download page](https://rq-modding.github.io/rq-modding-docs/download), unzip it into the game folder and start `rq-manager.exe`. By hand:
+The easy way is [RQ Manager](https://github.com/RQ-Modding/rq-manager): it installs RQ MOD and the mods you pick, keeps them up to date, turns mods off and on, and puts the last version back. Get it from the [Download page](https://rq-modding.github.io/rq-modding-docs/download), unzip it into the game folder and start `RQ Manager\rq-manager.exe`. By hand:
 
 1. Install Rance Quest Magnum.
 2. Download the latest `RQ-MOD-*.zip` from the [Download page](https://rq-modding.github.io/rq-modding-docs/download) (or the [Releases page](https://github.com/RQ-Modding/RQ-Mod/releases)).
