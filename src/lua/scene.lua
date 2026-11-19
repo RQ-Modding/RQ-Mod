@@ -112,8 +112,15 @@ function scene.active()
   return depth > 0 or pending ~= nil or running ~= nil
 end
 
+-- A function, or a table that can be called: a scene file (rq.scene.file, 2.60.0).
+local function callable(fn)
+  if type(fn) == "function" then return true end
+  local mt = getmetatable(fn)
+  return type(fn) == "table" and type(mt) == "table" and mt.__call ~= nil
+end
+
 function scene.start(fn, ...)
-  if type(fn) ~= "function" then error("rq.scene.start: expected a function", 2) end
+  if not callable(fn) then error("rq.scene.start: expected a function or a scene file", 2) end
   if scene.active() then return false end
   pending = table.pack(fn, ...)
   return true

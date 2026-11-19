@@ -316,6 +316,11 @@ if get_option('modloader')
         input: 'lua/scene.lua',
         output: 'rq_scene_lua.c',
         command: [py, meson.current_source_dir() / 'gen_lua_embed.py', '@INPUT@', '@OUTPUT@', 'rq_scene_lua'])
+    rq_scene_file = custom_target(
+        'rq_scene_file_lua_c',
+        input: 'lua/scene_file.lua',
+        output: 'rq_scene_file_lua.c',
+        command: [py, meson.current_source_dir() / 'gen_lua_embed.py', '@INPUT@', '@OUTPUT@', 'rq_scene_file_lua'])
     rq_ids = custom_target(
         'rq_ids_lua_c',
         input: 'lua/ids.lua',
@@ -430,7 +435,7 @@ if get_option('modloader')
                  'modloader_chara.c', 'modloader_shop.c',
                  'modloader_debug.c', 'modloader_discord.c',
                  'modloader_saves.c', 'modloader_roster.c', 'modloader_crash.c', 'modloader_events.c', 'modloader_scene.c', 'modloader_anim.c', 'modloader_image.c', 'modloader_item.c',
-                 'modloader_uikit.c', 'modloader_config.c', 'modloader_sprite.c', 'modloader_unwind.c', 'modloader_ids.c', rq_stamp, rq_uikit, rq_uikit_hub, rq_uikit_vault, rq_uikit_windows, rq_dialog, rq_title, rq_discord_png, rq_config, rq_sprite, rq_scene, rq_ids, rq_battle_lua, rq_status_lua, rq_music_lua, rq_item_lua, rq_castle_lua, rq_statuspage_lua, rq_gamebutton_lua, rq_skilllist_lua, rq_gamedata_lua, rq_dungeon_lua, rq_basics_lua, rq_timers_lua, rq_monster_lua, rq_combat_lua, rq_choices_lua, rq_quests_lua, rq_skills_lua, rq_combat_more_lua, rq_knownskills_lua, rq_savedata_lua]
+                 'modloader_uikit.c', 'modloader_config.c', 'modloader_sprite.c', 'modloader_unwind.c', 'modloader_ids.c', rq_stamp, rq_uikit, rq_uikit_hub, rq_uikit_vault, rq_uikit_windows, rq_dialog, rq_title, rq_discord_png, rq_config, rq_sprite, rq_scene, rq_scene_file, rq_ids, rq_battle_lua, rq_status_lua, rq_music_lua, rq_item_lua, rq_castle_lua, rq_statuspage_lua, rq_gamebutton_lua, rq_skilllist_lua, rq_gamedata_lua, rq_dungeon_lua, rq_basics_lua, rq_timers_lua, rq_monster_lua, rq_combat_lua, rq_choices_lua, rq_quests_lua, rq_skills_lua, rq_combat_more_lua, rq_knownskills_lua, rq_savedata_lua]
     if host_machine.system() == 'windows'
         static_link_args += ['-lpsapi', '-lshell32', '-lole32']
     endif

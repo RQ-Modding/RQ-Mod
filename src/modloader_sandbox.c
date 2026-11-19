@@ -256,7 +256,27 @@ static int cached_mod_of_source(const char *src)
 	return m;
 }
 
-/* The mod of the nearest stack level that runs a file in a mod folder.
+int rq_lua_run_as_mod(lua_State *L);
+
+/* A frame of rq_lua_run_as_mod: the mod it runs as (its first stack slot), else -1. */
+static int as_mod_frame(lua_State *L, lua_Debug *ar)
+{
+	int m = -1;
+	if (!lua_getinfo(L, "f", ar))
+		return -1;
+	if (lua_tocfunction(L, -1) == rq_lua_run_as_mod) {
+		if (lua_getlocal(L, ar, 1)) {
+			if (lua_isinteger(L, -1))
+				m = (int)lua_tointeger(L, -1);
+			lua_pop(L, 1);
+		}
+	}
+	lua_pop(L, 1);
+	return m >= 0 && m < g_nmod_dirs ? m : -1;
+}
+
+/* The mod of the nearest stack level that runs a file in a mod folder, or runs as a mod through
+ * rq_lua_run_as_mod (the loader's own Lua playing a mod's scene file, 2.60.0).
  * Nearest, so a library mod's code called by another mod counts as the library.
  * A tail call from a mod's file into another chunk keeps the mod's frame (the VM change in
  * third_party/lua/RQ-PATCHES.md), so `return rq.ui.confirm(...)` still finds the mod. */
@@ -267,6 +287,12 @@ static int caller_mod(lua_State *L)
 	for (level = 1; lua_getstack(L, level, &ar); level++) {
 		if (!lua_getinfo(L, "S", &ar))
 			break;
+		if (ar.what && ar.what[0] == 'C') {
+			m = as_mod_frame(L, &ar);
+			if (m >= 0)
+				return m;
+			continue;
+		}
 		if (!ar.source || ar.source[0] != '@')
 			continue;
 		m = cached_mod_of_source(ar.source);
@@ -281,6 +307,35 @@ const char *rq_sandbox_caller_id(lua_State *L)
 {
 	int m = caller_mod(L);
 	return m < 0 ? NULL : g_mod_id[m];
+}
+
+static int as_mod_done(lua_State *L, int status, lua_KContext ctx)
+{
+	(void)status;
+	(void)ctx;
+	return lua_gettop(L) - 1;
+}
+
+/* run_as_mod(id, fn, ...) -> fn(...), run as the mod with that id: whatever asks for the calling
+ * mod (rq.mod.id, rq.log's tag, the read flags of its lines, rq.image.add, io.open) sees that mod
+ * while fn runs (2.60.0: the loader's own Lua plays a mod's scene file for it, also from
+ * rqmod-ctl). The mod's index stays in the first stack slot, where caller_mod reads it, so a mod's
+ * code called inside, or a frame above it, is found first as before. fn may yield. Unlike as_mod
+ * (modloader_roster.c), which files only the stores under a mod, it changes no global. */
+int rq_lua_run_as_mod(lua_State *L)
+{
+	const char *id = luaL_checkstring(L, 1);
+	int m;
+	for (m = 0; m < g_nmod_dirs; m++)
+		if (strcmp(g_mod_id[m], id) == 0)
+			break;
+	if (m >= g_nmod_dirs)
+		return luaL_error(L, "no mod %s", id);
+	luaL_checkany(L, 2);
+	lua_pushinteger(L, m);
+	lua_replace(L, 1);
+	lua_callk(L, lua_gettop(L) - 2, LUA_MULTRET, 0, as_mod_done);
+	return as_mod_done(L, LUA_OK, 0);
 }
 
 static int caller_dir(lua_State *L, char *out, int n)
@@ -953,5 +1008,6 @@ void rq_sandbox_open(struct lua_State *L, int rq_idx) { (void)L; (void)rq_idx; }
 void rq_sandbox_watch(struct lua_State *L, int mod) { (void)L; (void)mod; }
 void rq_sandbox_set_env(struct lua_State *L, int fidx, int mod) { (void)L; (void)fidx; (void)mod; }
 const char *rq_sandbox_caller_id(struct lua_State *L) { (void)L; return NULL; }
+int rq_lua_run_as_mod(struct lua_State *L) { (void)L; return 0; }
 
 #endif

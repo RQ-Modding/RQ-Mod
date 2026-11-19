@@ -193,6 +193,8 @@ int rq_image_syscall(int code);
 struct swf;
 void rq_flash_swap(const char *name, struct swf *swf);
 int rq_ui_cmd_flashdump(const char *args, char **json_out, char *err, int errsz);
+/* rqmod-ctl playscene MOD FILE [LABEL] | stop: answered by the game thread (2.60.0). */
+int rq_scene_cmd_playscene(const char *args, char **out, char *err, int errsz);
 int rq_lua_battle_set_face(struct lua_State *L);
 int rq_lua_battle_get_face(struct lua_State *L);
 int rq_lua_battle_on_hp(struct lua_State *L);
@@ -532,7 +534,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.59.2"
+#define RQ_VERSION "2.60.0"
 /* The project's stage, after the version in the window title and the main menu's banner (2.59.2):
  * the tools that help make content are not done yet. "" when the stage ends. */
 #define RQ_STAGE "Public Beta"
@@ -600,6 +602,8 @@ void rq_sandbox_set_env(struct lua_State *L, int fidx, int mod);
 /* The id of the mod whose code is nearest on the call stack, as rq.mod.id gives it; NULL
  * outside a mod. */
 const char *rq_sandbox_caller_id(struct lua_State *L);
+/* run_as_mod(id, fn, ...): fn run as that mod, as the call stack shows it (2.60.0, scene files). */
+int rq_lua_run_as_mod(struct lua_State *L);
 
 /* hll/MsgSkip.c: a read flag of its own for one line of mod text. */
 int rq_msgskip_number(const char *mod, const char *text);

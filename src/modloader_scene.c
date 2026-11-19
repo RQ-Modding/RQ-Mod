@@ -18,8 +18,12 @@
 #include <string.h>
 #include <stdint.h>
 
+#include <SDL.h>
+
 #include "lua.h"
 #include "lauxlib.h"
+
+#include "cJSON.h"
 
 #include "system4.h"
 #include "system4/ain.h"
@@ -1372,6 +1376,8 @@ static const char lua_layer[] =
 
 extern const char rq_scene_lua[];
 extern const unsigned rq_scene_lua_len;
+extern const char rq_scene_file_lua[];
+extern const unsigned rq_scene_file_lua_len;
 
 static int l_menu_open(lua_State *L)
 {
@@ -1519,6 +1525,249 @@ int rq_lua_menu_comment(lua_State *L)
 	return 1;
 }
 
+/* ---- Scene files (2.60.0, lua/scene_file.lua) ---- */
+
+#define SCENE_FILE_MAX (4 * 1024 * 1024)
+#define SCENE_JSON_DEPTH 200
+
+/* A cJSON value as Lua: an array gets the metatable at arr_idx (so an empty array and an empty
+ * object differ), null the sentinel at null_idx, a whole number an integer. */
+static int json_push(lua_State *L, const cJSON *v, int null_idx, int arr_idx, int depth, const char **why)
+{
+	const cJSON *c;
+	lua_Integer i;
+
+	if (depth > SCENE_JSON_DEPTH || !lua_checkstack(L, 4)) {
+		*why = "nested too deep";
+		return 0;
+	}
+	if (cJSON_IsNull(v)) {
+		lua_pushvalue(L, null_idx);
+	} else if (cJSON_IsBool(v)) {
+		lua_pushboolean(L, cJSON_IsTrue(v));
+	} else if (cJSON_IsNumber(v)) {
+		double d = v->valuedouble;
+		if (d >= -9007199254740992.0 && d <= 9007199254740992.0 && d == (double)(i = (lua_Integer)d))
+			lua_pushinteger(L, i);
+		else
+			lua_pushnumber(L, d);
+	} else if (cJSON_IsString(v)) {
+		lua_pushstring(L, v->valuestring ? v->valuestring : "");
+	} else if (cJSON_IsArray(v)) {
+		lua_Integer n = 0;
+		lua_newtable(L);
+		lua_pushvalue(L, arr_idx);
+		lua_setmetatable(L, -2);
+		for (c = v->child; c; c = c->next) {
+			if (!json_push(L, c, null_idx, arr_idx, depth + 1, why))
+				return 0;
+			lua_rawseti(L, -2, ++n);
+		}
+	} else if (cJSON_IsObject(v)) {
+		lua_newtable(L);
+		for (c = v->child; c; c = c->next) {
+			const char *k = c->string ? c->string : "";
+			lua_getfield(L, -1, k);
+			if (!lua_isnil(L, -1)) {
+				static char msg[160];
+				lua_pop(L, 1);
+				snprintf(msg, sizeof msg, "the field \"%.100s\" twice in one object", k);
+				*why = msg;
+				return 0;
+			}
+			lua_pop(L, 1);
+			if (!json_push(L, c, null_idx, arr_idx, depth + 1, why))
+				return 0;
+			lua_setfield(L, -2, k);
+		}
+	} else {
+		*why = "a value JSON does not have";
+		return 0;
+	}
+	return 1;
+}
+
+/* read_json(path, null, array_mt) -> value | nil, why. path is in the calling mod's folder (the mod
+ * on the stack, or the one run_as_mod runs as). A byte-order mark is skipped. */
+static int l_read_json(lua_State *L)
+{
+	const char *path = luaL_checkstring(L, 1);
+	char full[RQ_PATH_MAX];
+	FILE *f;
+	long size;
+	char *buf, *text;
+	const char *end = NULL, *why = NULL;
+	cJSON *root;
+
+	luaL_checkany(L, 2);
+	luaL_checktype(L, 3, LUA_TTABLE);
+	lua_settop(L, 3);
+	if (!rq_sandbox_resolve(L, path, full, (int)sizeof full)) {
+		lua_pushnil(L);
+		lua_pushstring(L, "not a file in the mod's folder");
+		return 2;
+	}
+	f = fopen(full, "rb");
+	if (!f) {
+		lua_pushnil(L);
+		lua_pushstring(L, "no such file");
+		return 2;
+	}
+	fseek(f, 0, SEEK_END);
+	size = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	if (size < 0 || size > SCENE_FILE_MAX) {
+		fclose(f);
+		lua_pushnil(L);
+		lua_pushstring(L, size < 0 ? "cannot be read" : "larger than 4 MB");
+		return 2;
+	}
+	buf = malloc((size_t)size + 1);
+	if (!buf || fread(buf, 1, (size_t)size, f) != (size_t)size) {
+		fclose(f);
+		free(buf);
+		lua_pushnil(L);
+		lua_pushstring(L, "cannot be read");
+		return 2;
+	}
+	fclose(f);
+	buf[size] = 0;
+	text = buf;
+	if (size >= 3 && (unsigned char)text[0] == 0xEF && (unsigned char)text[1] == 0xBB
+	    && (unsigned char)text[2] == 0xBF)
+		text += 3;
+	if ((long)strlen(text) != size - (long)(text - buf)) {
+		free(buf);
+		lua_pushnil(L);
+		lua_pushstring(L, "a zero byte in the file: not a JSON text file");
+		return 2;
+	}
+	root = cJSON_ParseWithOpts(text, &end, 1);
+	if (!root) {
+		int line = 1, col = 1;
+		const char *c;
+		if (!end || end < text || end > text + strlen(text))
+			end = text;
+		for (c = text; c < end; c++) {
+			if (*c == '\n') {
+				line++;
+				col = 1;
+			} else if (((unsigned char)*c & 0xC0) != 0x80) {
+				col++;
+			}
+		}
+		free(buf);
+		lua_pushnil(L);
+		lua_pushfstring(L, "not valid JSON at line %d, column %d", line, col);
+		return 2;
+	}
+	free(buf);
+	if (!json_push(L, root, 2, 3, 0, &why)) {
+		cJSON_Delete(root);
+		lua_settop(L, 3);
+		lua_pushnil(L);
+		lua_pushstring(L, why ? why : "cannot be read");
+		return 2;
+	}
+	cJSON_Delete(root);
+	return 1;
+}
+
+/* caller_id() -> the calling mod's id, or nil. */
+static int l_caller_id(lua_State *L)
+{
+	const char *id = rq_sandbox_caller_id(L);
+	if (id && id[0])
+		lua_pushstring(L, id);
+	else
+		lua_pushnil(L);
+	return 1;
+}
+
+/* rqmod-ctl playscene: the pipe thread leaves a request here and waits; the game thread's frame
+ * (scene_file.lua, through ps_poll and ps_answer) takes it and answers. */
+static SDL_SpinLock g_ps_lock;
+static char g_ps_req[600];
+static char g_ps_ans[16 * 1024];
+static unsigned g_ps_seq, g_ps_taken, g_ps_answered;
+static int g_ps_pending;
+
+static int l_ps_poll(lua_State *L)
+{
+	char req[sizeof g_ps_req];
+	int has = 0;
+	SDL_AtomicLock(&g_ps_lock);
+	if (g_ps_pending) {
+		memcpy(req, g_ps_req, sizeof req);
+		g_ps_pending = 0;
+		g_ps_taken = g_ps_seq;
+		has = 1;
+	}
+	SDL_AtomicUnlock(&g_ps_lock);
+	if (!has)
+		return 0;
+	lua_pushstring(L, req);
+	return 1;
+}
+
+static int l_ps_answer(lua_State *L)
+{
+	const char *s = luaL_checkstring(L, 1);
+	SDL_AtomicLock(&g_ps_lock);
+	snprintf(g_ps_ans, sizeof g_ps_ans, "%s", s);
+	g_ps_answered = g_ps_taken;
+	SDL_AtomicUnlock(&g_ps_lock);
+	return 0;
+}
+
+/* The pipe thread's side: the request, then the game's answer (lines starting "ok" or "err"),
+ * or a timeout when no frame of mod code ran (a paused game, a native dialog). */
+int rq_scene_cmd_playscene(const char *args, char **out, char *err, int errsz)
+{
+	unsigned seq;
+	int waited;
+
+	if (out)
+		*out = NULL;
+	SDL_AtomicLock(&g_ps_lock);
+	seq = ++g_ps_seq;
+	snprintf(g_ps_req, sizeof g_ps_req, "%s", args ? args : "");
+	g_ps_pending = 1;
+	SDL_AtomicUnlock(&g_ps_lock);
+	for (waited = 0; waited < 5000; waited += 10) {
+		SDL_Delay(10);
+		SDL_AtomicLock(&g_ps_lock);
+		if (g_ps_answered == seq) {
+			size_t n = strlen(g_ps_ans);
+			char *s = malloc(n + 2);
+			if (s) {
+				memcpy(s, g_ps_ans, n);
+				s[n] = '\n';
+				s[n + 1] = 0;
+			}
+			SDL_AtomicUnlock(&g_ps_lock);
+			if (!s) {
+				if (err)
+					snprintf(err, errsz, "out of memory");
+				return 0;
+			}
+			if (out)
+				*out = s;
+			else
+				free(s);
+			return 1;
+		}
+		SDL_AtomicUnlock(&g_ps_lock);
+	}
+	SDL_AtomicLock(&g_ps_lock);
+	if (g_ps_seq == seq)
+		g_ps_pending = 0;
+	SDL_AtomicUnlock(&g_ps_lock);
+	if (err)
+		snprintf(err, errsz, "timeout: the game ran no frame of mod code in 5 s");
+	return 0;
+}
+
 void rq_scene_open(lua_State *L, int rq_index)
 {
 	lua_getfield(L, rq_index, "ain");
@@ -1564,6 +1813,23 @@ void rq_scene_open(lua_State *L, int rq_index)
 	lua_pushcfunction(L, rq_lua_menu_comment);
 	if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
 		rq_log("scene: %s", lua_tostring(L, -1));
+		lua_pop(L, 1);
+		return;
+	}
+	/* Scene files and rqmod-ctl playscene (lua/scene_file.lua, loader 2.60.0). */
+	if (luaL_loadbuffer(L, rq_scene_file_lua, rq_scene_file_lua_len, "=scene_file") != LUA_OK) {
+		rq_log("scene_file: %s", lua_tostring(L, -1));
+		lua_pop(L, 1);
+		return;
+	}
+	lua_pushvalue(L, rq_index);
+	lua_pushcfunction(L, l_read_json);
+	lua_pushcfunction(L, rq_lua_run_as_mod);
+	lua_pushcfunction(L, l_caller_id);
+	lua_pushcfunction(L, l_ps_poll);
+	lua_pushcfunction(L, l_ps_answer);
+	if (lua_pcall(L, 6, 0, 0) != LUA_OK) {
+		rq_log("scene_file: %s", lua_tostring(L, -1));
 		lua_pop(L, 1);
 	}
 }
