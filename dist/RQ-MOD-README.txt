@@ -22,11 +22,15 @@ Install
 Mods
 ----
 
-Put each mod's folder in mods, with its mod.json and init.lua right inside it
-(mods\camera-zoom\mod.json, not mods\camera-zoom\camera-zoom\mod.json). Delete
-the folder to remove the mod. Restart the game after you add or remove one.
-logs\rqmod.log has a "Loading <id>" line for each mod that loaded, and says why
-for any other.
+RQ Manager installs, updates, turns off and removes the mods we checked, and
+RQ MOD itself, with one click each:
+https://rq-modding.github.io/rq-modding-docs/guide/manager
+
+By hand: put each mod's folder in mods, with its mod.json and init.lua right
+inside it (mods\camera-zoom\mod.json, not mods\camera-zoom\camera-zoom\mod.json).
+Delete the folder to remove the mod. Restart the game after you add or remove
+one. logs\rqmod.log has a "Loading <id>" line for each mod that loaded, and says
+why for any other.
 
 The mods we checked are on the Mods page, each with its download:
 https://rq-modding.github.io/rq-modding-docs/mods
