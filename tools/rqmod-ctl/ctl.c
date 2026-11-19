@@ -72,11 +72,17 @@ int main(int argc, char **argv)
 			"  rqmod-ctl flashdump NAME DIR save every bitmap of a game Flash file as\n"
 			"                               <id>_<w>x<h>.png; NAME as in rq.image.flash_bitmap\n"
 			"                               (a bare name is Data/Flash/System/NAME.swf)\n"
-			"  rqmod-ctl playscene MOD FILE [LABEL]\n"
+			"  rqmod-ctl playscene MOD FILE [FROM] [name=value ...]\n"
 			"                               play a scene file of mod MOD (a path in its folder),\n"
-			"                               read anew, from LABEL if given; answers ok, err busy,\n"
-			"                               or the file's problems, one per line\n"
+			"                               read anew, from FROM if given (a label, or a step's\n"
+			"                               place such as steps[4] or steps[2].choice[0].steps[1]),\n"
+			"                               with the file's values (a whole number, a decimal,\n"
+			"                               true, false, else a text); answers ok, err busy, or\n"
+			"                               the file's problems, one per line\n"
 			"  rqmod-ctl playscene stop     end a scene file before its next step\n"
+			"  rqmod-ctl playscene status   idle, waiting MOD FILE, or a line per file playing:\n"
+			"                               playing MOD FILE PLACE (the step playing or waiting)\n"
+			"  rqmod-ctl scenefunctions MOD ok, then the names MOD gave rq.scene.functions\n"
 			"  rqmod-ctl grid               JSON 2D room (walls, pits, events, player)\n"
 			"  rqmod-ctl goto <x> <z>       walk to that map cell, avoiding event tiles\n"
 			"  rqmod-ctl goto portal        walk to the eastmost teleporter in the room\n"
@@ -155,7 +161,8 @@ int main(int argc, char **argv)
 	}
 	for (i = 1; i < argc; i++) {
 		int len = (int)strlen(argv[i]);
-		/* playscene's FILE may hold a space: the game reads a quoted word as one. */
+		/* playscene's FILE and a name=value may hold a space: the game reads a quoted word as
+		 * one (a word cannot hold a double quote). */
 		int quote = i > 1 && _stricmp(argv[1], "playscene") == 0 && strchr(argv[i], ' ') != NULL;
 		if (used + len + 4 >= (int)sizeof line)
 			break;

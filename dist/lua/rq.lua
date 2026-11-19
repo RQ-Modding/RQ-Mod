@@ -7966,12 +7966,22 @@ function scene.active() end
 ---A scene file can also be called in a scene that plays already, `rq.scene.file(path)(s)`: its steps
 ---play there, and it returns its `end` value; a file with problems raises an error.
 ---
----The preview, `rqmod-ctl playscene MOD FILE [LABEL]`, plays a file of a mod from outside the game,
----read anew, through `rq.scene.start`; `rqmod-ctl playscene stop` ends it before its next step.
+---`opts.from` starts the file elsewhere than at its first step: at a label, or at a step's place as
+---the problems name it (`steps[4]`, `steps[2].choice[0].steps[1]`, `steps[3].then[0]`). From a step
+---inside an `if`'s branch or a choice's row, the rest of that list plays, then the steps after the
+---`if` or the choice, as if the branch had been taken.
+---
+---The preview, `rqmod-ctl playscene MOD FILE [FROM] [name=value ...]`, plays a file of a mod from
+---outside the game, read anew, through `rq.scene.start`, from FROM (a label or a step's place) with
+---the values given (`vars`: a whole number, a number with a decimal point, true, false, else the
+---text); `rqmod-ctl playscene stop` ends it before its next step, `rqmod-ctl playscene status` says
+---which step of which file plays, and `rqmod-ctl scenefunctions MOD` lists the names the mod gave
+---`rq.scene.functions`.
 ---
 ---Raises an error for a path that is not a text, a bad `opts`, or a call from outside a mod.
 ---
 ---Since: 2.60.0
+---Changed: 2.61.0 `from` takes a step's place as well as a label.
 ---
 ---```lua
 ----- scenes/delivery.json:
@@ -7992,7 +8002,7 @@ function scene.file(path, opts) end
 ---How `rq.scene.file` starts a file.
 ---@class rq.SceneFileOpts
 ---@field vars? table<string, any> The variables at the start, by name, for `{name}` in the lines and the `var` condition. Default none.
----@field from? string A label of the file to start at, in place of its first step. Default the first step.
+---@field from? string Where the file starts, in place of its first step: a label's name, or a step's place as the problems name it, such as `"steps[4]"` or `"steps[2].choice[0].steps[1]"` (from 0; 2.61.0). Default the first step.
 
 ---A scene file from `rq.scene.file`. Pass it to `rq.scene.play`, `once` or `start`, or call it with a
 ---scene's `s` in a scene that plays already.
@@ -9666,7 +9676,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.60.0"
+rq.version = "2.61.0"
 
 rq.units = units
 rq.items = items

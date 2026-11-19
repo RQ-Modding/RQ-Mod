@@ -1378,6 +1378,8 @@ extern const char rq_scene_lua[];
 extern const unsigned rq_scene_lua_len;
 extern const char rq_scene_file_lua[];
 extern const unsigned rq_scene_file_lua_len;
+extern const char rq_scene_check_lua[];
+extern const unsigned rq_scene_check_lua_len;
 
 static int l_menu_open(lua_State *L)
 {
@@ -1684,8 +1686,9 @@ static int l_caller_id(lua_State *L)
 	return 1;
 }
 
-/* rqmod-ctl playscene: the pipe thread leaves a request here and waits; the game thread's frame
- * (scene_file.lua, through ps_poll and ps_answer) takes it and answers. */
+/* rqmod-ctl playscene and scenefunctions: the pipe thread leaves a request here ("playscene ..."
+ * or "scenefunctions ...") and waits; the game thread's frame (scene_file.lua, through ps_poll and
+ * ps_answer) takes it and answers. */
 static SDL_SpinLock g_ps_lock;
 static char g_ps_req[600];
 static char g_ps_ans[16 * 1024];
@@ -1720,9 +1723,10 @@ static int l_ps_answer(lua_State *L)
 	return 0;
 }
 
-/* The pipe thread's side: the request, then the game's answer (lines starting "ok" or "err"),
- * or a timeout when no frame of mod code ran (a paused game, a native dialog). */
-int rq_scene_cmd_playscene(const char *args, char **out, char *err, int errsz)
+/* The pipe thread's side: the request (the command's name and its words), then the game's answer
+ * (lines starting "ok" or "err", or playscene status's), or a timeout when no frame of mod code ran
+ * (a paused game, a native dialog). */
+int rq_scene_cmd(const char *cmd, const char *args, char **out, char *err, int errsz)
 {
 	unsigned seq;
 	int waited;
@@ -1731,7 +1735,7 @@ int rq_scene_cmd_playscene(const char *args, char **out, char *err, int errsz)
 		*out = NULL;
 	SDL_AtomicLock(&g_ps_lock);
 	seq = ++g_ps_seq;
-	snprintf(g_ps_req, sizeof g_ps_req, "%s", args ? args : "");
+	snprintf(g_ps_req, sizeof g_ps_req, "%s %s", cmd, args ? args : "");
 	g_ps_pending = 1;
 	SDL_AtomicUnlock(&g_ps_lock);
 	for (waited = 0; waited < 5000; waited += 10) {
@@ -1770,6 +1774,8 @@ int rq_scene_cmd_playscene(const char *args, char **out, char *err, int errsz)
 
 void rq_scene_open(lua_State *L, int rq_index)
 {
+	int check;
+
 	lua_getfield(L, rq_index, "ain");
 	lua_pushcfunction(L, l_call);
 	lua_setfield(L, -2, "call");
@@ -1816,10 +1822,18 @@ void rq_scene_open(lua_State *L, int rq_index)
 		lua_pop(L, 1);
 		return;
 	}
-	/* Scene files and rqmod-ctl playscene (lua/scene_file.lua, loader 2.60.0). */
+	/* Scene files and rqmod-ctl playscene (lua/scene_file.lua, loader 2.60.0), with their checker
+	 * in a chunk of its own (lua/scene_check.lua, 2.61.0). */
+	if (luaL_loadbuffer(L, rq_scene_check_lua, rq_scene_check_lua_len, "=scene_check") != LUA_OK
+	    || lua_pcall(L, 0, 1, 0) != LUA_OK) {
+		rq_log("scene_check: %s", lua_tostring(L, -1));
+		lua_pop(L, 1);
+		return;
+	}
+	check = lua_gettop(L);
 	if (luaL_loadbuffer(L, rq_scene_file_lua, rq_scene_file_lua_len, "=scene_file") != LUA_OK) {
 		rq_log("scene_file: %s", lua_tostring(L, -1));
-		lua_pop(L, 1);
+		lua_pop(L, 2);
 		return;
 	}
 	lua_pushvalue(L, rq_index);
@@ -1828,10 +1842,12 @@ void rq_scene_open(lua_State *L, int rq_index)
 	lua_pushcfunction(L, l_caller_id);
 	lua_pushcfunction(L, l_ps_poll);
 	lua_pushcfunction(L, l_ps_answer);
-	if (lua_pcall(L, 6, 0, 0) != LUA_OK) {
+	lua_pushvalue(L, check);
+	if (lua_pcall(L, 7, 0, 0) != LUA_OK) {
 		rq_log("scene_file: %s", lua_tostring(L, -1));
 		lua_pop(L, 1);
 	}
+	lua_pop(L, 1);
 }
 
 #endif /* RQ_MODLOADER */

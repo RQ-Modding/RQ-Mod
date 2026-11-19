@@ -162,7 +162,7 @@ static int is_input_cmd(const char *cmd)
 {
 	static const char *const names[] = {
 		"goto", "step", "hover", "press", "drag", "key", "hold", "down",
-		"release", "up", "move", "click", "wheel", "type", "playscene"
+		"release", "up", "move", "click", "wheel", "type", "playscene", "scenefunctions"
 	};
 	size_t i;
 	for (i = 0; i < sizeof names / sizeof names[0]; i++) {
@@ -275,11 +275,13 @@ static int rq_agent_do(const char *line_in, char *err, int errsz, char **extra)
 			snprintf(err, errsz, "paused");
 		return 0;
 	}
-	if (!_stricmp(cmd, "playscene")) {
-		/* playscene MOD FILE [LABEL] | stop: a mod's scene file, played by the game thread
-		 * (lua/scene_file.lua). The answer is "ok" or "err ..." lines. */
+	if (!_stricmp(cmd, "playscene") || !_stricmp(cmd, "scenefunctions")) {
+		/* playscene MOD FILE [FROM] [name=value ...] | stop | status: a mod's scene file, played
+		 * by the game thread; scenefunctions MOD: the names its scene files can call
+		 * (lua/scene_file.lua). The answer is "ok" or "err ..." lines, or the status. */
 		char *answer = NULL;
-		if (!rq_scene_cmd_playscene(skip_ws(p), &answer, err, errsz))
+		if (!rq_scene_cmd(!_stricmp(cmd, "playscene") ? "playscene" : "scenefunctions", skip_ws(p),
+				  &answer, err, errsz))
 			return 0;
 		if (extra)
 			*extra = answer;

@@ -193,8 +193,9 @@ int rq_image_syscall(int code);
 struct swf;
 void rq_flash_swap(const char *name, struct swf *swf);
 int rq_ui_cmd_flashdump(const char *args, char **json_out, char *err, int errsz);
-/* rqmod-ctl playscene MOD FILE [LABEL] | stop: answered by the game thread (2.60.0). */
-int rq_scene_cmd_playscene(const char *args, char **out, char *err, int errsz);
+/* rqmod-ctl playscene MOD FILE [FROM] [name=value ...] | stop | status (2.60.0) and
+ * scenefunctions MOD (2.61.0): cmd and its words, answered by the game thread. */
+int rq_scene_cmd(const char *cmd, const char *args, char **out, char *err, int errsz);
 int rq_lua_battle_set_face(struct lua_State *L);
 int rq_lua_battle_get_face(struct lua_State *L);
 int rq_lua_battle_on_hp(struct lua_State *L);
@@ -534,7 +535,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.60.0"
+#define RQ_VERSION "2.61.0"
 /* The project's stage, after the version in the window title and the main menu's banner (2.59.2):
  * the tools that help make content are not done yet. "" when the stage ends. */
 #define RQ_STAGE "Public Beta"
