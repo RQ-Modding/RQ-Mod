@@ -20,7 +20,7 @@ Copyright headers in source files belong to their authors and stay as they are.
 
 ## Libraries in the Windows build
 
-The release's `xsystem4.exe` is linked with these libraries from [MSYS2](https://www.msys2.org/) (MINGW64), all but GLEW (`glew32.dll`) inside the exe. Each one's license is in the release zip under `xsystem4/licenses/<folder>`.
+The release's `xsystem4.exe` is linked with these libraries from [MSYS2](https://www.msys2.org/) (UCRT64), all but GLEW (`glew32.dll`) inside the exe. Each one's license is in the release zip under `xsystem4/licenses/<folder>`.
 
 | Library | License | Folder |
 | --- | --- | --- |

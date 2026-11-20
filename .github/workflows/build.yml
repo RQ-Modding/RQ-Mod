@@ -31,10 +31,12 @@ jobs:
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
+          # UCRT64: MSYS2 deprecated MINGW64 (the old msvcrt.dll runtime) and drops packages from it.
+          msystem: UCRT64
           update: true
           # flex and bison build libsys4's ini parser. base-devel brought them until its 2026.11 update.
           # cglm is not installed: meson builds its wrap (subprojects/cglm.wrap), here as in a local
-          # build, and dist/ brings its license (MSYS2's mingw64 repository dropped its package).
+          # build, and dist/ brings its license.
           # No FFmpeg: Rance Quest plays no movie (its AIN loads neither DrawMovie nor PlayMovie), so
           # meson builds the movie player on pl_mpeg (include/pl_mpeg.h, MIT), as upstream does
           # without FFmpeg.
@@ -45,22 +47,22 @@ jobs:
             git
             diffutils
             zip
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-meson
-            mingw-w64-x86_64-pkg-config
-            mingw-w64-x86_64-python
-            mingw-w64-x86_64-SDL2
-            mingw-w64-x86_64-freetype
-            mingw-w64-x86_64-libjpeg-turbo
-            mingw-w64-x86_64-libwebp
-            mingw-w64-x86_64-libpng
-            mingw-w64-x86_64-libsndfile
-            mingw-w64-x86_64-glew
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-pkg-config
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-SDL2
+            mingw-w64-ucrt-x86_64-freetype
+            mingw-w64-ucrt-x86_64-libjpeg-turbo
+            mingw-w64-ucrt-x86_64-libwebp
+            mingw-w64-ucrt-x86_64-libpng
+            mingw-w64-ucrt-x86_64-libsndfile
+            mingw-w64-ucrt-x86_64-glew
 
       # libjpeg-turbo 3.2.1 puts a copy of zlib inside its static library, so a static link beside
       # zlib fails (z_errmsg defined twice). 3.2.0 links. Rance Browser's workflow pins it the same way.
       - name: Pin libjpeg-turbo 3.2.0
-        run: pacman -U --noconfirm https://repo.msys2.org/mingw/mingw64/mingw-w64-x86_64-libjpeg-turbo-3.2.0-1-any.pkg.tar.zst
+        run: pacman -U --noconfirm https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libjpeg-turbo-3.2.0-1-any.pkg.tar.zst
 
       # rq.ids: the module, the annotations and ids.json must be what data/ids gives.
       - name: Check rq.ids
@@ -88,13 +90,13 @@ jobs:
         run: |
           pkg=RQ-MOD
           mkdir -p $pkg/xsystem4 $pkg/mods
-          cp build/src/xsystem4.exe build/tools/rqmod-ctl/rqmod-ctl.exe build/subprojects/rance-browser/rance-browser.exe build/subprojects/rq-scene-editor/rq-scene-editor.exe /mingw64/bin/glew32.dll $pkg/xsystem4/
+          cp build/src/xsystem4.exe build/tools/rqmod-ctl/rqmod-ctl.exe build/subprojects/rance-browser/rance-browser.exe build/subprojects/rq-scene-editor/rq-scene-editor.exe /ucrt64/bin/glew32.dll $pkg/xsystem4/
           cp -r fonts shaders $pkg/xsystem4/
           cp -r dist/. $pkg/
           cp README.md CHANGELOG.md CREDITS.md COPYING $pkg/xsystem4/
           # The API reference offline, one page, with the game's numbers (dist/ brings RQ-MOD-README.txt).
           python tools/apidoc/rqdoc.py html dist/lua/rq.lua $pkg/xsystem4/api.html data/ids/ids.json
-          mkdir -p $pkg/xsystem4/licenses && cp -r /mingw64/share/licenses/. $pkg/xsystem4/licenses/
+          mkdir -p $pkg/xsystem4/licenses && cp -r /ucrt64/share/licenses/. $pkg/xsystem4/licenses/
           # Rance Browser (subprojects/rance-browser) and RQ Scene Editor (subprojects/rq-scene-editor),
           # GPL-2.0-or-later: their credits, and Dear ImGui and cimgui (MIT), built into both.
           mkdir -p $pkg/xsystem4/licenses/imgui $pkg/xsystem4/licenses/cimgui $pkg/xsystem4/licenses/rance-browser $pkg/xsystem4/licenses/rq-scene-editor

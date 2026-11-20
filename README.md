@@ -90,20 +90,20 @@ Mods are Lua 5.4. A mod is a folder in `mods` with an `init.lua` and a `mod.json
 
 ## Building from source
 
-Windows, with [MSYS2](https://www.msys2.org/). In the **MINGW64** shell:
+Windows, with [MSYS2](https://www.msys2.org/). In the **UCRT64** shell:
 
 ```sh
-pacman -S git flex bison mingw-w64-x86_64-gcc mingw-w64-x86_64-meson mingw-w64-x86_64-pkg-config \
-  mingw-w64-x86_64-SDL2 mingw-w64-x86_64-freetype mingw-w64-x86_64-libjpeg-turbo \
-  mingw-w64-x86_64-libwebp mingw-w64-x86_64-libpng mingw-w64-x86_64-libsndfile \
-  mingw-w64-x86_64-glew mingw-w64-x86_64-python
+pacman -S git flex bison mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-meson mingw-w64-ucrt-x86_64-pkg-config \
+  mingw-w64-ucrt-x86_64-SDL2 mingw-w64-ucrt-x86_64-freetype mingw-w64-ucrt-x86_64-libjpeg-turbo \
+  mingw-w64-ucrt-x86_64-libwebp mingw-w64-ucrt-x86_64-libpng mingw-w64-ucrt-x86_64-libsndfile \
+  mingw-w64-ucrt-x86_64-glew mingw-w64-ucrt-x86_64-python
 git clone --recurse-submodules https://github.com/RQ-Modding/RQ-Mod.git
 cd RQ-Mod
 meson setup build --buildtype=release
 ninja -C build
 ```
 
-This gives `build/src/xsystem4.exe` and `build/tools/rqmod-ctl/rqmod-ctl.exe`, and from the submodules `build/subprojects/rance-browser/rance-browser.exe` and `build/subprojects/rq-scene-editor/rq-scene-editor.exe`. To run it, copy into the game's `xsystem4` folder: `xsystem4.exe`, `glew32.dll` (from `/mingw64/bin`), and the `fonts` and `shaders` folders. Then copy the contents of `dist/` into the game folder.
+This gives `build/src/xsystem4.exe` and `build/tools/rqmod-ctl/rqmod-ctl.exe`, and from the submodules `build/subprojects/rance-browser/rance-browser.exe` and `build/subprojects/rq-scene-editor/rq-scene-editor.exe`. To run it, copy into the game's `xsystem4` folder: `xsystem4.exe`, `glew32.dll` (from `/ucrt64/bin`), and the `fonts` and `shaders` folders. Then copy the contents of `dist/` into the game folder.
 
 meson takes [cglm](https://github.com/recp/cglm) from GitHub at the first setup (`subprojects/cglm.wrap`) and builds it into the exe.
 
