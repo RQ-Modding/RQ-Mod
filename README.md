@@ -96,7 +96,7 @@ Windows, with [MSYS2](https://www.msys2.org/). In the **MINGW64** shell:
 pacman -S git flex bison mingw-w64-x86_64-gcc mingw-w64-x86_64-meson mingw-w64-x86_64-pkg-config \
   mingw-w64-x86_64-SDL2 mingw-w64-x86_64-freetype mingw-w64-x86_64-libjpeg-turbo \
   mingw-w64-x86_64-libwebp mingw-w64-x86_64-libpng mingw-w64-x86_64-libsndfile \
-  mingw-w64-x86_64-glew mingw-w64-x86_64-cglm mingw-w64-x86_64-python
+  mingw-w64-x86_64-glew mingw-w64-x86_64-python
 git clone --recurse-submodules https://github.com/RQ-Modding/RQ-Mod.git
 cd RQ-Mod
 meson setup build --buildtype=release
@@ -104,6 +104,8 @@ ninja -C build
 ```
 
 This gives `build/src/xsystem4.exe` and `build/tools/rqmod-ctl/rqmod-ctl.exe`, and from the submodules `build/subprojects/rance-browser/rance-browser.exe` and `build/subprojects/rq-scene-editor/rq-scene-editor.exe`. To run it, copy into the game's `xsystem4` folder: `xsystem4.exe`, `glew32.dll` (from `/mingw64/bin`), and the `fonts` and `shaders` folders. Then copy the contents of `dist/` into the game folder.
+
+meson takes [cglm](https://github.com/recp/cglm) from GitHub at the first setup (`subprojects/cglm.wrap`) and builds it into the exe.
 
 Rance Quest plays no movie, so the release has no FFmpeg: meson builds xsystem4's movie player on pl_mpeg (`include/pl_mpeg.h`), and on [FFmpeg](https://ffmpeg.org/) only when it finds one installed.
 

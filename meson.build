@@ -21,7 +21,10 @@ ffi = dependency('libffi', static : static_libs)
 tj = dependency('libturbojpeg', static : static_libs)
 webp = dependency('libwebp', static : static_libs)
 png = dependency('libpng', static : static_libs)
-cglm = dependency('cglm', version : '>=0.9.2', fallback : ['cglm', 'cglm_dep'])
+# cglm from its wrap (subprojects/cglm.wrap), static, in every build: MSYS2's mingw64 repository
+# dropped its package (2026-11), so the release's build and a local one take the same cglm. Its
+# license goes into the zip from dist/xsystem4/licenses/cglm.
+cglm = subproject('cglm', default_options : ['default_library=static', 'install=false']).get_variable('cglm_dep')
 sndfile = dependency('sndfile', static : static_libs)
 
 avcodec = dependency('libavcodec', version : '>=59.37.100', required: false, static : static_libs)
