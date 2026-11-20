@@ -89,19 +89,20 @@ jobs:
         run: |
           pkg=RQ-MOD
           mkdir -p $pkg/xsystem4 $pkg/mods
-          cp build/src/xsystem4.exe build/tools/rqmod-ctl/rqmod-ctl.exe build/subprojects/rance-browser/rance-browser.exe /mingw64/bin/glew32.dll $pkg/xsystem4/
+          cp build/src/xsystem4.exe build/tools/rqmod-ctl/rqmod-ctl.exe build/subprojects/rance-browser/rance-browser.exe build/subprojects/rq-scene-editor/rq-scene-editor.exe /mingw64/bin/glew32.dll $pkg/xsystem4/
           cp -r fonts shaders $pkg/xsystem4/
           cp -r dist/. $pkg/
           cp README.md CHANGELOG.md CREDITS.md COPYING $pkg/xsystem4/
           # The API reference offline, one page, with the game's numbers (dist/ brings RQ-MOD-README.txt).
           python tools/apidoc/rqdoc.py html dist/lua/rq.lua $pkg/xsystem4/api.html data/ids/ids.json
           mkdir -p $pkg/xsystem4/licenses && cp -r /mingw64/share/licenses/. $pkg/xsystem4/licenses/
-          # Rance Browser (subprojects/rance-browser, GPL-2.0-or-later): its credits, and Dear ImGui and
-          # cimgui (MIT), built into it.
-          mkdir -p $pkg/xsystem4/licenses/imgui $pkg/xsystem4/licenses/cimgui $pkg/xsystem4/licenses/rance-browser
+          # Rance Browser (subprojects/rance-browser) and RQ Scene Editor (subprojects/rq-scene-editor),
+          # GPL-2.0-or-later: their credits, and Dear ImGui and cimgui (MIT), built into both.
+          mkdir -p $pkg/xsystem4/licenses/imgui $pkg/xsystem4/licenses/cimgui $pkg/xsystem4/licenses/rance-browser $pkg/xsystem4/licenses/rq-scene-editor
           cp subprojects/rance-browser/third_party/cimgui/imgui/LICENSE.txt $pkg/xsystem4/licenses/imgui/
           cp subprojects/rance-browser/third_party/cimgui/LICENSE $pkg/xsystem4/licenses/cimgui/
           cp subprojects/rance-browser/CREDITS.md subprojects/rance-browser/README.md $pkg/xsystem4/licenses/rance-browser/
+          cp subprojects/rq-scene-editor/CREDITS.md subprojects/rq-scene-editor/README.md $pkg/xsystem4/licenses/rq-scene-editor/
           # Symbol list for crash reports: "RVA name", with the exe size first.
           size=$(stat -c %s build/src/xsystem4.exe)
           { echo "# exe-size $size"

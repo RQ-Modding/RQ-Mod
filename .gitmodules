@@ -4,3 +4,6 @@
 [submodule "subprojects/rance-browser"]
 	path = subprojects/rance-browser
 	url = https://github.com/RQ-Modding/rance-browser.git
+[submodule "subprojects/rq-scene-editor"]
+	path = subprojects/rq-scene-editor
+	url = https://github.com/RQ-Modding/rq-scene-editor.git

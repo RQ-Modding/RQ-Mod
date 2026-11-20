@@ -63,6 +63,13 @@ if host_machine.system() == 'windows' and get_option('modloader')
         'rq_ids_dir=' + (meson.project_source_root() / 'data/ids'),
         'rq_lua=' + (meson.project_source_root() / 'dist/lua/rq.lua'),
         'build_note=RQ MOD ' + rqmod_version])
+    # RQ Scene Editor (rq-scene-editor.exe), the window that writes a mod's scene files, in its own
+    # repository (subprojects/rq-scene-editor, a git submodule). Built here with the loader's own
+    # scene checker, so the editor and the game check a file with the same Lua file; it reads the
+    # game through Rance Browser's library, and meson shares Rance Browser and libsys4 with it.
+    subproject('rq-scene-editor', default_options : [
+        'scene_check_lua=' + (meson.project_source_root() / 'src/lua/scene_check.lua'),
+        'build_note=RQ MOD ' + rqmod_version])
 endif
 
 install_subdir('shaders', install_dir : get_option('datadir') / 'xsystem4')

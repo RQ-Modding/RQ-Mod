@@ -80,6 +80,7 @@ Mods are Lua 5.4. A mod is a folder in `mods` with an `init.lua` and a `mod.json
 - Version history of the API: [CHANGELOG.md](CHANGELOG.md).
 - Guides and the API reference: [rq-modding.github.io/rq-modding-docs](https://rq-modding.github.io/rq-modding-docs/). The release has the reference offline too, in `xsystem4\api.html`.
 - A template to start a mod from, with a workflow that publishes its release zip: [rq-mod-template](https://github.com/RQ-Modding/rq-mod-template).
+- Two programs in the release's `xsystem4` folder: [RQ Scene Editor](https://github.com/RQ-Modding/rq-scene-editor) (`rq-scene-editor.exe`) writes a mod's scenes as files, without Lua, and plays them in the running game; [Rance Browser](https://github.com/RQ-Modding/rance-browser) (`rance-browser.exe`) shows the game's pictures, music and sounds, each with the Lua line that replaces or plays it.
 
 ## Community
 
@@ -102,7 +103,7 @@ meson setup build --buildtype=release
 ninja -C build
 ```
 
-This gives `build/src/xsystem4.exe` and `build/tools/rqmod-ctl/rqmod-ctl.exe`. To run it, copy into the game's `xsystem4` folder: `xsystem4.exe`, `glew32.dll` (from `/mingw64/bin`), and the `fonts` and `shaders` folders. Then copy the contents of `dist/` into the game folder.
+This gives `build/src/xsystem4.exe` and `build/tools/rqmod-ctl/rqmod-ctl.exe`, and from the submodules `build/subprojects/rance-browser/rance-browser.exe` and `build/subprojects/rq-scene-editor/rq-scene-editor.exe`. To run it, copy into the game's `xsystem4` folder: `xsystem4.exe`, `glew32.dll` (from `/mingw64/bin`), and the `fonts` and `shaders` folders. Then copy the contents of `dist/` into the game folder.
 
 Rance Quest plays no movie, so the release has no FFmpeg: meson builds xsystem4's movie player on pl_mpeg (`include/pl_mpeg.h`), and on [FFmpeg](https://ffmpeg.org/) only when it finds one installed.
 
@@ -118,6 +119,7 @@ Rance Quest plays no movie, so the release has no FFmpeg: meson builds xsystem4'
 | `tools/rqmod-ctl/` | Command-line client for the agent pipe, used by test scripts |
 | `res/` | Icon and Windows resources |
 | `third_party/lua/` | Lua 5.4.7 |
+| `subprojects/` | libsys4, Rance Browser and RQ Scene Editor, as git submodules (the two programs have their own repositories) |
 | everything else | The xsystem4 engine |
 
 ## License

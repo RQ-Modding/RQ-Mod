@@ -10,8 +10,9 @@ RQ MOD is a fork. Most of this code was written by other people.
 | [cJSON](https://github.com/DaveGamble/cJSON) | Dave Gamble and contributors | MIT | `src/cJSON.c` |
 | [PL_MPEG](https://github.com/phoboslab/pl_mpeg) | Dominic Szablewski | MIT | `include/pl_mpeg.h`, the movie player (`src/movie_plmpeg.c`); Rance Quest plays no movie |
 | [Rance Browser](https://github.com/RQ-Modding/rance-browser) | RQ Modding, with code of xsystem4 and libsys4 | GPL-2.0-or-later | `subprojects/rance-browser` (`rance-browser.exe`), its own repository |
-| [Dear ImGui 1.92.9](https://github.com/ocornut/imgui) | Omar Cornut and contributors | MIT | in Rance Browser only (`subprojects/rance-browser/third_party/cimgui/imgui`) |
-| [cimgui 1.92.9b](https://github.com/cimgui/cimgui) | Stephan Dilly and contributors | MIT | in Rance Browser only (`subprojects/rance-browser/third_party/cimgui`) |
+| [RQ Scene Editor](https://github.com/RQ-Modding/rq-scene-editor) | RQ Modding, with code of xsystem4 | GPL-2.0-or-later | `subprojects/rq-scene-editor` (`rq-scene-editor.exe`), its own repository |
+| [Dear ImGui 1.92.9](https://github.com/ocornut/imgui) | Omar Cornut and contributors | MIT | in Rance Browser and RQ Scene Editor only (`subprojects/rance-browser/third_party/cimgui/imgui`) |
+| [cimgui 1.92.9b](https://github.com/cimgui/cimgui) | Stephan Dilly and contributors | MIT | in Rance Browser and RQ Scene Editor only (`subprojects/rance-browser/third_party/cimgui`) |
 | VL Gothic / VL PGothic | Daisuke Suzuki, Project Vine, M+ FONTS PROJECT and others | BSD-style, see `fonts/VL-*.license` | `fonts/` |
 | Hanazono Mincho A | GlyphWiki project | Hanazono Font License / OFL, see `fonts/HanaMinA.license` | `fonts/` |
 
@@ -50,7 +51,7 @@ The release's `xsystem4.exe` is linked with these libraries from [MSYS2](https:/
 | GCC runtime (libgcc, libstdc++, libatomic) | GPL-3.0-or-later with the GCC Runtime Library Exception 3.1 | `gcc` |
 | [mingw-w64](https://www.mingw-w64.org/) runtime (with its libssp) and winpthreads | ZPL-2.1, MIT and public domain | `crt`, `winpthreads` |
 
-MSYS2 installs no license file for libvorbis and LAME, so this repository carries them in `dist/xsystem4/licenses/`. `rance-browser.exe` is linked with some of the same libraries; its own credits are in `xsystem4/licenses/rance-browser/`.
+MSYS2 installs no license file for libvorbis and LAME, so this repository carries them in `dist/xsystem4/licenses/`. `rance-browser.exe` and `rq-scene-editor.exe` are linked with some of the same libraries; their own credits are in `xsystem4/licenses/rance-browser/` and `xsystem4/licenses/rq-scene-editor/`.
 
 Rance Quest Magnum is © AliceSoft. RQ MOD contains no game data; you need your own copy of the game.
 

@@ -73,6 +73,10 @@ Guides and the API reference: https://rq-modding.github.io/rq-modding-docs/
 The same API reference offline: xsystem4\api.html
 lua\rq.lua gives your editor (VS Code with the Lua extension) the rq.* calls.
 A template to start a mod from: https://github.com/RQ-Modding/rq-mod-template
+xsystem4\rq-scene-editor.exe (RQ Scene Editor) writes a mod's scenes without
+Lua and plays them in the running game; xsystem4\rance-browser.exe (Rance
+Browser) shows the game's pictures, music and sounds. Their guides are on the
+docs site.
 
 
 Community
