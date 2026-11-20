@@ -7975,7 +7975,8 @@ function scene.active() end
 ---The preview, `rqmod-ctl playscene MOD FILE [FROM] [name=value ...]`, plays a file of a mod from
 ---outside the game, read anew, through `rq.scene.start`, from FROM (a label or a step's place) with
 ---the values given (`vars`: a whole number, a number with a decimal point, true, false, else the
----text); `rqmod-ctl playscene stop` ends it before its next step, `rqmod-ctl playscene status` says
+---text; a value in single quotes is the text inside them, so `n='5'` gives the text "5");
+---`rqmod-ctl playscene stop` ends it before its next step, `rqmod-ctl playscene status` says
 ---which step of which file plays, and `rqmod-ctl scenefunctions MOD` lists the names the mod gave
 ---`rq.scene.functions`.
 ---
@@ -7984,6 +7985,7 @@ function scene.active() end
 ---Since: 2.60.0
 ---Changed: 2.61.0 `from` takes a step's place as well as a label.
 ---Changed: 2.62.0 The `world_map` step.
+---Changed: 2.62.1 `rqmod-ctl playscene` takes a value in single quotes as a text.
 ---
 ---```lua
 ----- scenes/delivery.json:
@@ -9707,7 +9709,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.62.0"
+rq.version = "2.62.1"
 
 rq.units = units
 rq.items = items

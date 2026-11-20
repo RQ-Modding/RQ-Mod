@@ -556,8 +556,9 @@ local function word(s)
 end
 
 -- A value typed after playscene's FILE: a whole number, a number with a decimal point, true or
--- false, else the text as written.
+-- false, else the text as written; in single quotes, the text inside them (2.62.1: '5' is a text).
 local function typed(s)
+  if #s >= 2 and s:sub(1, 1) == "'" and s:sub(-1) == "'" then return s:sub(2, -2) end
   if s == "true" then return true end
   if s == "false" then return false end
   if s:find("^%-?%d+$") then return math.tointeger(tonumber(s)) or tonumber(s) end

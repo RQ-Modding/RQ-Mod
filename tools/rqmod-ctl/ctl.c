@@ -8,6 +8,38 @@
 #include <shellapi.h>
 
 #define PIPE_NAME "\\\\.\\pipe\\rqmod"
+#define BUSY_WAIT_MS 10000
+
+/* The game serves one program at a time, and makes the pipe again after each: busy means another
+ * program's turn (the scene editor, another rqmod-ctl), so wait for the next one, up to 10 s; "not
+ * found" just after can be the moment between two, so look again a few times. NULL with *busy when
+ * it stayed busy. */
+static HANDLE open_pipe(int *busy)
+{
+	DWORD start = GetTickCount();
+	int gaps = 0;
+	*busy = 0;
+	for (;;) {
+		HANDLE h = CreateFileA(PIPE_NAME, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+		DWORD e;
+		if (h != INVALID_HANDLE_VALUE)
+			return h;
+		e = GetLastError();
+		if (e == ERROR_PIPE_BUSY) {
+			if (GetTickCount() - start >= BUSY_WAIT_MS) {
+				*busy = 1;
+				return NULL;
+			}
+			gaps = 0;
+			WaitNamedPipeA(PIPE_NAME, 250);
+		} else if (e == ERROR_FILE_NOT_FOUND && gaps < 5) {
+			gaps++;
+			Sleep(20);
+		} else {
+			return NULL;
+		}
+	}
+}
 
 /* The arguments as UTF-8 (2.25.0), so a Japanese Flash file name reaches the engine
  * whole. The ANSI argv turns it into question marks. NULL on failure. */
@@ -45,7 +77,7 @@ int main(int argc, char **argv)
 	int i, used = 0;
 	const int reply_cap = 128 * 1024;
 	char **uargv;
-	int uargc = 0;
+	int uargc = 0, busy;
 
 	uargv = utf8_args(&uargc);
 	if (uargv) {
@@ -77,8 +109,9 @@ int main(int argc, char **argv)
 			"                               read anew, from FROM if given (a label, or a step's\n"
 			"                               place such as steps[4] or steps[2].choice[0].steps[1]),\n"
 			"                               with the file's values (a whole number, a decimal,\n"
-			"                               true, false, else a text); answers ok, err busy, or\n"
-			"                               the file's problems, one per line\n"
+			"                               true, false, else a text; 'in single quotes' a text\n"
+			"                               as written); answers ok, err busy, or the file's\n"
+			"                               problems, one per line\n"
 			"  rqmod-ctl playscene stop     end a scene file before its next step\n"
 			"  rqmod-ctl playscene status   idle, waiting MOD FILE, or a line per file playing:\n"
 			"                               playing MOD FILE PLACE (the step playing or waiting)\n"
@@ -178,10 +211,13 @@ int main(int argc, char **argv)
 	line[used++] = '\n';
 	line[used] = 0;
 
-	h = CreateFileA(PIPE_NAME, GENERIC_READ | GENERIC_WRITE, 0, NULL,
-			OPEN_EXISTING, 0, NULL);
-	if (h == INVALID_HANDLE_VALUE) {
-		fprintf(stderr, "rqmod-ctl: cannot open %s (is the game running?)\n", PIPE_NAME);
+	h = open_pipe(&busy);
+	if (!h) {
+		if (busy)
+			fprintf(stderr, "rqmod-ctl: %s stayed busy for %d s (another program talks to the game)\n",
+				PIPE_NAME, BUSY_WAIT_MS / 1000);
+		else
+			fprintf(stderr, "rqmod-ctl: cannot open %s (is the game running?)\n", PIPE_NAME);
 		return 1;
 	}
 	if (!WriteFile(h, line, (DWORD)used, &w, NULL)) {
