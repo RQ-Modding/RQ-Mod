@@ -7884,6 +7884,11 @@ scene.cmd = {}
 ---The vault's and Frostbuy's item window (a rack of the shop, the vault's list) is drawn over the
 ---message window, so the scene hides it and shows it again at its end.
 ---
+---The music the scene plays (`rq.scene.music`, a file's `music`) ends with it: at its end the track
+---that played before it comes back (or none, if none played), as the game plays a screen's music only
+---when the screen starts. A scene inside another one leaves that to the outer one. To keep a track on
+---after the scene, play it once the scene has ended.
+---
 ---Raises the error "rq: the game went to the title" again when the player went to the title.
 ---
 ---`fn` can be a scene file (`rq.scene.file`): it is read and checked first, and a file with problems
@@ -7892,6 +7897,7 @@ scene.cmd = {}
 ---Since: 0.18.0
 ---Changed: 2.50.0 Hides the vault's and the shop's item window while it plays.
 ---Changed: 2.60.0 Plays a scene file, and returns its `end` value.
+---Changed: 2.62.2 Puts back the track that played before the scene; a scene's music went on over the hub after it.
 ---@param fn (fun(s: rq.scene, ...): any)|rq.SceneFile The scene, or a scene file.
 ---@param ... any Passed on to `fn` (not to a file).
 ---@return any ... What `fn` returns; for a file, the value of the `end` step that ended it, else nothing.
@@ -8275,7 +8281,11 @@ function scene.shake_portrait(mode, flag) end
 
 ---Plays a game music track (`音楽`).
 ---
+---In a scene (`rq.scene.play`), the track lasts until the scene ends; then the one that played
+---before it comes back.
+---
 ---Since: 0.18.0
+---Changed: 2.62.2 In a scene, the track ends with the scene.
 ---@param no integer The music number.
 ---@param effect? integer The fade type; -1 is the game's default. Default -1.
 ---@param time? integer The fade time; -1 is the game's default. Default -1.
@@ -9709,7 +9719,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.62.1"
+rq.version = "2.62.2"
 
 rq.units = units
 rq.items = items

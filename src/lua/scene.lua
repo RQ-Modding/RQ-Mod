@@ -95,14 +95,24 @@ local function store_show()
   if store_open() then pcall(rq.ain.method, { "g_sStoreItem" }, "T_StoreItem@setShow", true) end
 end
 
--- Counts the scenes rq.scene.play has open, once and start included.
+-- The track the game plays (its _音楽, 0 for none).
+local function music_now()
+  local ok, no = pcall(rq.ain.call, "音楽再生中番号取得")
+  return ok and math.type(no) == "integer" and no or nil
+end
+
+-- Counts the scenes rq.scene.play has open, once and start included. The outermost one puts back
+-- the track that played before it, when the scene changed it (2.62.2): the game plays a screen's
+-- music only when the screen starts (the town's in ゲーム_メイン's loop, before g_sTown.run), so
+-- a scene's music went on over the hub until the player left it.
 function scene.play(fn, ...)
   depth = depth + 1
   local hid = depth == 1 and store_hide()
+  local music = depth == 1 and music_now()
   local r = table.pack(pcall(play, fn, ...))
-  if hid and (r[1] or not tostring(r[2]):find("rq: the game went to the title", 1, true)) then
-    store_show()
-  end
+  local to_title = not r[1] and tostring(r[2]):find("rq: the game went to the title", 1, true)
+  if hid and not to_title then store_show() end
+  if music and not to_title and music_now() ~= music then pcall(rq.ain.call, "音楽", music, -1, -1) end
   depth = depth - 1
   if not r[1] then error(r[2], 0) end
   return table.unpack(r, 2, r.n)
