@@ -7951,6 +7951,7 @@ function scene.active() end
 ---save) and `cast` (names for faces, with their name plates). Each step is an object named by its one
 ---step key, with its options beside it, such as `{ "say": "pluepet", "text": "\"Hello!\"" }`: lines
 ---(`say`, `think`, `narrate`, with a list of pages), pictures, music and sounds, the screen's effects,
+---`world_map` (the game's map at a place, as a quest's start shows it, `rq.scene.world_map`),
 ---`choice`, `if`, `flag`, `unflag`, `call` (a function the mod names with `rq.scene.functions`),
 ---`label`, `goto`, `end` and `cmd`. `{name}` in a line takes a variable: one set by `into` (a
 ---choice's pick, a call's result) or given in `opts.vars`.
@@ -7982,6 +7983,7 @@ function scene.active() end
 ---
 ---Since: 2.60.0
 ---Changed: 2.61.0 `from` takes a step's place as well as a label.
+---Changed: 2.62.0 The `world_map` step.
 ---
 ---```lua
 ----- scenes/delivery.json:
@@ -8291,6 +8293,35 @@ function scene.sound(no) end
 ---@param no integer The sound number.
 ---@param wait? boolean true waits for it to end. Default false.
 function scene.jingle(no, wait) end
+
+---Shows the game's world map with a place's tag, as a quest's start does (`地図点滅`).
+---
+---The game's jingle 407 plays, the pictures and the message box are cleared, and the map (CG 5530)
+---fades in over a second. A tag points at the place with its name in it, until a click; then the
+---screen goes black, with the pictures and the message box cleared, so the scene shows its next
+---pictures after it.
+---
+---`place` is one of the game's places, 1 to 40, each with the name and the point the game gives it
+---(1 is Cidade). With `y` and `name`, the first value is instead the x of a point of the mod's own on
+---the game's 1024 by 768 screen, and `name` is the text on its tag. The tag opens to the right of a
+---point left of x 512, and to the left of one right of it.
+---
+---Raises an error for a place out of 1 to 40, or a point whose x or y is not a whole number or
+---whose name is not a text.
+---
+---Since: 2.62.0
+---
+---```lua
+---rq.scene.play(function(s)
+---  s.world_map(1)                    -- the game's Cidade
+---  s.world_map(640, 300, "Our Camp") -- a point of the mod's own
+---  s.background(5280)
+---end)
+---```
+---@param place integer A place of the game's, 1 to 40; with `y` and `name`, a point's x, 0 to 1023.
+---@param y? integer The point's y, 0 to 767.
+---@param name? string The name on the point's tag.
+function scene.world_map(place, y, name) end
 
 ---Clears the scene's pictures (`画面消去`).
 ---
@@ -9676,7 +9707,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.61.0"
+rq.version = "2.62.0"
 
 rq.units = units
 rq.items = items

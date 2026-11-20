@@ -220,6 +220,35 @@ function COMPLEX.layers(c, v, place)
   end
 end
 
+-- A place on the game's world map: one of the game's (世界地図データ取得 has 40, numbered from 1),
+-- or a point of the mod's own with the name its tag shows.
+local PLACES = 40
+local MAP_POINT = { x = true, y = true, name = true }
+function COMPLEX.place(c, v, place)
+  if is_int(v) then
+    if v < 1 or v > PLACES then
+      add(c, place, "expected a place of the game's world map, 1 to " .. PLACES)
+    end
+    return
+  end
+  if not is_object(v) then
+    add(c, place, "expected a place of the game's world map (1 to " .. PLACES
+      .. '), or a point of its own, such as { "x": 620, "y": 340, "name": "Cidade" }')
+    return
+  end
+  for _, k in ipairs(keys_of(v)) do
+    if not MAP_POINT[k] then add(c, place, "a point has no field " .. quote(k) .. ": x, y and name") end
+  end
+  if not is_int(v.x) or v.x < 0 or v.x > 1023 then
+    add(c, place .. ".x", "expected a whole number from 0 to 1023")
+  end
+  if not is_int(v.y) or v.y < 0 or v.y > 767 then
+    add(c, place .. ".y", "expected a whole number from 0 to 767")
+  end
+  local m = CHECK.nonempty(v.name)
+  if m then add(c, place .. ".name", m) end
+end
+
 local ROW = { text = "str", id = "int", comment = "str", r = "color", g = "color", b = "color",
   sound = "uint", ["if"] = "condition", steps = "steps", ["goto"] = "target", ["end"] = "value" }
 
@@ -307,6 +336,7 @@ local STEP = {
   sound = { "uint" },
   jingle = { "uint", { wait = "bool" } },
   wait_click = { "on" },
+  world_map = { "place" },
   choice = { "choice", { into = "name", x = "int", y = "int" } },
   ["if"] = { "condition", { ["then"] = "steps", ["else"] = "steps" }, need = "then" },
   flag = { "flag" },
@@ -543,6 +573,7 @@ return {
   is_array = is_array, is_object = is_object, is_int = is_int, is_name = is_name,
   is_place = is_place, is_path = is_path, unnull = unnull, quote = quote,
   -- What the rules know, for a program's lists: each step's main value's type, its options and
-  -- the option it needs; each condition's type and options; a choice row's fields; the layers.
-  STEP = STEP, COND = COND, COND_OPTS = COND_OPTS, ROW = ROW, LAYERS = LAYERS,
+  -- the option it needs; each condition's type and options; a choice row's fields; the layers;
+  -- how many places the game's world map has.
+  STEP = STEP, COND = COND, COND_OPTS = COND_OPTS, ROW = ROW, LAYERS = LAYERS, PLACES = PLACES,
 }

@@ -273,6 +273,10 @@ function DO.music(st, step) st.s.music(step.music, step.effect, step.time) end
 function DO.sound(st, step) st.s.sound(step.sound) end
 function DO.jingle(st, step) st.s.jingle(step.jingle, step.wait) end
 function DO.wait_click(st) st.s.wait_click() end
+function DO.world_map(st, step)
+  local w = step.world_map
+  if type(w) == "table" then st.s.world_map(w.x, w.y, w.name) else st.s.world_map(w) end
+end
 function DO.flag(st, step) scene.seen(step.flag, true) end
 function DO.unflag(st, step) scene.seen(step.unflag, false) end
 function DO.label() end
