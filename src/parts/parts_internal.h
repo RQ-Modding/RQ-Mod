@@ -291,6 +291,7 @@ struct parts_flash {
 	bool stopped;
 	unsigned elapsed;
 	int current_frame;
+	int quiet_before;  // RQ MOD (2.63.0): after a rewind, the frames before this start no sound
 	struct hash_table *dictionary;
 	struct hash_table *bitmaps;  // bitmap character id -> struct texture *
 	struct hash_table *sprites;  // sprite character id -> struct parts_flash_object *

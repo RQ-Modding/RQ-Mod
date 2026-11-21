@@ -108,6 +108,7 @@ bool parts_flash_load(struct parts *parts, struct parts_flash *f, struct string 
 	f->stopped = false;
 	f->elapsed = 0;
 	f->current_frame = 0;
+	f->quiet_before = 0;
 	f->dictionary = ht_create(256);
 	f->bitmaps = ht_create(64);
 	f->sprites = ht_create(64);
@@ -142,7 +143,8 @@ static void define_sound(struct parts_flash *f, struct swf_tag_define_sound *tag
 static int do_action(struct parts_flash *f, struct swf_tag_do_action *tag)
 {
 	int seek_frame = -1;
-	for (struct swf_action *a = tag->actions; a->code != ACTION_END; a = a->next) {
+	// RQ MOD (2.63.0): a list with no ActionEndFlag ran off its end (a NULL action).
+	for (struct swf_action *a = tag->actions; a && a->code != ACTION_END; a = a->next) {
 		switch (a->code) {
 		case ACTION_PLAY:
 			f->has_ended = false;
@@ -259,6 +261,10 @@ static void start_sound(struct parts_flash *f, struct swf_tag_start_sound *tag)
 	if (tag->flags != 0) {
 		ERROR("unsupported StartSound flag 0x%x", tag->flags);
 	}
+	// RQ MOD (2.63.0): a seek back plays the tags again from the start; only the sounds of the
+	// frame it lands on and after start again (current_frame + 1 is the frame being built).
+	if (f->current_frame + 1 < f->quiet_before)
+		return;
 	struct swf_tag_define_sound *sound = ht_get_int(f->dictionary, tag->sound_id, NULL);
 	if (!sound || sound->t.type != TAG_DEFINE_SOUND) {
 		WARNING("undefined sound id %d", tag->sound_id);
@@ -324,16 +330,21 @@ static void define_sprite(struct parts_flash *f, struct swf_tag_define_sprite *t
 	slot->value = obj;
 }
 
+static void flash_rewind(struct parts_flash *f, int frame)
+{
+	f->current_frame = 0;
+	f->tag = f->swf->tags;
+	f->quiet_before = frame;
+	clear_display_list(f);
+}
+
 bool parts_flash_seek(struct parts_flash *f, int frame)
 {
 	if (!f->swf || f->current_frame == frame)
 		return false;
 
-	if (f->current_frame > frame) {
-		f->current_frame = 0;
-		f->tag = f->swf->tags;
-		clear_display_list(f);
-	}
+	if (f->current_frame > frame)
+		flash_rewind(f, frame);
 
 	int seek_frame;
 	struct swf_tag *t;
@@ -364,9 +375,19 @@ bool parts_flash_seek(struct parts_flash *f, int frame)
 			define_sound(f, (struct swf_tag_define_sound*)t);
 			break;
 		case TAG_DO_ACTION:
-			if ((seek_frame = do_action(f, (struct swf_tag_do_action*)t)) >= 0)
-				// XXX: ensure one frame is rendered when seeking to start
-				return parts_flash_seek(f, max(1, seek_frame));
+			if ((seek_frame = do_action(f, (struct swf_tag_do_action*)t)) >= 0) {
+				// RQ MOD (2.63.0): gotoFrame counts from 0, the seek from 1 (it went one
+				// frame early); a jump forward walked again from where this seek began,
+				// reaching the same action without end, and a jump to the frame just shown
+				// did nothing. Forward goes on after the action, back plays from the start.
+				// No file of Rance Quest jumps; a mod's file may.
+				int target = seek_frame + 1;
+				if (target <= f->current_frame)
+					flash_rewind(f, target);
+				else
+					f->tag = t->next;
+				return parts_flash_seek(f, target);
+			}
 			break;
 		case TAG_PLACE_OBJECT2:
 		case TAG_PLACE_OBJECT3:

@@ -169,13 +169,25 @@ static int out_bitmap(struct out *o, int id, const uint8_t *argb, int w, int h)
 	size_t raw = (size_t)w * h * 4;
 	uLongf clen = compressBound((uLong)raw);
 	struct out s = { 0 };
+	int ok;
 
+	/* A DefineBitsLossless2 holds its colours multiplied by alpha, as the SWF format says
+	 * and swf.c reads them back (2.63.0). */
+	uint8_t *pm = xmalloc(raw);
+	for (size_t i = 0; i < raw; i += 4) {
+		unsigned a = argb[i];
+		pm[i] = (uint8_t)a;
+		for (int k = 1; k < 4; k++)
+			pm[i + k] = a == 255 ? argb[i + k] : (uint8_t)((argb[i + k] * a + 127) / 255);
+	}
 	out_u16(&s, id);
 	out_u8(&s, 5);
 	out_u16(&s, w);
 	out_u16(&s, h);
 	out_bytes(&s, NULL, clen);
-	if (compress2(s.d + 7, &clen, argb, (uLong)raw, 6) != Z_OK) {
+	ok = compress2(s.d + 7, &clen, pm, (uLong)raw, 6) == Z_OK;
+	free(pm);
+	if (!ok) {
 		free(s.d);
 		return 0;
 	}

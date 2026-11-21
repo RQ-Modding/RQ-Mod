@@ -56,6 +56,7 @@ libsys4_dep = libsys4_proj.get_variable('libsys4_dep')
 subdir('src')
 if host_machine.system() == 'windows' and get_option('modloader')
     subdir('tools/rqmod-ctl')
+    subdir('tools/rqmod-aff')
     # Rance Browser (rance-browser.exe), the file browser, in its own repository
     # (subprojects/rance-browser, a git submodule). Built here with the loader's own names and rq.lua,
     # so its Names tab and Lua lines are this loader's; meson shares the engine's libsys4 with it.
