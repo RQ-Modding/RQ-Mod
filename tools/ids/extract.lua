@@ -9,9 +9,16 @@
 -- Only names and numbers leave the game: no descriptions or other text.
 -- ids-pictures.tsv gives the file browser (Rance Browser) a picture for a name: a character's face and
 -- standing picture, an item's icon. Each line: kind, number, CG, use. It is not part of rq.ids.
+-- ids-models.tsv gives it a monster's and a character's 3D model (rq.Chara's model: 100000 plus its
+-- place in the game's model table). Each line: kind, number, model. Not part of rq.ids either.
 local t = _G.t
 local out = {}
 local pictures = {}
+local models = {}
+
+local function model(kind, no, m)
+  if type(m) == "number" and m > 0 then models[#models + 1] = { kind, no, math.floor(m) } end
+end
 
 local function picture(kind, no, cg, use)
   if type(cg) == "number" and cg > 0 then pictures[#pictures + 1] = { kind, no, math.floor(cg), use } end
@@ -67,6 +74,7 @@ for no = 1, 999 do
       charas[#charas + 1] = { no, c.name, c.class }
       picture("chara", no, c.face, "face")
       picture("chara", no, c.portrait, "standing picture")
+      model("chara", no, c.model)
     else
       skipped = skipped + 1
     end
@@ -118,6 +126,7 @@ for no = 1, 999 do
     if name:match(" CopyPaste$") then name = "CopyPaste" end
     local c = rq.chara.get(1) or {}
     monsters[#monsters + 1] = { no, name, string.format("%d,%d", c.level or 0, c.race or 0) }
+    model("monster", no, c.model)
   end
 end
 rq.ain.call("Ｃ初期化", 1)
@@ -137,6 +146,15 @@ do
   for _, r in ipairs(pictures) do f:write(r[1], "\t", r[2], "\t", r[3], "\t", r[4], "\n") end
   f:close()
   out[#out + 1] = "pictures " .. #pictures
+end
+
+do
+  local f = assert(io.open("ids-models.tsv", "wb"))
+  f:write("# The game's 3D models for rq.ids' monsters and characters, for the file browser (Rance Browser's Names tab). Not part of rq.ids.\n")
+  f:write("# Written by tools/ids/extract.lua. kind, number, model (100000 plus its place in the game's model table).\n")
+  for _, r in ipairs(models) do f:write(r[1], "\t", r[2], "\t", r[3], "\n") end
+  f:close()
+  out[#out + 1] = "models " .. #models
 end
 
 t.log(table.concat(out, ", "))
