@@ -354,6 +354,22 @@ static int is_png_name(const char *n)
 	return l > 4 && !strcasecmp(n + l - 4, ".png");
 }
 
+/* dir and name, joined with the separator dir uses (a backslash in a Windows path). */
+static char *join(const char *dir, const char *name)
+{
+	char sep = strchr(dir, '\\') && !strchr(dir, '/') ? '\\' : '/';
+	size_t a = strlen(dir), b = strlen(name), at = a;
+	char *out = malloc(a + b + 2);
+
+	if (!out)
+		return NULL;
+	memcpy(out, dir, a);
+	if (a && dir[a - 1] != '/' && dir[a - 1] != '\\')
+		out[at++] = sep;
+	memcpy(out + at, name, b + 1);
+	return out;
+}
+
 /* The PNG files of a folder, or those a pattern names, in name order (numbers by value). */
 static char **list_frames(const char *what, int *count)
 {
@@ -387,13 +403,20 @@ static char **list_frames(const char *what, int *count)
 	}
 	while ((name = readdir_utf8(d))) {
 		if (is_png_name(name) && (!pattern || glob_match(pattern, name))) {
+			char *full;
 			if (n == cap) {
 				char **g = realloc(list, (size_t)(cap = cap ? cap * 2 : 64) * sizeof *g);
-				if (!g)
+				if (!g) {
+					free(name);
 					break;
+				}
 				list = g;
 			}
-			list[n++] = path_join(dir, name);
+			if (!(full = join(dir, name))) {
+				free(name);
+				break;
+			}
+			list[n++] = full;
 		}
 		free(name);
 	}
@@ -495,7 +518,7 @@ int cmd_build(int argc, char **argv)
 	int npaths = 0, i, status = 1;
 	struct out o = { 0 };
 	struct seen *seen = NULL;
-	int nseen = 0, next_id = 1, placed = 0, shown = 0, stored = 0, held = 0, reused = 0;
+	int nseen = 0, next_id = 1, placed = 0, shown = 0, stored = 0, held = 0, reused = 0, blank = 0;
 	uint8_t *prev = NULL;
 	int prev_x = 0, prev_y = 0, prev_w = 0, prev_h = 0, prev_empty = 1, prev_shape = 0;
 	size_t frames_at;
@@ -670,6 +693,7 @@ int cmd_build(int argc, char **argv)
 				if (placed)
 					out_remove(&o);
 				placed = 0;
+				blank++;
 			} else {
 				uint64_t hash = fnv(argb, (size_t)cw * ch * 4, 14695981039346656037ull);
 				hash = fnv((const uint8_t *)&x0, sizeof x0, fnv((const uint8_t *)&y0, sizeof y0, hash));
@@ -759,17 +783,23 @@ int cmd_build(int argc, char **argv)
 
 	{
 		struct swfc c;
-		int check = swfc_check(o.d, o.n, &c);
 		size_t fn = 0;
 		uint8_t *file = is_aff ? aff_wrap(o.d, o.n, &fn) : swf_compress(o.d, o.n, &fn);
+		int check;
 
-		printf("%d pictures, %d stored (%d held, %d shown again), %d frames at the game's 30 a second "
-		       "(%.2f s), %d sound%s\n", npaths, stored, held, reused, shown, shown / 30.0, nsounds,
-		       nsounds == 1 ? "" : "s");
+		if (!file) {
+			fprintf(stderr, "rqmod-aff: out of memory\n");
+			goto done;
+		}
+		/* The file as it will be written, so the report says what the game gets. */
+		check = swfc_check(file, fn, &c);
+		printf("%d pictures: %d stored, %d held, %d shown again, %d empty; %d frames at the game's 30 a "
+		       "second (%.2f s), %d sound%s\n", npaths, stored, held, reused, blank, shown, shown / 30.0,
+		       nsounds, nsounds == 1 ? "" : "s");
 		if (check) {
 			report(out_path, &c, check, 0);
 			fprintf(stderr, "rqmod-aff: the file built does not pass the check: nothing written\n");
-		} else if (!file || !write_file(out_path, file, fn)) {
+		} else if (!write_file(out_path, file, fn)) {
 			fprintf(stderr, "rqmod-aff: cannot write %s\n", out_path);
 		} else {
 			report(out_path, &c, check, 0);

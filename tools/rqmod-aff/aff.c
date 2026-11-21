@@ -250,8 +250,10 @@ static void report_text(const char *name, const struct swfc *c, int status)
 		printf("  %s%s%s, SWF %d, %d x %d, %d frames (%.2f s at the game's 30 frames a second), header %g fps\n",
 		       c->container, c->inner[0] ? " holding " : "", c->inner, c->version, c->width, c->height,
 		       c->frames, swfc_seconds(c), c->rate / 256.0);
-		printf("  %d bitmaps (%.2f million pixels), %d shapes, %d sprites, %d placements, %d sounds (%.2f s)\n",
-		       c->bitmaps, c->pixels / 1e6, c->shapes, c->sprites, c->places, c->sounds, c->sound_ms / 1000.0);
+		printf("  %d bitmap%s (%.2f million pixels), %d shape%s, %d sprite%s, %d placement%s, %d sound%s (%.2f s)\n",
+		       c->bitmaps, c->bitmaps == 1 ? "" : "s", c->pixels / 1e6, c->shapes, c->shapes == 1 ? "" : "s",
+		       c->sprites, c->sprites == 1 ? "" : "s", c->places, c->places == 1 ? "" : "s", c->sounds,
+		       c->sounds == 1 ? "" : "s", c->sound_ms / 1000.0);
 		printf("  blend modes:");
 		for (i = 0, any = 0; i < 16; i++) {
 			if (!c->blends[i])
