@@ -30,6 +30,7 @@ xsystem4 = [version_h,
             'scene.c',
             'screenshot.c',
             'sprite.c',
+            'rq_pixels.c',
             'swf.c',
             'swf_check.c',
             'system4.c',
@@ -47,6 +48,7 @@ xsystem4 = [version_h,
             '3d/particle.c',
             '3d/reign.c',
             '3d/renderer.c',
+            '3d/rq_textures.c',
             '3d/s3de.c',
             '3d/save.c',
 
@@ -189,7 +191,7 @@ xsystem4 = [version_h,
             'hll/VSFile.c',
 ]
 
-xsystem4_deps = [libm, zlib, sdl2, ft2, ffi, cglm, sndfile, libsys4_dep] + gl_deps
+xsystem4_deps = [libm, zlib, sdl2, ft2, ffi, cglm, sndfile, png, libsys4_dep] + gl_deps
 
 if avcodec.found() and avformat.found() and avutil.found() and swscale.found()
     xsystem4 += 'movie_ffmpeg.c'
@@ -440,7 +442,7 @@ if get_option('modloader')
                  'modloader_counter.c', 'modloader_battle.c',
                  'modloader_chara.c', 'modloader_shop.c',
                  'modloader_debug.c', 'modloader_discord.c',
-                 'modloader_saves.c', 'modloader_roster.c', 'modloader_crash.c', 'modloader_events.c', 'modloader_scene.c', 'modloader_anim.c', 'modloader_image.c', 'modloader_item.c',
+                 'modloader_saves.c', 'modloader_roster.c', 'modloader_crash.c', 'modloader_events.c', 'modloader_scene.c', 'modloader_anim.c', 'modloader_image.c', 'modloader_texture.c', 'modloader_item.c',
                  'modloader_uikit.c', 'modloader_config.c', 'modloader_sprite.c', 'modloader_unwind.c', 'modloader_ids.c', rq_stamp, rq_uikit, rq_uikit_hub, rq_uikit_vault, rq_uikit_windows, rq_dialog, rq_title, rq_discord_png, rq_config, rq_sprite, rq_scene, rq_scene_file, rq_scene_check, rq_ids, rq_battle_lua, rq_status_lua, rq_music_lua, rq_item_lua, rq_castle_lua, rq_statuspage_lua, rq_gamebutton_lua, rq_skilllist_lua, rq_gamedata_lua, rq_dungeon_lua, rq_basics_lua, rq_timers_lua, rq_monster_lua, rq_combat_lua, rq_choices_lua, rq_quests_lua, rq_skills_lua, rq_combat_more_lua, rq_knownskills_lua, rq_savedata_lua]
     if host_machine.system() == 'windows'
         static_link_args += ['-lpsapi', '-lshell32', '-lole32']

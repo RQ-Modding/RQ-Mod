@@ -30,6 +30,18 @@ struct RE_options RE_options;
 
 static struct RE_plugin *plugins[RE_MAX_PLUGINS];
 
+#ifndef RQ_MODLOADER
+// RQ MOD: without the mod loader no mod changes a texture (3d_internal.h).
+struct cg *RE_mod_texture(struct archive_data *game, const char *path, const char *name, int kind)
+{
+	(void)game;
+	(void)path;
+	(void)name;
+	(void)kind;
+	return NULL;
+}
+#endif
+
 int ReignEngine_create_plugin(enum RE_plugin_version version)
 {
 	for (int i = 0; i < RE_MAX_PLUGINS; i++) {
