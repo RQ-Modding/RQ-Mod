@@ -103,7 +103,7 @@ meson setup build --buildtype=release
 ninja -C build
 ```
 
-This gives `build/src/xsystem4.exe` and `build/tools/rqmod-ctl/rqmod-ctl.exe`, and from the submodules `build/subprojects/rance-browser/rance-browser.exe` and `build/subprojects/rq-scene-editor/rq-scene-editor.exe`. To run it, copy into the game's `xsystem4` folder: `xsystem4.exe`, `glew32.dll` (from `/ucrt64/bin`), and the `fonts` and `shaders` folders. Then copy the contents of `dist/` into the game folder.
+This gives `build/src/xsystem4.exe`, `build/tools/rqmod-ctl/rqmod-ctl.exe` and `build/tools/rqmod-aff/rqmod-aff.exe`, and from the submodules `build/subprojects/rance-browser/rance-browser.exe` and `build/subprojects/rq-scene-editor/rq-scene-editor.exe`. To run it, copy into the game's `xsystem4` folder: `xsystem4.exe`, `glew32.dll` (from `/ucrt64/bin`), and the `fonts` and `shaders` folders. Then copy the contents of `dist/` into the game folder.
 
 meson takes [cglm](https://github.com/recp/cglm) from GitHub at the first setup (`subprojects/cglm.wrap`) and builds it into the exe.
 
@@ -119,6 +119,7 @@ Rance Quest plays no movie, so the release has no FFmpeg: meson builds xsystem4'
 | `tools/ids/` | `gen_ids.py` builds `src/lua/ids.lua`, `dist/lua/rq_ids.lua` and `data/ids/ids.json` from `data/ids` |
 | `tools/apidoc/` | The API reference generator and the docs coverage check |
 | `tools/rqmod-ctl/` | Command-line client for the agent pipe, used by test scripts |
+| `tools/rqmod-aff/` | `rqmod-aff`: builds an `.aff` animation from PNG frames and WAV sounds, checks a Flash file by the engine's rules, unpacks the game's |
 | `res/` | Icon and Windows resources |
 | `third_party/lua/` | Lua 5.4.7 |
 | `subprojects/` | libsys4, Rance Browser and RQ Scene Editor, as git submodules (the two programs have their own repositories) |

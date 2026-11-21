@@ -90,7 +90,7 @@ jobs:
         run: |
           pkg=RQ-MOD
           mkdir -p $pkg/xsystem4 $pkg/mods
-          cp build/src/xsystem4.exe build/tools/rqmod-ctl/rqmod-ctl.exe build/subprojects/rance-browser/rance-browser.exe build/subprojects/rq-scene-editor/rq-scene-editor.exe /ucrt64/bin/glew32.dll $pkg/xsystem4/
+          cp build/src/xsystem4.exe build/tools/rqmod-ctl/rqmod-ctl.exe build/tools/rqmod-aff/rqmod-aff.exe build/subprojects/rance-browser/rance-browser.exe build/subprojects/rq-scene-editor/rq-scene-editor.exe /ucrt64/bin/glew32.dll $pkg/xsystem4/
           cp -r fonts shaders $pkg/xsystem4/
           cp -r dist/. $pkg/
           cp README.md CHANGELOG.md CREDITS.md COPYING $pkg/xsystem4/
