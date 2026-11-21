@@ -26,6 +26,7 @@
 #include "lauxlib.h"
 
 #include "system4.h"
+#include "system4/archive.h"
 #include "system4/cg.h"
 #include "system4/utfsjis.h"
 
@@ -864,6 +865,7 @@ int rq_lua_image_add_gif(lua_State *L)
 	snprintf(m->name, sizeof m->name, "%s", name);
 	snprintf(m->key, sizeof m->key, "%s", key);
 	snprintf(m->path, sizeof m->path, "%s", full);
+	rq_sound_flash_changed(name);
 	lua_pushstring(L, key);
 	return 1;
 }
@@ -872,8 +874,10 @@ int rq_lua_image_remove_gif(lua_State *L)
 {
 	struct anim *m = anim_by_key(luaL_checkstring(L, 1));
 
-	if (m)
+	if (m) {
 		anim_drop(m);
+		rq_sound_flash_changed(m->name);
+	}
 	lua_pushboolean(L, m != NULL);
 	return 1;
 }
@@ -921,6 +925,24 @@ static void first_problem(const struct swfc *c, int level, char *out, size_t n)
 			 where[0] ? ": " : "", it->text, total - 1);
 	else
 		snprintf(out, n, "%s%s%s", where, where[0] ? ": " : "", it->text);
+}
+
+/* The stage of the game's own file under a name, from its archive; 0 when it has none. */
+static int game_flash_size(const char *name, int *w, int *h)
+{
+	struct archive_data *d = asset_get_by_name(ASSET_FLASH, name, NULL);
+	struct swf *swf;
+
+	if (!d)
+		return 0;
+	swf = aff_load(d->data, d->size);
+	archive_free_data(d);
+	if (!swf)
+		return 0;
+	*w = swf->frame_size.x_max / 20;
+	*h = swf->frame_size.y_max / 20;
+	swf_free(swf);
+	return 1;
 }
 
 int rq_lua_image_add_flash(lua_State *L)
@@ -1001,6 +1023,7 @@ int rq_lua_image_add_flash(lua_State *L)
 	snprintf(m->name, sizeof m->name, "%s", name);
 	snprintf(m->key, sizeof m->key, "%s", key);
 	snprintf(m->path, sizeof m->path, "%s", full);
+	rq_sound_flash_changed(name);
 	rq_log("image: add_flash %s: %s, %dx%d, %d frames (%.2f s), %d bitmap%s, %d sound%s",
 	       key, rel, m->w, m->h, m->frames, swfc_seconds(&c), c.bitmaps, c.bitmaps == 1 ? "" : "s",
 	       c.sounds, c.sounds == 1 ? "" : "s");
@@ -1008,6 +1031,15 @@ int rq_lua_image_add_flash(lua_State *L)
 		first_problem(&c, SWFC_WARNING, why, sizeof why);
 		rq_log("image: add_flash %s plays, with %s: %s", key,
 		       c.warnings == 1 ? "a warning" : "warnings", why);
+	}
+	{
+		/* The game places a file of its own by that file's size: a battle effect's stage is
+		 * placed over its target. A replacement of another size is drawn off its place. */
+		int gw, gh;
+		if (game_flash_size(name, &gw, &gh) && (gw != m->w || gh != m->h))
+			rq_log("image: add_flash %s is %d x %d, the game's file %d x %d: the game places it as "
+			       "its own, so its picture is not where the game's was (rqmod-aff build --size "
+			       "%dx%d puts the frames in the middle of that stage)", key, m->w, m->h, gw, gh, gw, gh);
 	}
 	swfc_free(&c);
 	lua_pushstring(L, key);
@@ -1018,8 +1050,10 @@ int rq_lua_image_remove_flash(lua_State *L)
 {
 	struct anim *m = anim_by_key(luaL_checkstring(L, 1));
 
-	if (m)
+	if (m) {
 		anim_drop(m);
+		rq_sound_flash_changed(m->name);
+	}
 	lua_pushboolean(L, m != NULL);
 	return 1;
 }

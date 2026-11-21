@@ -66,6 +66,11 @@ static const char usage_text[] =
 	"path, such as \"Data/Flash/Battle/<name>.swf\".\n"
 	"FRAMES is a folder of PNG files, taken in name order, or a pattern such as walk_*.png.\n"
 	"OUT ends in .aff (the game's form) or .swf (compressed, for a viewer).\n"
+	"build: --fps 1 to 30 (the game plays 30 a second; each frame is held for whole game\n"
+	"frames); --sound FILE.wav@N starts a WAV at frame N (the first by default); --size WxH is\n"
+	"a stage larger than the frames, which sit in its middle. A file that takes the place of\n"
+	"one of the game's keeps that file's size, as the game places it by its own: most battle\n"
+	"effects are 400 x 400 (rqmod-aff check --game DIR NAME says).\n"
 	"\n"
 	"Exit codes: 0 the game plays it, 1 it would not or the command failed, 2 a wrong\n"
 	"command line, 3 a file that cannot be read.\n";

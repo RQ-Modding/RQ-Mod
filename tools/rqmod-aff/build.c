@@ -683,6 +683,12 @@ int cmd_build(int argc, char **argv)
 				}
 			}
 			free(rgba);
+			/* A frame smaller than --size's stage sits in its middle, as the game's effects hold
+			 * their picture in the middle of their stage. */
+			if (sized && !empty) {
+				x0 += (stage_w - w) / 2;
+				y0 += (stage_h - h) / 2;
+			}
 
 			same = i > 0 && empty == prev_empty && (empty || (x0 == prev_x && y0 == prev_y && cw == prev_w
 				&& ch == prev_h && !memcmp(argb, prev, (size_t)cw * ch * 4)));

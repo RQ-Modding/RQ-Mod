@@ -4148,6 +4148,11 @@ function image.flash_bitmaps(file) end
 ---them). A new name plays through `play_flash` or `rq.sprite`'s `flash`. Adding a key again replaces
 ---its file.
 ---
+---A file in the place of one of the game's keeps that file's size (`flash_info` gives it): the game
+---places its files by their own size, and a battle effect's stage, 400 by 400 for most, is placed
+---over its target with the picture in its middle. A file of another size is drawn off that place, and
+---the log says so; `rqmod-aff build --size 400x400` puts smaller frames in the middle of the stage.
+---
 ---The file is checked first by the rules of the game's engine, the same as `rqmod-aff check`: 32-bit
 ---pictures, one picture per shape, uncompressed sound, and the placements, blends and actions the
 ---engine knows. A file the game would not play, or that would close it, is refused and nothing of it
@@ -4166,7 +4171,8 @@ function image.flash_bitmaps(file) end
 ---```lua
 ----- Made with: rqmod-aff build frames effects/pulse.aff --fps 15 --sound chime.wav
 ---rq.image.add_flash("mymod_pulse", "effects/pulse.aff")
------ A skill's effect replaced, for every fight.
+----- A skill's effect replaced, for every fight; made at the game file's 400 by 400:
+----- rqmod-aff build fire_frames effects/my_fire.aff --size 400x400
 ---rq.image.add_flash("Data/Flash/Battle/ファイヤーレーザー.swf", "effects/my_fire.aff")
 ---```
 ---@param key string The Flash file's key.
@@ -10685,20 +10691,30 @@ function sound.play(src, opts) end
 ---Plays a sound kept inside a Flash file.
 ---
 ---Some game sounds have no number, such as Berserk's in `Data/Flash/Battle/狂戦士発動.swf`. A bare key
----means `Data/Flash/System/<key>.swf`, as in `rq.image.add_gif`, and a GIF added under that key is
----looked at first. Only uncompressed (PCM) sounds play. Raises an error when the file or that sound
----is missing, the sound is compressed, `index` is below 1, or 32 mod sounds already play.
+---means `Data/Flash/System/<key>.swf`, as in `rq.image.add_gif`, and a file a mod added under that
+---key (`rq.image.add_flash`, or a GIF) is looked at first, as the game plays it. Only uncompressed
+---(PCM) sounds play. Raises an error when the file or that sound is missing, the sound is
+---compressed, `index` is below 1, or 32 mod sounds already play.
+---
+---A file's sound is read once and kept; it is read again after a mod adds, replaces or removes the
+---file under that name.
 ---
 ---Since: 1.4.0
+---
+---Changed: 2.63.0 A mod's own file from `rq.image.add_flash`, and a sound read again after the file
+---under its name changed (a bare key and the full path are one file).
 ---@param key string The Flash file's key or path.
 ---@param opts? rq.SoundOpts How to play it; `index` picks the sound.
 ---@return integer|nil handle The handle, or nil when the sound did not start.
 ---@see rq.sound.flash_info
 function sound.play_flash(key, opts) end
 
----Lists the sounds in a Flash file.
+---Lists the sounds in a Flash file: a mod's file under that key first (`rq.image.add_flash`), as
+---for `play_flash`.
 ---
 ---Since: 1.4.0
+---
+---Changed: 2.63.0 A mod's own file from `rq.image.add_flash`.
 ---
 ---```lua
 ---for i, s in ipairs(rq.sound.flash_info("Data/Flash/Battle/狂戦士発動.swf") or {}) do

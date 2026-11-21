@@ -88,6 +88,25 @@ static struct cached *cache_get(const char *key)
 	return NULL;
 }
 
+/* A Flash file's sounds read by play_flash are read again once a mod changed what plays
+ * under its full name: add_flash, add_gif, remove_flash or remove_gif (2.63.0). */
+void rq_sound_flash_changed(const char *name)
+{
+	int i, n = 0;
+
+	for (i = 0; i < g_ncache; i++) {
+		const char *k = g_cache[i].key, *rest = NULL;
+		if (!strncmp(k, "flash:", 6))
+			rest = strchr(k + 6, ':');
+		if (rest && !strcasecmp(rest + 1, name)) {
+			free(g_cache[i].wav);
+			continue;
+		}
+		g_cache[n++] = g_cache[i];
+	}
+	g_ncache = n;
+}
+
 /* Keeps buf (takes ownership). When the cache is full the sound still plays,
  * it is only read again next time. */
 static struct cached *cache_put(const char *key, uint8_t *buf, size_t size, struct cached *tmp)
@@ -297,7 +316,7 @@ int rq_lua_sound_play(lua_State *L)
 int rq_lua_sound_play_flash(lua_State *L)
 {
 	const char *key = luaL_checkstring(L, 1);
-	char ckey[300];
+	char name[256], ckey[300];
 	int index = 1, r;
 	struct cached tmp, *c;
 	struct swf *swf;
@@ -313,7 +332,9 @@ int rq_lua_sound_play_flash(lua_State *L)
 	}
 	if (index < 1)
 		return luaL_error(L, "play_flash index starts at 1");
-	snprintf(ckey, sizeof ckey, "flash:%d:%s", index, key);
+	/* By the full name, as the registry knows it: a bare name and its path are one file. */
+	rq_anim_full_name(key, name, sizeof name);
+	snprintf(ckey, sizeof ckey, "flash:%d:%s", index, name);
 	if ((c = cache_get(ckey)))
 		return play_bytes(L, c, 2);
 	if (!(swf = flash_open(key)))

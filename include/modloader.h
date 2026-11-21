@@ -233,6 +233,7 @@ void rq_sound_tick(void);
 int rq_lua_sound_play(struct lua_State *L);
 int rq_lua_sound_play_flash(struct lua_State *L);
 int rq_lua_sound_flash_info(struct lua_State *L);
+void rq_sound_flash_changed(const char *name);
 int rq_lua_sound_stop(struct lua_State *L);
 int rq_lua_sound_playing(struct lua_State *L);
 int rq_lua_sound_set_volume(struct lua_State *L);
