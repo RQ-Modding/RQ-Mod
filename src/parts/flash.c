@@ -363,7 +363,12 @@ static void flash_rewind(struct parts_flash *f, int frame)
 	clear_display_list(f);
 }
 
-bool parts_flash_seek(struct parts_flash *f, int frame)
+// RQ MOD (2.63.0): the gotoFrame actions followed in one seek. The jumps of frames that jump to
+// each other were followed without end, and the game stopped in the seek; past this many a jump
+// is passed over, as in Rance Browser's player.
+#define FLASH_JUMPS_MAX 64
+
+static bool flash_seek(struct parts_flash *f, int frame, int jumps)
 {
 	if (!f->swf || f->current_frame == frame)
 		return false;
@@ -400,7 +405,7 @@ bool parts_flash_seek(struct parts_flash *f, int frame)
 			define_sound(f, (struct swf_tag_define_sound*)t);
 			break;
 		case TAG_DO_ACTION:
-			if ((seek_frame = do_action(f, (struct swf_tag_do_action*)t)) >= 0) {
+			if ((seek_frame = do_action(f, (struct swf_tag_do_action*)t)) >= 0 && jumps < FLASH_JUMPS_MAX) {
 				// RQ MOD (2.63.0): gotoFrame counts from 0, the seek from 1 (it went one
 				// frame early); a jump forward walked again from where this seek began,
 				// reaching the same action without end, and a jump to the frame just shown
@@ -411,7 +416,7 @@ bool parts_flash_seek(struct parts_flash *f, int frame)
 					flash_rewind(f, target);
 				else
 					f->tag = t->next;
-				return parts_flash_seek(f, target);
+				return flash_seek(f, target, jumps + 1);
 			}
 			break;
 		case TAG_PLACE_OBJECT2:
@@ -430,6 +435,11 @@ bool parts_flash_seek(struct parts_flash *f, int frame)
 	}
 	f->tag = t;
 	return true;
+}
+
+bool parts_flash_seek(struct parts_flash *f, int frame)
+{
+	return flash_seek(f, frame, 0);
 }
 
 bool parts_flash_update(struct parts_flash *f, int passed_time)
