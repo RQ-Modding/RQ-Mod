@@ -75,9 +75,10 @@ lua\rq.lua gives your editor (VS Code with the Lua extension) the rq.* calls.
 A template to start a mod from: https://github.com/RQ-Modding/rq-mod-template
 xsystem4\rq-scene-editor.exe (RQ Scene Editor) writes a mod's scenes without
 Lua and plays them in the running game; xsystem4\rance-browser.exe (Rance
-Browser) shows the game's pictures, music, sounds and animations; and
-xsystem4\rqmod-aff.exe, on the command line, makes an animation the game
-plays from PNG frames. Their guides are on the docs site.
+Browser) shows the game's pictures, music, sounds, animations and 3D models,
+and saves a 3D model as a glTF file for Blender; and xsystem4\rqmod-aff.exe,
+on the command line, makes an animation the game plays from PNG frames.
+Their guides are on the docs site.
 
 
 Community

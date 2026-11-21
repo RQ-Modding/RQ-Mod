@@ -80,7 +80,7 @@ Mods are Lua 5.4. A mod is a folder in `mods` with an `init.lua` and a `mod.json
 - Version history of the API: [CHANGELOG.md](CHANGELOG.md).
 - Guides and the API reference: [rq-modding.github.io/rq-modding-docs](https://rq-modding.github.io/rq-modding-docs/). The release has the reference offline too, in `xsystem4\api.html`.
 - A template to start a mod from, with a workflow that publishes its release zip: [rq-mod-template](https://github.com/RQ-Modding/rq-mod-template).
-- Two programs in the release's `xsystem4` folder: [RQ Scene Editor](https://github.com/RQ-Modding/rq-scene-editor) (`rq-scene-editor.exe`) writes a mod's scenes as files, without Lua, and plays them in the running game; [Rance Browser](https://github.com/RQ-Modding/rance-browser) (`rance-browser.exe`) shows the game's pictures, music and sounds, each with the Lua line that replaces or plays it.
+- Two programs in the release's `xsystem4` folder: [RQ Scene Editor](https://github.com/RQ-Modding/rq-scene-editor) (`rq-scene-editor.exe`) writes a mod's scenes as files, without Lua, and plays them in the running game; [Rance Browser](https://github.com/RQ-Modding/rance-browser) (`rance-browser.exe`) shows the game's pictures, Flash animations, 3D models, music and sounds, each with the Lua line that replaces or plays it, and saves a 3D model as a glTF file for Blender.
 
 ## Community
 
@@ -105,7 +105,7 @@ ninja -C build
 
 This gives `build/src/xsystem4.exe`, `build/tools/rqmod-ctl/rqmod-ctl.exe` and `build/tools/rqmod-aff/rqmod-aff.exe`, and from the submodules `build/subprojects/rance-browser/rance-browser.exe` and `build/subprojects/rq-scene-editor/rq-scene-editor.exe`. To run it, copy into the game's `xsystem4` folder: `xsystem4.exe`, `glew32.dll` (from `/ucrt64/bin`), and the `fonts` and `shaders` folders. Then copy the contents of `dist/` into the game folder.
 
-meson takes [cglm](https://github.com/recp/cglm) from GitHub at the first setup (`subprojects/cglm.wrap`) and builds it into the exe.
+meson takes [cglm](https://github.com/recp/cglm) from GitHub at the first setup (`subprojects/cglm.wrap`) and builds it into the exe, and into Rance Browser's, whose 3D tab draws with a copy of the engine's 3D renderer.
 
 Rance Quest plays no movie, so the release has no FFmpeg: meson builds xsystem4's movie player on pl_mpeg (`include/pl_mpeg.h`), and on [FFmpeg](https://ffmpeg.org/) only when it finds one installed.
 

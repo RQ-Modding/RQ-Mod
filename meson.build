@@ -59,14 +59,16 @@ if host_machine.system() == 'windows' and get_option('modloader')
     subdir('tools/rqmod-aff')
     # Rance Browser (rance-browser.exe), the file browser, in its own repository
     # (subprojects/rance-browser, a git submodule). Built here with the loader's own names and rq.lua,
-    # so its Names tab and Lua lines are this loader's; meson shares the engine's libsys4 with it.
+    # so its Names tab and Lua lines are this loader's, and with its 3D tab, which draws with a copy
+    # of this engine's 3D renderer; meson shares the engine's libsys4 and cglm with it.
     rqmod_version = run_command(find_program('python3', 'python'), '-c',
         'import re,sys; print(re.search(r"#define RQ_VERSION \"([^\"]+)\"", open(sys.argv[1], encoding="utf-8").read()).group(1))',
         files('include/modloader.h'), check : true).stdout().strip()
     subproject('rance-browser', default_options : [
         'rq_ids_dir=' + (meson.project_source_root() / 'data/ids'),
         'rq_lua=' + (meson.project_source_root() / 'dist/lua/rq.lua'),
-        'build_note=RQ MOD ' + rqmod_version])
+        'build_note=RQ MOD ' + rqmod_version,
+        '3d=enabled'])
     # RQ Scene Editor (rq-scene-editor.exe), the window that writes a mod's scene files, in its own
     # repository (subprojects/rq-scene-editor, a git submodule). Built here with the loader's own
     # scene checker, so the editor and the game check a file with the same Lua file; it reads the
