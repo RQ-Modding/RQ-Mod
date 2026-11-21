@@ -494,17 +494,25 @@ static void parts_render_3dlayer(struct parts *parts, struct parts_3dlayer *l)
 	parts_render_cg(parts, &l->common, NULL);
 }
 
-static void parts_render_flash_shape(struct parts *parts, struct parts_flash *f, struct parts_flash_object *obj, struct swf_tag_define_shape *tag)
+/* RQ MOD (2.63.0): a Flash file is drawn from a base transform and the colours of what holds
+ * it (a part, or an rq.sprite through rq_flash_render), so both draw it the same way: alpha
+ * 0 to 1, add the colour added (0 to 1 a channel), mult the colour multiplied. */
+struct flash_look {
+	mat4 base;
+	float alpha;
+	vec3 add, mult;
+	int clipper;
+	bool additive;
+};
+
+static void parts_render_flash_shape(const struct flash_look *look, struct parts_flash *f, struct parts_flash_object *obj, struct swf_tag_define_shape *tag)
 {
 	struct texture *src = ht_get_int(f->bitmaps, tag->fill_style.bitmap_id, NULL);
 	if (!src)
 		ERROR("undefined bitmap id %d", tag->fill_style.bitmap_id);
 
-	mat4 mw_transform = GLM_MAT4_IDENTITY_INIT;
-	glm_translate(mw_transform, (vec3) { parts->global.pos.x, parts->global.pos.y, 0 });
-	glm_rotate_z(mw_transform, parts->local.rotation.z, mw_transform);
-	glm_scale(mw_transform, (vec3){ parts->global.scale.x, parts->global.scale.y, 1.0 });
-	glm_translate(mw_transform, (vec3){ f->common.origin_offset.x, f->common.origin_offset.y, 0 });
+	mat4 mw_transform;
+	glm_mat4_copy((vec4 *)look->base, mw_transform);
 
 	glm_mul(mw_transform, obj->matrix, mw_transform);
 
@@ -519,22 +527,22 @@ static void parts_render_flash_shape(struct parts *parts, struct parts_flash *f,
 
 	Rectangle r = { 0, 0, src->w, src->h };
 
-	float blend_rate = (parts->global.alpha / 255.0f) * fixed16_to_float(obj->color_transform.mult_terms[3]);
+	float blend_rate = look->alpha * fixed16_to_float(obj->color_transform.mult_terms[3]);
 	vec3 add_color = {
-		(parts->global.add_color.r + obj->color_transform.add_terms[0]) / 255.0f,
-		(parts->global.add_color.g + obj->color_transform.add_terms[1]) / 255.0f,
-		(parts->global.add_color.b + obj->color_transform.add_terms[2]) / 255.0f
+		look->add[0] + obj->color_transform.add_terms[0] / 255.0f,
+		look->add[1] + obj->color_transform.add_terms[1] / 255.0f,
+		look->add[2] + obj->color_transform.add_terms[2] / 255.0f
 	};
 	vec3 multiply_color = {
-		(parts->global.multiply_color.r / 255.0f) * fixed16_to_float(obj->color_transform.mult_terms[0]),
-		(parts->global.multiply_color.g / 255.0f) * fixed16_to_float(obj->color_transform.mult_terms[1]),
-		(parts->global.multiply_color.b / 255.0f) * fixed16_to_float(obj->color_transform.mult_terms[2])
+		look->mult[0] * fixed16_to_float(obj->color_transform.mult_terms[0]),
+		look->mult[1] * fixed16_to_float(obj->color_transform.mult_terms[1]),
+		look->mult[2] * fixed16_to_float(obj->color_transform.mult_terms[2])
 	};
 	parts_render_texture(src, mw_transform, &r, blend_rate, add_color, multiply_color,
-			0, parts->global.alpha_clipper_parts_no);
+			0, look->clipper);
 }
 
-static void parts_render_flash_sprite(struct parts *parts, struct parts_flash *f, struct parts_flash_object *obj, struct swf_tag_define_sprite *tag)
+static void parts_render_flash_sprite(const struct flash_look *look, struct parts_flash *f, struct parts_flash_object *obj, struct swf_tag_define_sprite *tag)
 {
 	struct parts_flash_object *obj2 = ht_get_int(f->sprites, tag->sprite_id, NULL);
 	if (!obj2)
@@ -556,10 +564,10 @@ static void parts_render_flash_sprite(struct parts *parts, struct parts_flash *f
 		transform.color_transform.mult_terms[i] =
 			fixed16_mul(obj->color_transform.mult_terms[i], obj2->color_transform.mult_terms[i]);
 	}
-	parts_render_flash_shape(parts, f, &transform, (struct swf_tag_define_shape*)child);
+	parts_render_flash_shape(look, f, &transform, (struct swf_tag_define_shape*)child);
 }
 
-static void parts_render_flash(struct parts *parts, struct parts_flash *f)
+static void render_flash_list(const struct flash_look *look, struct parts_flash *f)
 {
 	struct parts_flash_object *obj;
 	TAILQ_FOREACH(obj, &f->display_list, entry) {
@@ -580,15 +588,18 @@ static void parts_render_flash(struct parts *parts, struct parts_flash *f)
 			glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE, GL_ZERO, GL_ONE);
 			break;
 		default:
+			// RQ MOD (2.63.0): an rq.sprite with blend = "add" draws the normal ones added.
+			if (look->additive)
+				glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE, GL_ZERO, GL_ONE);
 			break;
 		}
 		// render object
 		switch (tag->type) {
 		case TAG_DEFINE_SHAPE:
-			parts_render_flash_shape(parts, f, obj, (struct swf_tag_define_shape*)tag);
+			parts_render_flash_shape(look, f, obj, (struct swf_tag_define_shape*)tag);
 			break;
 		case TAG_DEFINE_SPRITE:
-			parts_render_flash_sprite(parts, f, obj, (struct swf_tag_define_sprite*)tag);
+			parts_render_flash_sprite(look, f, obj, (struct swf_tag_define_sprite*)tag);
 			break;
 		default:
 			ERROR("unknown tag %d", tag->type);
@@ -596,6 +607,58 @@ static void parts_render_flash(struct parts *parts, struct parts_flash *f)
 		glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
 	}
 }
+
+static void parts_render_flash(struct parts *parts, struct parts_flash *f)
+{
+	struct flash_look look = {
+		.alpha = parts->global.alpha / 255.0f,
+		.add = {
+			parts->global.add_color.r / 255.0f,
+			parts->global.add_color.g / 255.0f,
+			parts->global.add_color.b / 255.0f
+		},
+		.mult = {
+			parts->global.multiply_color.r / 255.0f,
+			parts->global.multiply_color.g / 255.0f,
+			parts->global.multiply_color.b / 255.0f
+		},
+		.clipper = parts->global.alpha_clipper_parts_no,
+	};
+	glm_mat4_identity(look.base);
+	glm_translate(look.base, (vec3) { parts->global.pos.x, parts->global.pos.y, 0 });
+	glm_rotate_z(look.base, parts->local.rotation.z, look.base);
+	glm_scale(look.base, (vec3){ parts->global.scale.x, parts->global.scale.y, 1.0 });
+	glm_translate(look.base, (vec3){ f->common.origin_offset.x, f->common.origin_offset.y, 0 });
+	render_flash_list(&look, f);
+}
+
+#ifdef RQ_MODLOADER
+/* RQ MOD (2.63.0): an rq.sprite's Flash file (parts/flash.c, rq_flash_open), drawn as a part's
+ * is. m is the sprite's 2D transform of the file's stage: x' = m[0]x + m[2]y + m[4],
+ * y' = m[1]x + m[3]y + m[5]. alpha is 0 to 1, add and mult the sprite's colours 0 to 1, additive
+ * its blend = "add". Draws nothing before the parts engine has loaded its shader. */
+void rq_flash_render(struct parts_flash *f, const float m[6], float alpha, const float add[3],
+		     const float mult[3], int additive)
+{
+	struct flash_look look = {
+		.alpha = alpha,
+		.add = { add[0], add[1], add[2] },
+		.mult = { mult[0], mult[1], mult[2] },
+		.additive = additive != 0,
+	};
+
+	if (!f || !f->swf || !parts_shader.shader.program)
+		return;
+	glm_mat4_identity(look.base);
+	look.base[0][0] = m[0];
+	look.base[0][1] = m[1];
+	look.base[1][0] = m[2];
+	look.base[1][1] = m[3];
+	look.base[3][0] = m[4];
+	look.base[3][1] = m[5];
+	render_flash_list(&look, f);
+}
+#endif
 
 void parts_render(struct parts *parts)
 {

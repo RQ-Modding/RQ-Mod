@@ -6,6 +6,11 @@
  * (T_PartsFlash::update always runs at 30). parts_flash_load asks rq_anim_find
  * before the archive, so a key named like a game file replaces it.
  * A still CG becomes a one-frame file the same way, for the marks on battle cards.
+ *
+ * Since 2.63.0 rq.image.add_flash puts a mod's own Flash file (.aff or SWF) in the same
+ * registry, after the shared checker (swf_check.c) has passed it: nothing of a file it refuses
+ * reaches swf.c, which closes the game on what it does not handle. flash_info tells what the
+ * game plays under a name, a mod's file or its own.
  */
 
 #ifdef RQ_MODLOADER
@@ -25,14 +30,23 @@
 #include "system4/utfsjis.h"
 
 #include "asset_manager.h"
+#include "swf.h"
+#include "swf_check.h"
 
 #include "modloader.h"
 #include "modloader_priv.h"
 
-#define ANIM_MAX 128
+/* 128 until 2.63.0, with mods' Flash files beside the GIFs and the marks' pictures. */
+#define ANIM_MAX 1024
 #define ANIM_SIDE_MAX 1024
 #define ANIM_FRAMES_MAX 1024
 #define ANIM_PIXELS_MAX (32u * 1024u * 1024u)
+/* add_flash: a file as it is in the mod's folder, one uncompressed, and all of them. */
+#define ANIM_FLASH_READ (64u * 1024u * 1024u)
+#define ANIM_FLASH_FILE (64u * 1024u * 1024u)
+#define ANIM_FLASH_BYTES (256u * 1024u * 1024u)
+
+enum { ANIM_GIF, ANIM_CG, ANIM_FLASH };
 
 #define SWF_TAG_END 0
 #define SWF_TAG_SHOW_FRAME 1
@@ -44,15 +58,18 @@
 struct anim {
 	char name[256];
 	char key[104];
-	char path[1024]; /* the GIF file it was made from */
-	uint8_t *swf;
+	char path[1024]; /* the GIF or Flash file it was made from */
+	uint8_t *swf;    /* always FWS, uncompressed: swf_load reads only that */
 	size_t size;
 	int w, h, frames, ms;
+	int kind;        /* ANIM_* */
+	size_t counted;  /* bytes in g_flash_bytes (add_flash) */
 };
 
 static struct anim g_anim[ANIM_MAX];
 static int g_nanim;
 static int g_redirect;
+static size_t g_flash_bytes;
 
 /* ---- output ---- */
 
@@ -664,10 +681,31 @@ int rq_anim_source(const char *key, char *path, size_t n)
 {
 	struct anim *m = anim_by_key(key);
 
-	if (!m || !m->path[0])
+	if (!m || m->kind != ANIM_GIF || !m->path[0])
 		return 0;
 	snprintf(path, n, "%s", m->path);
 	return 1;
+}
+
+/* An add_flash file by its full name (Shift-JIS, as the game asks). */
+int rq_anim_added_flash(const char *name, uint8_t **data, size_t *size)
+{
+	struct anim *m = anim_by_name(name);
+
+	if (!m || m->kind != ANIM_FLASH)
+		return 0;
+	*data = m->swf;
+	*size = m->size;
+	return 1;
+}
+
+/* An entry's file goes, and its bytes leave add_flash's count. */
+static void anim_drop(struct anim *m)
+{
+	g_flash_bytes -= m->counted;
+	m->counted = 0;
+	free(m->swf);
+	m->swf = NULL;
 }
 
 int rq_anim_handle(const char *key)
@@ -746,6 +784,7 @@ int rq_anim_of_cg(int no)
 	m->w = w;
 	m->h = h;
 	m->frames = 1;
+	m->kind = ANIM_CG;
 	snprintf(m->name, sizeof m->name, "%s", name);
 	return (int)(m - g_anim) + 1;
 }
@@ -759,8 +798,7 @@ void rq_anim_cg_changed(int no)
 	cg_name(no, name, sizeof name);
 	if (!(m = anim_by_name(name)))
 		return;
-	free(m->swf);
-	m->swf = NULL;
+	anim_drop(m);
 	rq_battle_marks_reload();
 }
 
@@ -813,12 +851,16 @@ int rq_lua_image_add_gif(lua_State *L)
 	m = anim_by_name(name);
 	if (!m && !(m = anim_free_slot())) {
 		free(data);
-		return luaL_error(L, "too many GIFs (max %d, with the still icons on battle cards)", ANIM_MAX);
+		return luaL_error(L, "too many GIFs and Flash files (max %d, with the still icons on battle cards)", ANIM_MAX);
 	}
 	err = gif_to_swf(data, (size_t)len, w, h, m);
 	free(data);
 	if (err)
 		return luaL_error(L, "GIF '%s': %s", rel, err);
+	/* The key's file before, if add_flash made it, is gone. */
+	g_flash_bytes -= m->counted;
+	m->counted = 0;
+	m->kind = ANIM_GIF;
 	snprintf(m->name, sizeof m->name, "%s", name);
 	snprintf(m->key, sizeof m->key, "%s", key);
 	snprintf(m->path, sizeof m->path, "%s", full);
@@ -830,10 +872,8 @@ int rq_lua_image_remove_gif(lua_State *L)
 {
 	struct anim *m = anim_by_key(luaL_checkstring(L, 1));
 
-	if (m) {
-		free(m->swf);
-		m->swf = NULL;
-	}
+	if (m)
+		anim_drop(m);
 	lua_pushboolean(L, m != NULL);
 	return 1;
 }
@@ -853,6 +893,183 @@ int rq_lua_image_gif_info(lua_State *L)
 	lua_setfield(L, -2, "frames");
 	lua_pushinteger(L, m->ms);
 	lua_setfield(L, -2, "ms");
+	return 1;
+}
+
+/* ---- a mod's Flash files (2.63.0) ---- */
+
+/* The checker's first error, where it is, and how many more: "frame 4, tag 23: ...". */
+static void first_problem(const struct swfc *c, int level, char *out, size_t n)
+{
+	const struct swfc_item *it = NULL;
+	char where[64] = "";
+	int i, k = 0, total = level == SWFC_ERROR ? c->errors : c->warnings;
+
+	for (i = 0; i < c->nitems && !it; i++)
+		if (c->items[i].level == level)
+			it = &c->items[i];
+	if (!it) {
+		snprintf(out, n, "it cannot be read");
+		return;
+	}
+	if (it->frame)
+		k += snprintf(where + k, sizeof where - k, "frame %d", it->frame);
+	if (it->tag)
+		snprintf(where + k, sizeof where - k, "%stag %d", k ? ", " : "", it->tag);
+	if (total > 1)
+		snprintf(out, n, "%s%s%s (and %d more: rqmod-aff check lists them)", where,
+			 where[0] ? ": " : "", it->text, total - 1);
+	else
+		snprintf(out, n, "%s%s%s", where, where[0] ? ": " : "", it->text);
+}
+
+int rq_lua_image_add_flash(lua_State *L)
+{
+	const char *key = luaL_checkstring(L, 1);
+	const char *rel = luaL_checkstring(L, 2);
+	char full[RQ_PATH_MAX], name[256], why[600];
+	struct swfc c;
+	struct anim *m;
+	uint8_t *data;
+	size_t before;
+	long len;
+	FILE *f;
+	int status;
+
+	if (!key[0] || strlen(key) >= sizeof m->key)
+		return luaL_error(L, "add_flash key must be 1 to 103 bytes");
+	if (!rq_sandbox_resolve(L, rel, full, (int)sizeof full))
+		return luaL_error(L, "Flash path '%s' is not inside the mod folder", rel);
+	f = fopen(full, "rb");
+	if (!f)
+		return luaL_error(L, "Flash file '%s' not found in the mod folder", rel);
+	fseek(f, 0, SEEK_END);
+	len = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	if (len <= 0 || (unsigned long)len > ANIM_FLASH_READ) {
+		fclose(f);
+		return luaL_error(L, len <= 0 ? "Flash file '%s' is empty" : "Flash file '%s' is over 64 MB", rel);
+	}
+	data = xmalloc((size_t)len);
+	if (fread(data, 1, (size_t)len, f) != (size_t)len) {
+		free(data);
+		fclose(f);
+		return luaL_error(L, "could not read Flash file '%s'", rel);
+	}
+	fclose(f);
+
+	/* The engine's rules first: a file they refuse never reaches the game. */
+	memset(&c, 0, sizeof c);
+	status = swfc_check(data, (size_t)len, &c);
+	free(data);
+	if (status != 0) {
+		first_problem(&c, SWFC_ERROR, why, sizeof why);
+		swfc_free(&c);
+		return luaL_error(L, "Flash file '%s' %s: %s", rel,
+				  status == 3 ? "cannot be read" : "is not played by Rance Quest", why);
+	}
+	if (c.fws_size > ANIM_FLASH_FILE || c.pixels > ANIM_PIXELS_MAX) {
+		unsigned mb = (unsigned)(c.fws_size >> 20);
+		unsigned mp = (unsigned)(c.pixels >> 20);
+		swfc_free(&c);
+		return luaL_error(L, "Flash file '%s' is %u MB uncompressed with %u million pixels in its "
+				  "pictures: at most 64 MB and 32 million", rel, mb, mp);
+	}
+	anim_full_name(key, name, sizeof name);
+	m = anim_by_name(name);
+	before = m ? m->counted : 0;
+	if (g_flash_bytes - before + c.fws_size > ANIM_FLASH_BYTES) {
+		swfc_free(&c);
+		return luaL_error(L, "Flash file '%s': the files added with add_flash would pass 256 MB "
+				  "uncompressed (rq.image.remove_flash frees one)", rel);
+	}
+	if (!m && !(m = anim_free_slot())) {
+		swfc_free(&c);
+		return luaL_error(L, "too many GIFs and Flash files (max %d, with the still icons on battle cards)", ANIM_MAX);
+	}
+	anim_drop(m);
+	m->swf = c.fws;
+	m->size = c.fws_size;
+	c.fws = NULL;
+	m->w = c.width;
+	m->h = c.height;
+	m->frames = c.frames;
+	m->ms = (int)(((int64_t)c.frames * 1000 + 15) / 30);
+	m->kind = ANIM_FLASH;
+	m->counted = m->size;
+	g_flash_bytes += m->size;
+	snprintf(m->name, sizeof m->name, "%s", name);
+	snprintf(m->key, sizeof m->key, "%s", key);
+	snprintf(m->path, sizeof m->path, "%s", full);
+	rq_log("image: add_flash %s: %s, %dx%d, %d frames (%.2f s), %d bitmap%s, %d sound%s",
+	       key, rel, m->w, m->h, m->frames, swfc_seconds(&c), c.bitmaps, c.bitmaps == 1 ? "" : "s",
+	       c.sounds, c.sounds == 1 ? "" : "s");
+	if (c.warnings) {
+		first_problem(&c, SWFC_WARNING, why, sizeof why);
+		rq_log("image: add_flash %s plays, with %s: %s", key,
+		       c.warnings == 1 ? "a warning" : "warnings", why);
+	}
+	swfc_free(&c);
+	lua_pushstring(L, key);
+	return 1;
+}
+
+int rq_lua_image_remove_flash(lua_State *L)
+{
+	struct anim *m = anim_by_key(luaL_checkstring(L, 1));
+
+	if (m)
+		anim_drop(m);
+	lua_pushboolean(L, m != NULL);
+	return 1;
+}
+
+/* What the game plays under a name: a mod's file (add_flash, add_gif, a mark) or its own. */
+int rq_lua_image_flash_info(lua_State *L)
+{
+	const char *key = luaL_checkstring(L, 1);
+	char name[256];
+	struct swf *swf;
+	struct swf_tag *t;
+	uint64_t pixels = 0;
+	int from_mod, bitmaps = 0, sounds = 0, starts = 0;
+
+	if (strlen(key) > 200)
+		return luaL_error(L, "flash file name is too long");
+	anim_full_name(key, name, sizeof name);
+	if (!(swf = rq_flash_read(name, &from_mod)))
+		return 0;
+	for (t = swf->tags; t; t = t->next) {
+		if (t->type == TAG_DEFINE_BITS_LOSSLESS || t->type == TAG_DEFINE_BITS_LOSSLESS2) {
+			struct swf_tag_define_bits_lossless *b = (struct swf_tag_define_bits_lossless *)t;
+			bitmaps++;
+			pixels += (uint64_t)b->width * b->height;
+		} else if (t->type == TAG_DEFINE_SOUND) {
+			sounds++;
+		} else if (t->type == TAG_START_SOUND) {
+			starts++;
+		}
+	}
+	lua_newtable(L);
+	lua_pushinteger(L, swf->frame_size.x_max / 20);
+	lua_setfield(L, -2, "w");
+	lua_pushinteger(L, swf->frame_size.y_max / 20);
+	lua_setfield(L, -2, "h");
+	lua_pushinteger(L, swf->frame_count);
+	lua_setfield(L, -2, "frames");
+	lua_pushinteger(L, ((int64_t)swf->frame_count * 1000 + 15) / 30);
+	lua_setfield(L, -2, "ms");
+	lua_pushinteger(L, bitmaps);
+	lua_setfield(L, -2, "bitmaps");
+	lua_pushinteger(L, (lua_Integer)pixels);
+	lua_setfield(L, -2, "pixels");
+	lua_pushinteger(L, sounds);
+	lua_setfield(L, -2, "sounds");
+	lua_pushinteger(L, starts);
+	lua_setfield(L, -2, "starts");
+	lua_pushboolean(L, from_mod);
+	lua_setfield(L, -2, "mod");
+	swf_free(swf);
 	return 1;
 }
 

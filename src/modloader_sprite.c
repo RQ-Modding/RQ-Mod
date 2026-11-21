@@ -19,6 +19,11 @@
  * Since 1.10.0 a sprite can show a GIF, its frames decoded once into textures
  * (rq_gif_frames), and move with s:to. Both run on the game's clock, so game-speed
  * makes them faster, unless clock = "real".
+ *
+ * Since 2.63.0 a sprite can play a Flash file (flash = an rq.image.add_flash key or a game
+ * file's name): parts/flash.c walks it at 30 frames a second as the game's own driver does,
+ * with its actions and sounds, and parts/render.c draws it as a part's file is drawn.
+ * rq.image.play_flash (lua/sprite.lua) is one such sprite played once.
  */
 
 #ifdef RQ_MODLOADER
@@ -49,6 +54,10 @@
 #define SPR_GIF_MAX 64
 #define SPR_ATTACH_DEPTH 8
 #define SPR_GIF_PIXELS (64u * 1024u * 1024u)
+/* Flash files on sprites (2.63.0): each has its own textures, as each game part has. */
+#define SPR_FLASH_MAX 64
+#define SPR_FLASH_PIXELS (64u * 1024u * 1024u)
+#define SPR_FLASH_STEPS 30 /* frames one update walks at most; past that it goes on from now */
 #define SPR_META "rq.sprite"
 /* Named layers, from the z map:
  *   1-22 the hub and quest list pages, 101-262 the fight's field and cards and the dungeon view,
@@ -65,7 +74,7 @@ bool rq_parts_describe(struct sprite *sp, int *no, int *type, int *x, int *y, in
 extern const char rq_sprite_lua[];
 extern const unsigned rq_sprite_lua_len;
 
-enum { SPR_NONE, SPR_CG, SPR_FILL, SPR_TEXT, SPR_GIF };
+enum { SPR_NONE, SPR_CG, SPR_FILL, SPR_TEXT, SPR_GIF, SPR_FLASH };
 enum { KEEP_NONE, KEEP_SCREEN };
 enum { MV_X, MV_Y, MV_W, MV_H, MV_SX, MV_SY, MV_ROT, MV_ALPHA, MV_TR, MV_TG, MV_TB, MV_AR, MV_AG, MV_AB, MV_N };
 enum { EASE_LINEAR, EASE_IN, EASE_OUT, EASE_IN_OUT };
@@ -122,10 +131,14 @@ struct msprite {
 	char screen[24];
 	struct spr_gif *gif; /* SPR_GIF */
 	char gif_name[128];  /* as the mod gave it */
+	struct parts_flash *fl; /* SPR_FLASH */
+	char fl_name[128];   /* as the mod gave it */
+	uint64_t fl_pixels;  /* its bitmaps' pixels, in g_flash_pixels */
+	int sound;           /* a Flash file's sounds play (sound = false: not) */
 	int cur;             /* the frame shown, from 0 */
 	int playing, loop, from, to;
-	double fps;          /* 0: the GIF's own delays */
-	double t0;           /* the clock when frame `from` began */
+	double fps;          /* 0: the GIF's own delays, a Flash file's 30 */
+	double t0;           /* the clock when frame `from` began; a Flash file's: the frame shown */
 	int real;            /* clock = "real" */
 	int gif_end;         /* on_end of s:play, a registry ref */
 	struct motion mv;
@@ -146,6 +159,8 @@ static int g_nreset;
 static int g_keepers;
 static lua_State *g_L;
 static unsigned g_tick = 1;
+static int g_nflash;
+static uint64_t g_flash_pixels;
 
 static struct spr_shader {
 	Shader s;
@@ -348,6 +363,14 @@ static void drop_content(struct msprite *s)
 		gif_unref(s->gif);
 	s->gif = NULL;
 	s->gif_name[0] = 0;
+	if (s->fl) {
+		rq_flash_close(s->fl);
+		g_nflash--;
+		g_flash_pixels -= s->fl_pixels;
+	}
+	s->fl = NULL;
+	s->fl_pixels = 0;
+	s->fl_name[0] = 0;
 	s->playing = 0;
 	unref_fn(&s->gif_end);
 	if (s->cgt)
@@ -458,23 +481,32 @@ static int frame_at(const struct msprite *s, double e)
 }
 
 /* After fps or the clock changed (old_now on the old clock): the frame shown goes on
- * from its start, and a motion from where it was. */
+ * from its start (a Flash file's from where it was in it), and a motion from where it was. */
 static void rebase(struct msprite *s, double old_now)
 {
 	if (s->gif && s->playing)
 		s->t0 = now_of(s) - frame_start(s, s->cur);
+	if (s->fl && s->playing)
+		s->t0 = now_of(s) - (old_now - s->t0);
 	if (s->mv.on)
 		s->mv.t0 = now_of(s) - (old_now - s->mv.t0);
 }
 
+/* A Flash file shows frame `from` at once: its tags are walked to it (parts/flash.c). */
 static void play_from(struct msprite *s, int from, int to, int loop)
 {
 	s->from = from;
 	s->to = to;
 	s->loop = loop;
-	s->cur = from;
+	s->cur = s->kind == SPR_FLASH ? rq_flash_goto(s->fl, from + 1) - 1 : from;
 	s->playing = 1;
 	s->t0 = now_of(s);
+}
+
+/* The frames of a GIF, or of a Flash file (its header's count, as the game plays it). */
+static int anim_frames(const struct msprite *s)
+{
+	return s->kind == SPR_FLASH ? rq_flash_frames(s->fl) : s->gif->n;
 }
 
 /* ---- motion ---- */
@@ -559,6 +591,37 @@ static void unmove(lua_State *L, struct msprite *s, int t)
 	}
 }
 
+/* A Flash file's stage in the sprite's box, drawn by render.c as a part's file is: the
+ * transform is spr_render's for the box's corners, the file's own matrices after it. */
+static void flash_render(struct msprite *s)
+{
+	float bw, bh, ox, oy, c, sn, kx, ky, m[6], add[3], mult[3];
+
+	if (!s->fl || s->alpha <= 0 || s->nat_w <= 0 || s->nat_h <= 0)
+		return;
+	base_size(s, &bw, &bh);
+	if (bw <= 0 || bh <= 0)
+		return;
+	origin_of(s, bw, bh, &ox, &oy);
+	c = cosf(s->rotate * 0.017453292f);
+	sn = sinf(s->rotate * 0.017453292f);
+	kx = bw / (float)s->nat_w;
+	ky = bh / (float)s->nat_h;
+	m[0] = c * s->scale_x * kx;
+	m[1] = sn * s->scale_x * kx;
+	m[2] = -sn * s->scale_y * ky;
+	m[3] = c * s->scale_y * ky;
+	m[4] = s->bx + s->x + ox - c * s->scale_x * ox + sn * s->scale_y * oy;
+	m[5] = s->by + s->y + oy - sn * s->scale_x * ox - c * s->scale_y * oy;
+	add[0] = s->ar / 255.0f;
+	add[1] = s->ag / 255.0f;
+	add[2] = s->ab / 255.0f;
+	mult[0] = s->mr / 255.0f;
+	mult[1] = s->mg / 255.0f;
+	mult[2] = s->mb / 255.0f;
+	rq_flash_render(s->fl, m, s->alpha / 255.0f, add, mult, s->additive);
+}
+
 static void spr_render(struct sprite *base)
 {
 	struct msprite *s = (struct msprite *)base;
@@ -567,6 +630,10 @@ static void spr_render(struct sprite *base)
 	struct gfx_vertex v[4];
 	int i;
 
+	if (s->kind == SPR_FLASH) {
+		flash_render(s);
+		return;
+	}
 	if (!t || !t->handle || s->alpha <= 0)
 		return;
 	base_size(s, &bw, &bh);
@@ -614,7 +681,7 @@ static cJSON *spr_to_json(struct sprite *base, bool verbose)
 /* In the scene when it is shown, has something to draw, and its target is shown. */
 static void place(struct msprite *s)
 {
-	int want = s->show && !s->at_hidden && spr_texture(s) != NULL;
+	int want = s->show && !s->at_hidden && (spr_texture(s) != NULL || (s->kind == SPR_FLASH && s->fl));
 	int z = s->at != AT_NONE ? s->bz + s->z : s->z;
 	if (s->sp.z != z)
 		scene_set_sprite_z(&s->sp, z);
@@ -793,6 +860,46 @@ static void opt_content(lua_State *L, struct msprite *s, int t)
 			s->nat_w = g->w;
 			s->nat_h = g->h;
 			play_from(s, 0, g->n - 1, 1);
+		}
+	}
+	lua_pop(L, 1);
+
+	lua_getfield(L, t, "flash");
+	if (!lua_isnil(L, -1)) {
+		const char *name = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
+		char full[256];
+		struct parts_flash *fl;
+		uint64_t pixels;
+		int w, h, mine = s->kind == SPR_FLASH;
+		if (!name || !name[0] || strlen(name) >= sizeof s->fl_name)
+			luaL_error(L, "rq.sprite: flash is an rq.image.add_flash key or a game Flash file's name");
+		if (!mine || strcmp(s->fl_name, name)) {
+			if (g_nflash - mine >= SPR_FLASH_MAX)
+				luaL_error(L, "rq.sprite: %d sprites show a Flash file now, the most at once", SPR_FLASH_MAX);
+			rq_anim_full_name(name, full, sizeof full);
+			if (!(fl = rq_flash_open(full, &w, &h, &pixels)))
+				luaL_error(L, "rq.sprite: no Flash file '%s' (rq.image.add_flash adds one; a game file "
+					   "is named as in rq.image.add_gif)", name);
+			if (g_flash_pixels - (mine ? s->fl_pixels : 0) + pixels > SPR_FLASH_PIXELS) {
+				rq_flash_close(fl);
+				luaL_error(L, "rq.sprite: the Flash files on sprites would pass 64 million pixels in all");
+			}
+			drop_content(s);
+			s->kind = SPR_FLASH;
+			s->fl = fl;
+			s->fl_pixels = pixels;
+			g_nflash++;
+			g_flash_pixels += pixels;
+			snprintf(s->fl_name, sizeof s->fl_name, "%s", name);
+			s->nat_w = w;
+			s->nat_h = h;
+			/* Its first frame once every option is read (apply_opts), so sound = false is
+			 * known before frame 1's sounds start. */
+			s->from = 0;
+			s->to = rq_flash_frames(fl) - 1;
+			s->loop = 1;
+			s->playing = 1;
+			s->cur = -1;
 		}
 	}
 	lua_pop(L, 1);
@@ -1185,7 +1292,7 @@ static void apply_opts(lua_State *L, struct msprite *s, int t)
 		int old_real = s->real;
 		if (opt_num(L, t, "fps", &f)) {
 			if (f < 0 || f > 240)
-				luaL_error(L, "rq.sprite: fps is 0 (the GIF's own delays) to 240");
+				luaL_error(L, "rq.sprite: fps is 0 (a GIF's own delays, a Flash file's 30) to 240");
 			s->fps = f;
 		}
 		lua_getfield(L, t, "clock");
@@ -1201,6 +1308,16 @@ static void apply_opts(lua_State *L, struct msprite *s, int t)
 		lua_pop(L, 1);
 		if (s->fps != old_fps || s->real != old_real)
 			rebase(s, old_now);
+	}
+	lua_getfield(L, t, "sound");
+	if (!lua_isnil(L, -1))
+		s->sound = lua_toboolean(L, -1);
+	lua_pop(L, 1);
+	if (s->kind == SPR_FLASH) {
+		rq_flash_mute(s->fl, !s->sound);
+		/* A file just given: frame 1 now, on the clock just read. */
+		if (rq_flash_frame(s->fl) == 0)
+			play_from(s, 0, s->to, s->loop);
 	}
 }
 
@@ -1260,6 +1377,7 @@ static int l_new(lua_State *L)
 	s->alpha = 255;
 	s->mr = s->mg = s->mb = 255;
 	s->show = 1;
+	s->sound = 1;
 	s->z = s->sp.z = SPR_Z_DEFAULT;
 	s->sp.has_pixel = true;
 	s->sp.has_alpha = true;
@@ -1274,7 +1392,7 @@ static int l_new(lua_State *L)
 	}
 	if (s->kind == SPR_NONE) {
 		destroy(s, NULL);
-		return luaL_error(L, "rq.sprite.new: give cg, fill or text");
+		return luaL_error(L, "rq.sprite.new: give cg, fill, text, gif or flash");
 	}
 	ud = lua_newuserdata(L, sizeof(int));
 	*ud = s->id;
@@ -1364,6 +1482,16 @@ static int l_get(lua_State *L)
 		set_num(L, "fps", s->fps);
 		lua_pushboolean(L, s->playing);
 		lua_setfield(L, -2, "playing");
+	} else if (s->kind == SPR_FLASH) {
+		lua_pushstring(L, s->fl_name);
+		lua_setfield(L, -2, "flash");
+		set_num(L, "frame", s->cur + 1);
+		set_num(L, "frames", rq_flash_frames(s->fl));
+		set_num(L, "fps", s->fps);
+		lua_pushboolean(L, s->playing);
+		lua_setfield(L, -2, "playing");
+		lua_pushboolean(L, s->sound);
+		lua_setfield(L, -2, "sound");
 	}
 	set_num(L, "x", s->x);
 	set_num(L, "y", s->y);
@@ -1536,15 +1664,15 @@ static int l_reset(lua_State *L)
 static struct msprite *check_gif(lua_State *L, int idx)
 {
 	struct msprite *s = check_sprite(L, idx);
-	if (s->kind != SPR_GIF)
-		luaL_error(L, "rq.sprite: this sprite shows no gif");
+	if (s->kind != SPR_GIF && s->kind != SPR_FLASH)
+		luaL_error(L, "rq.sprite: this sprite shows no gif or flash");
 	return s;
 }
 
 static int l_play(lua_State *L)
 {
 	struct msprite *s = check_gif(L, 1);
-	int from = 1, to = s->gif->n, loop = 1, end = LUA_NOREF;
+	int n = anim_frames(s), from = 1, to = n, loop = 1, end = LUA_NOREF;
 
 	if (!lua_isnoneornil(L, 2)) {
 		luaL_checktype(L, 2, LUA_TTABLE);
@@ -1555,8 +1683,8 @@ static int l_play(lua_State *L)
 			loop = lua_toboolean(L, -1);
 		lua_pop(L, 1);
 	}
-	if (from < 1 || to > s->gif->n || from > to)
-		return luaL_error(L, "rq.sprite: play from 1 to %d, with from no more than to", s->gif->n);
+	if (from < 1 || to > n || from > to)
+		return luaL_error(L, "rq.sprite: play from 1 to %d, with from no more than to", n);
 	if (!lua_isnoneornil(L, 2)) {
 		lua_getfield(L, 2, "on_end");
 		if (lua_isfunction(L, -1))
@@ -1591,13 +1719,14 @@ static int l_frame(lua_State *L)
 
 	if (lua_isnoneornil(L, 2)) {
 		lua_pushinteger(L, s->cur + 1);
-		lua_pushinteger(L, s->gif->n);
+		lua_pushinteger(L, anim_frames(s));
 		return 2;
 	}
 	n = luaL_checkinteger(L, 2);
-	if (n < 1 || n > s->gif->n)
-		return luaL_error(L, "rq.sprite: frame is 1 to %d", s->gif->n);
-	s->cur = (int)n - 1;
+	if (n < 1 || n > anim_frames(s))
+		return luaL_error(L, "rq.sprite: frame is 1 to %d", anim_frames(s));
+	/* A Flash file walks its tags there: a jump in them may land elsewhere. */
+	s->cur = s->kind == SPR_FLASH ? rq_flash_goto(s->fl, (int)n) - 1 : (int)n - 1;
 	s->playing = 0;
 	unref_fn(&s->gif_end);
 	scene_dirty();
@@ -1608,7 +1737,7 @@ static int l_frame(lua_State *L)
 static int l_playing(lua_State *L)
 {
 	struct msprite *s = check_sprite(L, 1);
-	lua_pushboolean(L, s->kind == SPR_GIF && s->playing);
+	lua_pushboolean(L, (s->kind == SPR_GIF || s->kind == SPR_FLASH) && s->playing);
 	return 1;
 }
 
@@ -1739,8 +1868,46 @@ static int gif_step(struct msprite *s, int *fn, int *id, int *np)
 	return 1;
 }
 
-/* GIF frames and motions, once a frame. Returns whether anything changed; the on_end
- * callbacks that are due go into fn and id. */
+/* A playing Flash file, one frame on each 1/30 s (or 1/fps) of its clock: its tags are walked
+ * in turn, as the game's own driver walks a part's, so its stop, play and gotoFrame actions and
+ * its sounds take place. It ends after frame `to` or a stop (or its last tag) has shown for its
+ * time, and loops back to `from` when it loops. Returns whether the frame shown changed; an
+ * on_end that is due goes into fn and id when they are given. */
+static int flash_step(struct msprite *s, int *fn, int *id, int *np)
+{
+	double per, now;
+	int steps = 0, was = s->cur;
+
+	if (s->kind != SPR_FLASH || !s->playing || !s->fl)
+		return 0;
+	per = 1000.0 / (s->fps > 0 ? s->fps : 30);
+	now = now_of(s);
+	while (s->playing && now - s->t0 >= per) {
+		if (++steps > SPR_FLASH_STEPS) {
+			s->t0 = now;
+			break;
+		}
+		s->t0 += per;
+		if (s->cur >= s->to || rq_flash_ended(s->fl)) {
+			if (s->loop) {
+				s->cur = rq_flash_goto(s->fl, s->from + 1) - 1;
+				continue;
+			}
+			s->playing = 0;
+			if (s->gif_end != LUA_NOREF && fn) {
+				fn[*np] = s->gif_end;
+				id[(*np)++] = s->id;
+				s->gif_end = LUA_NOREF;
+			}
+			break;
+		}
+		s->cur = rq_flash_next(s->fl) - 1;
+	}
+	return s->cur != was;
+}
+
+/* GIF and Flash frames and motions, once a frame. Returns whether anything changed; the
+ * on_end callbacks that are due go into fn and id. */
 static int advance(int *fn, int *id, int *np)
 {
 	int i, k, dirty = 0;
@@ -1750,6 +1917,8 @@ static int advance(int *fn, int *id, int *np)
 		if (!s)
 			continue;
 		if (gif_step(s, fn, id, np))
+			dirty = 1;
+		if (flash_step(s, fn, id, np))
 			dirty = 1;
 		if (s->mv.on) {
 			double e = now_of(s) - s->mv.t0, p;

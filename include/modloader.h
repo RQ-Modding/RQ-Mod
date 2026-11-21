@@ -189,9 +189,30 @@ int rq_moving_render(struct sact_sprite *ss);
 struct texture *rq_moving_part_frame(int cg, int w, int h);
 void rq_moving_tag(int spno, int cg);
 int rq_image_syscall(int code);
-/* Pictures inside the game's Flash files (rq.image.flash_bitmap, 2.25.0). */
+/* Pictures inside the game's Flash files (rq.image.flash_bitmap, 2.25.0); from_mod: the file is
+ * a mod's own (2.63.0), which takes only the pictures given for it. */
 struct swf;
-void rq_flash_swap(const char *name, struct swf *swf);
+void rq_flash_swap(const char *name, struct swf *swf, int from_mod);
+/* A mod's Flash files (modloader_anim.c, 2.63.0): rq.image.add_flash, remove_flash, flash_info. */
+int rq_lua_image_add_flash(struct lua_State *L);
+int rq_lua_image_remove_flash(struct lua_State *L);
+int rq_lua_image_flash_info(struct lua_State *L);
+/* An add_flash file by its full name, as the registry holds it (FWS); 0 when there is none. */
+int rq_anim_added_flash(const char *name, uint8_t **data, size_t *size);
+/* A Flash file as the game reads it, a mod's before the archive's (parts/flash.c, 2.63.0). */
+struct swf *rq_flash_read(const char *name, int *from_mod);
+/* A Flash file on an rq.sprite (parts/flash.c and parts/render.c, 2.63.0). */
+struct parts_flash;
+struct parts_flash *rq_flash_open(const char *name, int *w, int *h, uint64_t *pixels);
+void rq_flash_close(struct parts_flash *f);
+int rq_flash_frames(const struct parts_flash *f);
+int rq_flash_frame(const struct parts_flash *f);
+int rq_flash_ended(const struct parts_flash *f);
+int rq_flash_goto(struct parts_flash *f, int frame);
+int rq_flash_next(struct parts_flash *f);
+void rq_flash_mute(struct parts_flash *f, int mute);
+void rq_flash_render(struct parts_flash *f, const float m[6], float alpha, const float add[3],
+		     const float mult[3], int additive);
 int rq_ui_cmd_flashdump(const char *args, char **json_out, char *err, int errsz);
 /* rqmod-ctl playscene MOD FILE [FROM] [name=value ...] | stop | status (2.60.0) and
  * scenefunctions MOD (2.61.0): cmd and its words, answered by the game thread. */
@@ -535,7 +556,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.62.2"
+#define RQ_VERSION "2.63.0"
 /* The project's stage, after the version in the window title and the main menu's banner (2.59.2):
  * the tools that help make content are not done yet. "" when the stage ends. */
 #define RQ_STAGE "Public Beta"

@@ -70,6 +70,43 @@ void parts_flash_free(struct parts_flash *f)
 	}
 }
 
+#ifdef RQ_MODLOADER
+/* RQ MOD (2.63.0): a Flash file as the game reads it, a mod's (rq.image.add_flash, add_gif, a
+ * battle mark) before the archive's; *from_mod says which. Parsed, not yet swapped. */
+struct swf *rq_flash_read(const char *name, int *from_mod)
+{
+	uint8_t *mod_swf;
+	size_t mod_size;
+	struct swf *swf;
+
+	*from_mod = rq_anim_find(name, &mod_swf, &mod_size);
+	if (*from_mod)
+		return swf_load(mod_swf, mod_size);
+	struct archive_data *dfile = asset_get_by_name(ASSET_FLASH, name, NULL);
+	if (!dfile)
+		return NULL;
+	swf = aff_load(dfile->data, dfile->size);
+	archive_free_data(dfile);
+	return swf;
+}
+#endif
+
+/* The file's tags at the start, before its first frame. */
+static void flash_begin(struct parts_flash *f, struct string *filename)
+{
+	f->name = string_dup(filename);
+	f->tag = f->swf->tags;
+	f->has_ended = false;
+	f->stopped = false;
+	f->elapsed = 0;
+	f->current_frame = 0;
+	f->quiet_before = 0;
+	f->muted = false;
+	f->dictionary = ht_create(256);
+	f->bitmaps = ht_create(64);
+	f->sprites = ht_create(64);
+}
+
 bool parts_flash_load(struct parts *parts, struct parts_flash *f, struct string *filename)
 {
 	if (f->swf) {
@@ -81,12 +118,12 @@ bool parts_flash_load(struct parts *parts, struct parts_flash *f, struct string 
 	if (!filename)
 		return false;
 #ifdef RQ_MODLOADER
-	uint8_t *mod_swf;
-	size_t mod_size;
-	if (rq_anim_find(filename->text, &mod_swf, &mod_size)) {
-		f->swf = swf_load(mod_swf, mod_size);
-	} else
-#endif
+	int from_mod;
+	f->swf = rq_flash_read(filename->text, &from_mod);
+	// RQ MOD (2.25.0): a mod's pictures in place of the file's bitmaps; since 2.63.0 on a
+	// mod's own file too (rq.image.flash_bitmap on an add_flash key).
+	rq_flash_swap(filename->text, f->swf, from_mod);
+#else
 	{
 		struct archive_data *dfile = asset_get_by_name(ASSET_FLASH, filename->text, NULL);
 		if (!dfile)
@@ -94,24 +131,12 @@ bool parts_flash_load(struct parts *parts, struct parts_flash *f, struct string 
 
 		f->swf = aff_load(dfile->data, dfile->size);
 		archive_free_data(dfile);
-#ifdef RQ_MODLOADER
-		// RQ MOD (2.25.0): a mod's pictures in place of the file's bitmaps.
-		rq_flash_swap(filename->text, f->swf);
-#endif
 	}
+#endif
 	if (!f->swf)
 		return false;
 
-	f->name = string_dup(filename);
-	f->tag = f->swf->tags;
-	f->has_ended = false;
-	f->stopped = false;
-	f->elapsed = 0;
-	f->current_frame = 0;
-	f->quiet_before = 0;
-	f->dictionary = ht_create(256);
-	f->bitmaps = ht_create(64);
-	f->sprites = ht_create(64);
+	flash_begin(f, filename);
 
 	int width = f->swf->frame_size.x_max / 20;
 	int height = f->swf->frame_size.y_max / 20;
@@ -263,7 +288,7 @@ static void start_sound(struct parts_flash *f, struct swf_tag_start_sound *tag)
 	}
 	// RQ MOD (2.63.0): a seek back plays the tags again from the start; only the sounds of the
 	// frame it lands on and after start again (current_frame + 1 is the frame being built).
-	if (f->current_frame + 1 < f->quiet_before)
+	if (f->muted || f->current_frame + 1 < f->quiet_before)
 		return;
 	struct swf_tag_define_sound *sound = ht_get_int(f->dictionary, tag->sound_id, NULL);
 	if (!sound || sound->t.type != TAG_DEFINE_SOUND) {
@@ -560,3 +585,84 @@ int PE_GetPartsFlashEndFrame(int parts_no, int state)
 		return 0;
 	return f->swf->frame_count;
 }
+
+#ifdef RQ_MODLOADER
+/* RQ MOD (2.63.0): a Flash file on an rq.sprite, outside the parts engine. It has its own
+ * display list, bitmaps and sounds, as a part's has, and is walked by the same seek, so its
+ * actions and sounds act as in the game; render.c draws it (rq_flash_render). It starts before
+ * its first frame: rq_flash_goto(f, 1) shows it. NULL when the game has no file of that name. */
+struct parts_flash *rq_flash_open(const char *name, int *w, int *h, uint64_t *pixels)
+{
+	struct parts_flash *f = xcalloc(1, sizeof *f);
+	struct string *s;
+	int from_mod;
+
+	TAILQ_INIT(&f->display_list);
+	f->swf = rq_flash_read(name, &from_mod);
+	if (!f->swf) {
+		free(f);
+		return NULL;
+	}
+	rq_flash_swap(name, f->swf, from_mod);
+	s = make_string(name, strlen(name));
+	flash_begin(f, s);
+	free_string(s);
+	*w = f->swf->frame_size.x_max / 20;
+	*h = f->swf->frame_size.y_max / 20;
+	*pixels = 0;
+	for (struct swf_tag *t = f->swf->tags; t; t = t->next) {
+		if (t->type == TAG_DEFINE_BITS_LOSSLESS || t->type == TAG_DEFINE_BITS_LOSSLESS2) {
+			struct swf_tag_define_bits_lossless *b = (struct swf_tag_define_bits_lossless *)t;
+			*pixels += (uint64_t)b->width * b->height;
+		}
+	}
+	return f;
+}
+
+void rq_flash_close(struct parts_flash *f)
+{
+	if (!f)
+		return;
+	parts_flash_free(f);
+	free(f);
+}
+
+/* The header's frame count: the game's players play this many. */
+int rq_flash_frames(const struct parts_flash *f)
+{
+	return f->swf->frame_count > 0 ? f->swf->frame_count : 1;
+}
+
+/* The frame shown, from 1; 0 before the first. */
+int rq_flash_frame(const struct parts_flash *f)
+{
+	return f->current_frame;
+}
+
+/* A stop action, or the file's end, was met. */
+int rq_flash_ended(const struct parts_flash *f)
+{
+	return f->has_ended;
+}
+
+/* Shows frame (from 1) and plays on from it: the frames before it are walked again from the
+ * start when it is behind, quiet. Returns the frame shown, which a jump there may change. */
+int rq_flash_goto(struct parts_flash *f, int frame)
+{
+	f->has_ended = false;
+	parts_flash_seek(f, frame);
+	return f->current_frame;
+}
+
+/* The next frame's tags; returns the frame shown. */
+int rq_flash_next(struct parts_flash *f)
+{
+	parts_flash_seek(f, f->current_frame + 1);
+	return f->current_frame;
+}
+
+void rq_flash_mute(struct parts_flash *f, int mute)
+{
+	f->muted = mute != 0;
+}
+#endif

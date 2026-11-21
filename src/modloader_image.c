@@ -932,6 +932,7 @@ struct fbmp {
 	int id, w, h;
 	uint8_t *rgba;   /* fitted to w x h */
 	int used;        /* loads of the file that got it */
+	int mod_file;    /* for a mod's own file (add_flash, 2.63.0), not the game's */
 };
 
 static struct fbmp g_fbmp[FBMP_MAX];
@@ -962,14 +963,23 @@ static void fbmp_remove(struct fbmp *b)
 	*b = g_fbmp[--g_nfbmp];
 }
 
-/* The game's own file, read from the archive as parts_flash_load reads it. */
-static struct swf *game_flash(const char *full)
+/* The game's own file, read from the archive as parts_flash_load reads it; since 2.63.0, when
+ * the game has none, a mod's own file of that name (rq.image.add_flash), with *mod_file set.
+ * A game file a mod replaced is still the game's here, as before. */
+static struct swf *game_flash(const char *full, int *mod_file)
 {
 	struct archive_data *d = asset_get_by_name(ASSET_FLASH, full, NULL);
 	struct swf *swf;
+	uint8_t *data;
+	size_t size;
 
-	if (!d)
-		return NULL;
+	*mod_file = 0;
+	if (!d) {
+		if (!rq_anim_added_flash(full, &data, &size))
+			return NULL;
+		*mod_file = 1;
+		return swf_load(data, size);
+	}
 	swf = aff_load(d->data, d->size);
 	archive_free_data(d);
 	return swf;
@@ -987,7 +997,7 @@ static struct swf_tag_define_bits_lossless *bitmap_tag(struct swf_tag *tag, int 
 	return NULL;
 }
 
-void rq_flash_swap(const char *name, struct swf *swf)
+void rq_flash_swap(const char *name, struct swf *swf, int from_mod)
 {
 	char base[256];
 	struct swf_tag *tag;
@@ -1001,7 +1011,9 @@ void rq_flash_swap(const char *name, struct swf *swf)
 		struct swf_tag_define_bits_lossless *t;
 		size_t bytes;
 
-		if (strcmp(b->base, base))
+		/* A game file a mod replaced plays the mod's file, with none of the game's bitmaps;
+		 * a mod's own file takes the pictures given for it. */
+		if (strcmp(b->base, base) || b->mod_file != (from_mod ? 1 : 0))
 			continue;
 		for (tag = swf->tags; (t = bitmap_tag(tag, b->id)); tag = t->t.next) {
 			if (t->width != b->w || t->height != b->h)
@@ -1015,21 +1027,24 @@ void rq_flash_swap(const char *name, struct swf *swf)
 	}
 }
 
-/* Every bitmap of a game Flash file, as the game has it. -1 for a file the game does not have. */
+/* Every bitmap of a game Flash file, as the game has it, or of a mod's own file (2.63.0).
+ * -1 for a file that is neither. */
 int rq_flash_bitmaps_each(const char *name_utf8, rq_flash_bitmap_fn fn, void *ctx)
 {
 	char full[256], base[256];
 	struct swf *swf;
 	struct swf_tag_define_bits_lossless *t;
 	struct swf_tag *tag;
-	int n = 0;
+	int n = 0, mod_file;
 
 	rq_anim_full_name(name_utf8, full, sizeof full);
-	if (!(swf = game_flash(full)))
+	if (!(swf = game_flash(full, &mod_file)))
 		return -1;
 	flash_base(full, base, sizeof base);
 	for (tag = swf->tags; (t = bitmap_tag(tag, -1)); tag = t->t.next) {
 		struct fbmp *b = fbmp_find(base, t->character_id);
+		if (b && b->mod_file != mod_file)
+			b = NULL;
 		fn(ctx, t->character_id, t->width, t->height, t->data, b ? 1 : 0, b ? b->used : 0);
 		n++;
 	}
@@ -1057,7 +1072,7 @@ int rq_lua_image_flash_bitmap(lua_State *L)
 	struct swf *swf;
 	struct fbmp *b;
 	struct cg *cg;
-	int w, h, fit;
+	int w, h, fit, mod_file;
 	FILE *f;
 
 	if (!lua_isnoneornil(L, 4) && !opts)
@@ -1074,8 +1089,8 @@ int rq_lua_image_flash_bitmap(lua_State *L)
 		return 0;
 	}
 	fit = fit_of(L, opts);
-	if (!(swf = game_flash(full)))
-		return luaL_error(L, "flash file '%s' is not in the game", file);
+	if (!(swf = game_flash(full, &mod_file)))
+		return luaL_error(L, "flash file '%s' is not in the game, nor added with rq.image.add_flash", file);
 	t = bitmap_tag(swf->tags, id);
 	w = t ? t->width : 0;
 	h = t ? t->height : 0;
@@ -1122,6 +1137,7 @@ int rq_lua_image_flash_bitmap(lua_State *L)
 		snprintf(b->base, sizeof b->base, "%s", base);
 		b->id = id;
 	}
+	b->mod_file = mod_file;
 	b->w = w;
 	b->h = h;
 	b->rgba = xmalloc((size_t)w * h * 4);
@@ -1168,7 +1184,7 @@ int rq_lua_image_flash_bitmaps(lua_State *L)
 		return luaL_error(L, "flash file name is too long");
 	lua_newtable(L);
 	if (rq_flash_bitmaps_each(file, bitmaps_row, &bl) < 0)
-		return luaL_error(L, "flash file '%s' is not in the game", file);
+		return luaL_error(L, "flash file '%s' is not in the game, nor added with rq.image.add_flash", file);
 	return 1;
 }
 

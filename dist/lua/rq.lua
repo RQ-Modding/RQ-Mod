@@ -3886,8 +3886,15 @@ function chara.on_level_up(fn) end
 ---`flash_bitmap` puts a still picture on a bitmap inside one of the game's Flash files, such as a
 ---cut-in or a battle effect (2.25.0).
 ---
+---A mod's own Flash animations (2.63.0): `add_flash` takes an `.aff` or a SWF from the mod's folder,
+---under a game file's name to replace it (a skill's effect, a mark) or under a new one, and
+---`play_flash` plays one on screen. `rqmod-aff build` (in the game's `xsystem4` folder) makes an
+---`.aff` from PNG frames and WAV sounds, and `rqmod-aff check` says what in a file the game would not
+---play.
+---
 ---Since: 0.6.0
 ---Changed: 2.25.0 GIF and animated WebP are moving pictures; `flash_bitmap` and `flash_bitmaps`.
+---Changed: 2.63.0 `add_flash`, `remove_flash`, `flash_info` and `play_flash`.
 ---
 ---```lua
 ---rq.chara.define({ id = "mymod:alice", name = "Alice", face = "faces/alice.png", class = 1 })
@@ -4076,15 +4083,17 @@ function image.gif_info(key) end
 ---face in a cut-in moves as the old one did. `file` is named as in `add_gif`: a bare name is
 ---`Data/Flash/System/<name>.swf`, and a name with a slash is the full name. Still pictures only.
 ---New loads of the file show it; a Flash that is playing keeps its bitmap until it loads again. A file
----that `add_gif` or `rq.battle.set_mark` replaced plays the mod's file instead, with none of the
----game's bitmaps. `rqmod-ctl flashdump` saves a file's bitmaps with their ids. With `path` nil the
----bitmap is the game's again.
+---that `add_gif`, `add_flash` or `rq.battle.set_mark` replaced plays the mod's file instead, with none
+---of the game's bitmaps. A mod's file under a name the game does not have (`add_flash`) takes pictures
+---on its own bitmaps. `rqmod-ctl flashdump` saves a file's bitmaps with their ids. With `path` nil the
+---bitmap is the file's own again.
 ---
----Raises an error for a file the game does not have, an id that is no bitmap in it, a GIF or an
----animated WebP, a fit of "none", a picture as `add` does, or past 256 bitmaps or 32 million pixels
----in all.
+---Raises an error for a file that is neither the game's nor added with `add_flash`, an id that is no
+---bitmap in it, a GIF or an animated WebP, a fit of "none", a picture as `add` does, or past 256
+---bitmaps or 32 million pixels in all.
 ---
 ---Since: 2.25.0
+---Changed: 2.63.0 A mod's own file from `add_flash`.
 ---
 ---```lua
 ----- A new look for Chiha in her cut-in: her picture and her white silhouette.
@@ -4099,11 +4108,13 @@ function image.flash_bitmap(file, id, path, opts) end
 
 ---Lists the bitmaps of a game Flash file, as the game has them.
 ---
----Read a bitmap's size here before drawing a picture for it.
+---Read a bitmap's size here before drawing a picture for it. A mod's file under a name the game does
+---not have (`add_flash`) is listed too.
 ---
----Raises an error for a file the game does not have.
+---Raises an error for a file that is neither the game's nor added with `add_flash`.
 ---
 ---Since: 2.25.0
+---Changed: 2.63.0 A mod's own file from `add_flash`.
 ---
 ---```lua
 ---for _, b in ipairs(rq.image.flash_bitmaps("毒マーク")) do
@@ -4113,6 +4124,121 @@ function image.flash_bitmap(file, id, path, opts) end
 ---@param file string The Flash file, as in `add_gif`.
 ---@return rq.FlashBitmap[] bitmaps In the file's order.
 function image.flash_bitmaps(file) end
+
+---What `rq.image.flash_info` returns.
+---
+---Since: 2.63.0
+---@class rq.FlashInfo
+---@field w integer The stage's width: the animation's width on screen, in game pixels.
+---@field h integer The stage's height, in game pixels.
+---@field frames integer Frames, as the file's header counts them: the game plays this many.
+---@field ms integer Its length at the game's 30 frames a second, in ms.
+---@field bitmaps integer Pictures in the file.
+---@field pixels integer The pictures' pixels, all together.
+---@field sounds integer Sounds in the file.
+---@field starts integer Places where one of its sounds starts.
+---@field mod boolean true when what the game plays under this name is a mod's file (`add_flash`, `add_gif`, or a mark from `rq.battle.set_mark`).
+
+---Serves a Flash file from the mod's folder as a game Flash file.
+---
+---`path` is an `.aff`, the game's own format, or a SWF, plain (FWS) or compressed with zlib (CWS).
+---The key is named as in `add_gif`: a bare key means `Data/Flash/System/<key>.swf`, a key with a
+---slash is the full name, and a key named like a game file replaces that file wherever the game plays
+---it, such as a skill's effect (`"Data/Flash/Battle/<name>.swf"`, as Rance Browser's Flash tab names
+---them). A new name plays through `play_flash` or `rq.sprite`'s `flash`. Adding a key again replaces
+---its file.
+---
+---The file is checked first by the rules of the game's engine, the same as `rqmod-aff check`: 32-bit
+---pictures, one picture per shape, uncompressed sound, and the placements, blends and actions the
+---engine knows. A file the game would not play, or that would close it, is refused and nothing of it
+---reaches the game; the error names the first problem, where it is, and how many more there are. A
+---file that plays with warnings (a blend mode drawn as normal, say) is added, and the log says the
+---first warning. The game plays every Flash file at 30 frames a second, whatever its header says.
+---
+---Up to 64 MB a file, as it is in the folder and uncompressed, 32 million pixels in its pictures, and
+---256 MB for all the files added together; 1024 keys with the GIFs and the marks' pictures.
+---
+---Raises an error for a path outside the mod's folder, a missing or empty file, a key of more than
+---103 bytes, a file the game would not play, or past the limits.
+---
+---Since: 2.63.0
+---
+---```lua
+----- Made with: rqmod-aff build frames effects/pulse.aff --fps 15 --sound chime.wav
+---rq.image.add_flash("mymod_pulse", "effects/pulse.aff")
+----- A skill's effect replaced, for every fight.
+---rq.image.add_flash("Data/Flash/Battle/ファイヤーレーザー.swf", "effects/my_fire.aff")
+---```
+---@param key string The Flash file's key.
+---@param path string An .aff or .swf file in the mod's folder.
+---@return string key The key.
+---@see rq.image.play_flash
+function image.add_flash(key, path) end
+
+---Undoes `rq.image.add_flash`. New loads play the game's own file again, if there is one.
+---
+---A sprite showing the file keeps it until it is removed. A GIF that `add_gif` added under the key goes
+---too.
+---
+---Since: 2.63.0
+---@param key string The key.
+---@return boolean removed false when no file had that key.
+function image.remove_flash(key) end
+
+---Returns the size, length, pictures and sounds of the Flash file the game plays under a name.
+---
+---It reads the file the game would load now: a mod's (`add_flash`, `add_gif`, or a mark from
+---`rq.battle.set_mark`), else the game's own.
+---
+---Since: 2.63.0
+---
+---```lua
+---local info = rq.image.flash_info("Data/Flash/Battle/ファイヤーレーザー.swf")
+---rq.log(("%dx%d, %d frames, %d ms"):format(info.w, info.h, info.frames, info.ms))
+---```
+---@param key string The file, named as in `add_gif`.
+---@return rq.FlashInfo|nil info The file, or nil when the game has none of that name and no mod added one.
+function image.flash_info(key) end
+
+---Options for `rq.image.play_flash`: the sprite's (`rq.SpriteOpts`, such as `x`, `y`, `z`, `scale`,
+---`attach` and `sound`) and the play's.
+---
+---Since: 2.63.0
+---@class rq.PlayFlashOpts: rq.SpriteOpts
+---@field from? integer The first frame, from 1. Default 1.
+---@field to? integer The last frame. Default the file's last.
+---@field loop? boolean Plays over and over until the sprite is removed. Default false.
+---@field on_end? fun(s: rq.Sprite) Runs after the last frame has shown, before the sprite goes.
+---@field wait? boolean In a job from `rq.spawn`: the call returns once the play has ended. Default false.
+
+---Plays a Flash file once on screen, as the game plays its effects.
+---
+---It is a sprite (`rq.sprite.new` with `flash = key`) that plays from `from` to `to` at 30 frames a
+---second on the game's clock, and is removed after its last frame has shown. The file's own actions
+---act (a stop ends the play) and its sounds start at their frames. The key is an `add_flash` key or a
+---game file's name, as in `add_gif`, so the game's own effects play too. The sprite is the calling
+---mod's, as any sprite it makes: a load and the title remove it.
+---
+---Raises an error for a key that is no file, a sprite option as `rq.sprite.new` does, a range outside
+---the frames, an `on_end` that is not a function, or `wait` outside a job.
+---
+---Since: 2.63.0
+---
+---```lua
+---rq.image.add_flash("mymod_pulse", "effects/pulse.aff")
+---rq.battle.on_start(function()
+---  rq.image.play_flash("mymod_pulse", { attach = { card = 11 }, z = 20 })  -- over the first enemy
+---end)
+---rq.spawn(function()
+---  rq.image.play_flash("mymod_pulse", { x = 448, y = 320, z = "top", wait = true })
+---  rq.log("the pulse ended")
+---end)
+---```
+---@param key string An `add_flash` key or a game Flash file's name.
+---@param opts? rq.PlayFlashOpts Where, and how it plays.
+---@return rq.Sprite sprite The sprite that plays it, removed at the end unless `loop`.
+---@see rq.image.add_flash
+function image.play_flash(key, opts) end
 
 ---One of an item's effects: the game's own code and amount.
 ---@class rq.ItemEffect
@@ -9719,7 +9845,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.62.2"
+rq.version = "2.63.0"
 
 rq.units = units
 rq.items = items
@@ -12459,14 +12585,16 @@ function config.settings(opts) end
 
 ---Options for `rq.sprite.new` and `Sprite:set`.
 ---
----`new` needs one of `gif`, `cg`, `fill` or `text`; `set` changes only the options given. A CG that
----`rq.image.replace` or `compose` changes is shown as it is now.
+---`new` needs one of `gif`, `flash`, `cg`, `fill` or `text`; `set` changes only the options given. A
+---CG that `rq.image.replace` or `compose` changes is shown as it is now.
 ---
 ---Since: 1.9.0
 ---@class rq.SpriteOpts
 ---@field gif? string A GIF file in the mod's folder, or an `rq.image.add_gif` key. It plays over and over from the start. Since 1.10.0.
----@field fps? number Frames a second for the GIF, 0 to 240; 0 (default) uses the GIF's own delays. Since 1.10.0.
----@field clock? "game"|"real" GIFs and motion run on the game's clock, which follows `rq.speed` (default), or on real time. Since 1.10.0.
+---@field flash? string An `rq.image.add_flash` key, or a game Flash file's name as in `rq.image.add_gif`. It plays over and over from frame 1, at 30 frames a second, its actions and sounds as in the game; the stage is its size. Since 2.63.0.
+---@field sound? boolean false keeps a Flash file's sounds quiet. Default true. Since 2.63.0.
+---@field fps? number Frames a second for the GIF or the Flash file, 0 to 240; 0 (default) uses the GIF's own delays, and a Flash file's 30. Since 1.10.0; Flash since 2.63.0.
+---@field clock? "game"|"real" GIFs, Flash files and motion run on the game's clock, which follows `rq.speed` (default), or on real time. Since 1.10.0.
 ---@field cg? integer A CG number; `rq.image.add` gives one for a file in the mod.
 ---@field src? {x: integer, y: integer, w: integer, h: integer}|false A part of the CG; false for the whole again.
 ---@field fill? {r: integer, g: integer, b: integer, a?: integer} A color; needs `w` and `h`.
@@ -12529,13 +12657,15 @@ function Sprite:set(opts) end
 ---Besides the options it has `id`, `mod`, `w` and `h` before the scale (the content's own size when
 ---not set), `origin` as `{x, y}`, `screen` (with `keep = "screen"`), `in_scene` (shown and drawn),
 ---`clock` and `moving`. A GIF sprite adds `gif`, `frame`, `frames`, `gif_ms` (one time through),
----`fps` and `playing`. An attached sprite adds `attach` and `drawn = {x, y, z}`, where it is drawn now.
+---`fps` and `playing`; a Flash sprite `flash`, `frame`, `frames`, `fps`, `playing` and `sound`. An
+---attached sprite adds `attach` and `drawn = {x, y, z}`, where it is drawn now.
 ---
 ---Raises an error after the sprite was removed.
 ---
 ---Since: 1.9.0
 ---Changed: 1.10.0 Added the GIF and motion fields.
 ---Changed: 1.11.0 Added `attach` and `drawn`.
+---Changed: 2.63.0 Added the Flash fields.
 ---@return table opts A copy of the options.
 function Sprite:get() end
 
@@ -12552,34 +12682,45 @@ function Sprite:remove() end
 ---@return boolean alive false once it was removed: by the mod, a load, the title or `keep`.
 function Sprite:alive() end
 
----Plays the sprite's GIF.
+---Plays the sprite's GIF or Flash file.
 ---
----Raises an error for a sprite with no GIF, or a range outside its frames.
+---A Flash file goes one frame on each 1/30 s, its tags walked in turn as the game walks them: a
+---`gotoFrame` in it jumps, a stop ends the play as its last frame does, and each sound starts at its
+---frame. Going back to `from` walks its frames again from the start, without their sounds.
+---
+---Raises an error for a sprite with no GIF or Flash file, or a range outside its frames.
 ---
 ---Since: 1.10.0
+---Changed: 2.63.0 A Flash file.
 ---@param opts? {from?: integer, to?: integer, loop?: boolean, on_end?: fun(s: rq.Sprite)} `from` (default 1) to `to` (default the last frame), over again unless `loop = false`. `on_end` runs when a play without loop reaches its last frame.
 ---@return rq.Sprite self The sprite.
 function Sprite:play(opts) end
 
----Holds the GIF on the frame it is on.
+---Holds the GIF or the Flash file on the frame it is on.
 ---
 ---Since: 1.10.0
+---Changed: 2.63.0 A Flash file.
 ---@return rq.Sprite self The sprite.
 function Sprite:stop() end
 
----Returns the GIF frame shown, or shows one and stops.
+---Returns the frame shown, or shows one and stops.
 ---
----Raises an error for a frame outside the GIF.
+---A Flash file walks its tags to frame `n`, so a jump in them may show another; the frame read after
+---says which.
+---
+---Raises an error for a frame outside the GIF or the Flash file.
 ---
 ---Since: 1.10.0
+---Changed: 2.63.0 A Flash file.
 ---@param n? integer The frame to show, from 1; leave it out to read.
 ---@return integer|rq.Sprite frame Without `n`: the frame shown. With `n`: the sprite.
 ---@return integer? count Without `n`: how many frames there are.
 function Sprite:frame(n) end
 
----Returns whether the sprite's GIF is playing.
+---Returns whether the sprite's GIF or Flash file is playing.
 ---
 ---Since: 1.10.0
+---Changed: 2.63.0 A Flash file.
 ---@return boolean playing true while it plays.
 function Sprite:playing() end
 
@@ -12653,15 +12794,17 @@ function Sprite:halt() end
 ---Sprites a mod makes once and changes later, drawn among the game's own in z order.
 ---
 ---The game's windows, menus and fades cover them where they are above; `rq.hud` is drawn after
----everything and nothing covers it. A sprite shows a CG or a part of one, a GIF, a fill color or text,
----and can be moved, stretched, scaled, turned, faded and tinted, at once or over time, and can follow
----a card or another sprite.
+---everything and nothing covers it. A sprite shows a CG or a part of one, a GIF, a Flash file, a fill
+---color or text, and can be moved, stretched, scaled, turned, faded and tinted, at once or over time,
+---and can follow a card or another sprite.
 ---
 ---They are the loader's own: the game does not save them or give their numbers out. Every mod sprite
 ---goes on a load and at the title, and `rq.sprite.on_reset` says so, so a mod can make them again.
 ---Call `new` from `rq.on_frame` or a callback, not at the top level of `init.lua`. GIF frames are
 ---textures made once per file and shared: up to 64 GIF files and 64 million pixels in all. A delay
----under 20 ms in a GIF plays as 100 ms, as browsers do.
+---under 20 ms in a GIF plays as 100 ms, as browsers do. A Flash file is drawn as the game draws its
+---own, with the file's blend modes and colours under the sprite's; each sprite that shows one has its
+---own copy, as each of the game's parts has: up to 64 at once and 64 million pixels in all.
 ---
 ---The game's own z, from `rq.sprite.scene`: 1 to 22 the hub's page and the quest list; 101 to 262 a
 ---fight's field and cards, the dungeon view; 801 to 823 the bottom bar; 8001 to 8301 messages; 9001
@@ -12670,6 +12813,7 @@ function Sprite:halt() end
 ---Since: 1.9.0
 ---Changed: 1.10.0 GIFs and motion.
 ---Changed: 1.11.0 Attach.
+---Changed: 2.63.0 Flash files.
 ---
 ---```lua
 ---local glow
