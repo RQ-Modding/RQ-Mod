@@ -80,7 +80,7 @@ Mods are Lua 5.4. A mod is a folder in `mods` with an `init.lua` and a `mod.json
 - Version history of the API: [CHANGELOG.md](CHANGELOG.md).
 - Guides and the API reference: [rq-modding.github.io/rq-modding-docs](https://rq-modding.github.io/rq-modding-docs/). The release has the reference offline too, in `xsystem4\api.html`.
 - A template to start a mod from, with a workflow that publishes its release zip: [rq-mod-template](https://github.com/RQ-Modding/rq-mod-template).
-- Two programs in the release's `xsystem4` folder: [RQ Scene Editor](https://github.com/RQ-Modding/rq-scene-editor) (`rq-scene-editor.exe`) writes a mod's scenes as files, without Lua, and plays them in the running game; [Rance Browser](https://github.com/RQ-Modding/rance-browser) (`rance-browser.exe`) shows the game's pictures, Flash animations, 3D models, music and sounds, each with the Lua line that replaces or plays it, and saves a 3D model as a glTF file for Blender.
+- Programs in the release's `xsystem4` folder: [RQ Scene Editor](https://github.com/RQ-Modding/rq-scene-editor) (`rq-scene-editor.exe`) writes a mod's scenes as files, without Lua, and plays them in the running game; [Rance Browser](https://github.com/RQ-Modding/rance-browser) (`rance-browser.exe`) shows the game's pictures, Flash animations, 3D models, music and sounds, each with the Lua line that replaces or plays it, saves a 3D model as a glTF file for Blender, and tries a mod's picture or colours on a model's texture; `rqmod-aff.exe` makes a mod's Flash animation from PNG frames and WAV sounds and checks it by the game's rules ([Animations](https://rq-modding.github.io/rq-modding-docs/guide/animations)).
 
 ## Community
 

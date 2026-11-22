@@ -143,12 +143,11 @@ jobs:
           # The programs beside the engine, each at the version its submodule's meson.build gives.
           rb=$(sed -n "s/^ *version : '\([^']*\)'.*/\1/p" subprojects/rance-browser/meson.build | head -1)
           se=$(sed -n "s/^ *version : '\([^']*\)'.*/\1/p" subprojects/rq-scene-editor/meson.build | head -1)
-          g=https://rq-modding.github.io/rq-modding-docs/guide
           {
             printf '## In the zip\n\nIn the game'"'"'s `xsystem4` folder, beside the engine (`xsystem4.exe`):\n\n'
-            printf -- '- **[Rance Browser](https://github.com/RQ-Modding/rance-browser) %s** (`rance-browser.exe`): the game'"'"'s pictures, Flash files, music, sounds, 3D models and names, each with the Lua line that changes it. Guide: [Looking through the game'"'"'s files](%s/file-browser).\n' "$rb" "$g"
-            printf -- '- **[RQ Scene Editor](https://github.com/RQ-Modding/rq-scene-editor) %s** (`rq-scene-editor.exe`): writes a mod'"'"'s scene files and plays them in the game. Guide: [Writing scenes in the scene editor](%s/scene-editor).\n' "$se" "$g"
-            printf -- '- **rqmod-aff** (`rqmod-aff.exe`): makes and checks a mod'"'"'s Flash animations. Guide: [Animations](%s/animations).\n' "$g"
+            printf -- '- **[Rance Browser](https://github.com/RQ-Modding/rance-browser) %s** (`rance-browser.exe`): the game'"'"'s pictures, Flash files, music, sounds, 3D models and names, each with the Lua line that changes it. Guide: [Looking through the game'"'"'s files](https://rq-modding.github.io/rq-modding-docs/guide/file-browser).\n' "$rb"
+            printf -- '- **[RQ Scene Editor](https://github.com/RQ-Modding/rq-scene-editor) %s** (`rq-scene-editor.exe`): writes a mod'"'"'s scene files and plays them in the game. Guide: [Writing scenes in the scene editor](https://rq-modding.github.io/rq-modding-docs/guide/scene-editor).\n' "$se"
+            printf -- '- **rqmod-aff** (`rqmod-aff.exe`): makes and checks a mod'"'"'s Flash animations. Guide: [Animations](https://rq-modding.github.io/rq-modding-docs/guide/animations).\n'
             printf -- '- **rqmod-ctl** (`rqmod-ctl.exe`): drives the running game from a script; run alone, it lists its commands.\n\n'
           } >> notes.md
           if [ -f ".github/release-notes/$v.md" ]; then
