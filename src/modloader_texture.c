@@ -54,9 +54,17 @@ struct tex {
 	int nfiles;
 	char **files;   /* the resolved files, one per frame */
 	char **given;   /* each as the mod gave it */
+	bool colors;    /* colors by numbers on the game's own picture, every frame (no files) */
+	double hue, saturation, lightness;
 	int used;       /* material loads that drew it */
 	bool logged, warned;
 };
+
+/* What an entry counts against TEX_PICTURES_MAX: each picture, or 1 for colors. */
+static int tex_cost(const struct tex *e)
+{
+	return e->colors ? 1 : e->nfiles;
+}
 
 static struct tex *g_tex;
 static int g_ntex;
@@ -151,7 +159,7 @@ static void free_tex(struct tex *e)
 
 static void remove_tex(struct tex *e)
 {
-	g_npictures -= e->nfiles;
+	g_npictures -= tex_cost(e);
 	free_tex(e);
 	*e = g_tex[--g_ntex];
 }
@@ -202,7 +210,9 @@ static void entry_label(const struct tex *e, char *out, size_t n)
 
 static void entry_what(const struct tex *e, char *out, size_t n)
 {
-	if (e->nfiles == 1)
+	if (e->colors)
+		snprintf(out, n, "%s's colors", e->mod);
+	else if (e->nfiles == 1)
 		snprintf(out, n, "%s's %s", e->mod, e->given[0]);
 	else
 		snprintf(out, n, "%s's %d frames (%s...)", e->mod, e->nfiles, e->given[0]);
@@ -217,7 +227,6 @@ struct cg *RE_mod_texture(struct archive_data *game, const char *path, const cha
 	size_t size = 0;
 	int own, frame = 0, pick;
 
-	(void)game;
 	if (!g_ntex || !path || !name || !name[0] || strlen(path) >= sizeof folder || strlen(name) >= sizeof nm)
 		return NULL;
 	snprintf(folder, sizeof folder, "%s", path);
@@ -231,22 +240,44 @@ struct cg *RE_mod_texture(struct archive_data *game, const char *path, const cha
 		e = lookup(folder, base, own);
 	if (!e)
 		return NULL;
-	pick = rq_textures_answer(frame, kind, false, e->nfiles);
+	pick = rq_textures_answer(frame, kind, e->colors, e->nfiles);
 	if (pick == RQ_TEXTURES_GAME)
 		return NULL;
 
-	data = read_file(e->files[pick], &size, why, sizeof why);
-	cg = data ? rq_pixels_png(data, size, RQ_PIXELS_TEXTURE_SIDE, why, sizeof why) : NULL;
-	free(data);
-	if (!cg) {
-		if (!e->warned) {
-			char label[RQ_PATH_MAX];
-			entry_label(e, label, sizeof label);
-			rq_log("texture: %s: %s's %s cannot be read now (%s); the game's picture is drawn",
-			       label, e->mod, e->given[frame], why);
-			e->warned = true;
+	if (pick == RQ_TEXTURES_COLORS) {
+		/* The game's own picture (the frame's own file for a frame), recoloured; only where a
+		 * material draws its colours from it. */
+		if (!game)
+			return NULL;
+		cg = cg_load_data(game);
+		if (cg && (!cg->pixels || cg->metrics.w <= 0 || cg->metrics.h <= 0)) {
+			cg_free(cg);
+			cg = NULL;
 		}
-		return NULL;
+		if (!cg) {
+			if (!e->warned) {
+				char label[RQ_PATH_MAX];
+				entry_label(e, label, sizeof label);
+				rq_log("texture: %s: the game's picture cannot be read; drawn as it is", label);
+				e->warned = true;
+			}
+			return NULL;
+		}
+		rq_pixels_recolor(cg, e->hue, e->saturation, e->lightness);
+	} else {
+		data = read_file(e->files[pick], &size, why, sizeof why);
+		cg = data ? rq_pixels_png(data, size, RQ_PIXELS_TEXTURE_SIDE, why, sizeof why) : NULL;
+		free(data);
+		if (!cg) {
+			if (!e->warned) {
+				char label[RQ_PATH_MAX];
+				entry_label(e, label, sizeof label);
+				rq_log("texture: %s: %s's %s cannot be read now (%s); the game's picture is drawn",
+				       label, e->mod, e->given[frame], why);
+				e->warned = true;
+			}
+			return NULL;
+		}
 	}
 	if (!frame)
 		e->used++;
@@ -316,7 +347,53 @@ struct pictures {
 	bool list;
 	char **files;
 	char **given;
+	bool colors; /* colors by numbers instead (n 0) */
+	double hue, saturation, lightness;
 };
+
+/* Colors by numbers from the table at `idx` (text keys only): hue, saturation, lightness. */
+static bool get_colors(lua_State *L, int idx, struct pictures *out, char *err, size_t err_len)
+{
+	static const char *const names[3] = { "hue", "saturation", "lightness" };
+	double v[3] = { 0.0, 1.0, 1.0 };
+	int given = 0;
+
+	lua_pushnil(L);
+	while (lua_next(L, idx)) {
+		const char *k = lua_tostring(L, -2);
+		int at = -1;
+		for (int i = 0; i < 3; i++) {
+			if (!strcmp(k, names[i]))
+				at = i;
+		}
+		if (at < 0) {
+			snprintf(err, err_len, "texture colors: no field '%s'", k);
+			lua_pop(L, 2);
+			return false;
+		}
+		if (lua_type(L, -1) != LUA_TNUMBER) {
+			double bad[3] = { 0.0, 1.0, 1.0 };
+			bad[at] = NAN;
+			rq_pixels_colors_ok(bad[0], bad[1], bad[2], err, err_len);
+			lua_pop(L, 2);
+			return false;
+		}
+		v[at] = lua_tonumber(L, -1);
+		given++;
+		lua_pop(L, 1);
+	}
+	if (!given) {
+		snprintf(err, err_len, "texture colors: give hue, saturation or lightness");
+		return false;
+	}
+	if (!rq_pixels_colors_ok(v[0], v[1], v[2], err, err_len))
+		return false;
+	out->colors = true;
+	out->hue = v[0];
+	out->saturation = v[1];
+	out->lightness = v[2];
+	return true;
+}
 
 static void free_pictures(struct pictures *p)
 {
@@ -340,11 +417,23 @@ static bool get_pictures(lua_State *L, int idx, const char *shown, struct pictur
 		n = 1;
 	} else if (lua_istable(L, idx)) {
 		int count = 0;
+		bool keyed = false, other = false;
 		lua_rawgeti(L, idx, 1);
 		bool listed = !lua_isnil(L, -1);
 		lua_pop(L, 1);
-		if (!listed) {
-			snprintf(err, err_len, "texture '%s': give a PNG or a list of PNGs", shown);
+		/* Integer keys make a list of frames, text keys colors; a mix or nothing is neither. */
+		lua_pushnil(L);
+		while (lua_next(L, idx)) {
+			if (lua_type(L, -2) == LUA_TSTRING)
+				keyed = true;
+			else
+				other = true;
+			lua_pop(L, 1);
+		}
+		if (!listed && keyed && !other)
+			return get_colors(L, idx, out, err, err_len);
+		if (!listed || keyed) {
+			snprintf(err, err_len, "texture '%s': give a PNG, a list of PNGs or colors", shown);
 			return false;
 		}
 		n = (int)lua_rawlen(L, idx);
@@ -370,7 +459,7 @@ static bool get_pictures(lua_State *L, int idx, const char *shown, struct pictur
 		}
 		out->list = true;
 	} else {
-		snprintf(err, err_len, "texture '%s': give a PNG or a list of PNGs", shown);
+		snprintf(err, err_len, "texture '%s': give a PNG, a list of PNGs or colors", shown);
 		return false;
 	}
 	out->files = xcalloc(n, sizeof *out->files);
@@ -439,7 +528,7 @@ static void set_tex(const struct tex_path *tp, int own, const char *model_id, co
 
 	if (e) {
 		snprintf(was, sizeof was, "%s", e->mod);
-		g_npictures -= e->nfiles;
+		g_npictures -= tex_cost(e);
 		free_tex(e);
 	} else {
 		g_tex = xrealloc(g_tex, (g_ntex + 1) * sizeof *g_tex);
@@ -456,8 +545,12 @@ static void set_tex(const struct tex_path *tp, int own, const char *model_id, co
 	e->nfiles = pics->n;
 	e->files = pics->files;
 	e->given = pics->given;
+	e->colors = pics->colors;
+	e->hue = pics->hue;
+	e->saturation = pics->saturation;
+	e->lightness = pics->lightness;
 	memset(pics, 0, sizeof *pics);
-	g_npictures += e->nfiles;
+	g_npictures += tex_cost(e);
 
 	entry_label(e, label, sizeof label);
 	entry_what(e, what, sizeof what);
@@ -501,13 +594,13 @@ int rq_lua_image_texture(lua_State *L)
 	}
 	if (!get_pictures(L, 2, tp.shown, &pics, err, sizeof err))
 		return luaL_error(L, "%s", err);
-	if (!rq_textures_check(l, tp.folder_shown, tp.name_sjis, tp.shown, pics.n, why, sizeof why)) {
+	if (!rq_textures_check(l, tp.folder_shown, tp.name_sjis, tp.shown, pics.colors ? 0 : pics.n, why, sizeof why)) {
 		free_pictures(&pics);
 		return luaL_error(L, "%s", why);
 	}
 	e = find(tp.folder, tp.name, 0);
-	old = e ? e->nfiles : 0;
-	if (g_npictures - old + pics.n > TEX_PICTURES_MAX) {
+	old = e ? tex_cost(e) : 0;
+	if (g_npictures - old + (pics.colors ? 1 : pics.n) > TEX_PICTURES_MAX) {
 		free_pictures(&pics);
 		return luaL_error(L, "too many textures (max %d)", TEX_PICTURES_MAX);
 	}
@@ -551,16 +644,26 @@ static void push_row(lua_State *L, const struct rq_texture *t, const char *folde
 	if (e) {
 		lua_pushstring(L, e->mod);
 		lua_setfield(L, -2, "mod");
-		if (e->list) {
+		if (e->colors) {
+			lua_createtable(L, 0, 3);
+			lua_pushnumber(L, e->hue);
+			lua_setfield(L, -2, "hue");
+			lua_pushnumber(L, e->saturation);
+			lua_setfield(L, -2, "saturation");
+			lua_pushnumber(L, e->lightness);
+			lua_setfield(L, -2, "lightness");
+			lua_setfield(L, -2, "colors");
+		} else if (e->list) {
 			lua_createtable(L, e->nfiles, 0);
 			for (int i = 0; i < e->nfiles; i++) {
 				lua_pushstring(L, e->given[i]);
 				lua_rawseti(L, -2, i + 1);
 			}
+			lua_setfield(L, -2, "picture");
 		} else {
 			lua_pushstring(L, e->given[0]);
+			lua_setfield(L, -2, "picture");
 		}
-		lua_setfield(L, -2, "picture");
 		lua_pushboolean(L, e->own != 0);
 		lua_setfield(L, -2, "own");
 		lua_pushinteger(L, e->used);
@@ -666,7 +769,10 @@ static int l_textures_stage(lua_State *L)
 	float s, x, y, z;
 	int motions, total = 0;
 	const struct rq_texture_list *l;
+	struct pictures star;
+	bool have_star = false;
 
+	memset(&star, 0, sizeof star);
 	stage_clear();
 	if (lua_isnoneornil(L, 2)) {
 		lua_pushinteger(L, 0);
@@ -702,12 +808,43 @@ static int l_textures_stage(lua_State *L)
 		}
 		key = lua_tostring(L, -2);
 		if (!strcmp(key, "*")) {
-			/* Colors only (2.64.0's colors by numbers). */
-			lua_pop(L, 2);
-			stage_clear();
-			lua_pushnil(L);
-			lua_pushfstring(L, "%s: textures: '*' takes colors", who);
-			return 2;
+			/* Colors on every colour texture of the model; a name given beside it wins. */
+			bool colors = lua_istable(L, -1);
+			if (colors) {
+				lua_rawgeti(L, -1, 1);
+				colors = lua_isnil(L, -1);
+				lua_pop(L, 1);
+			}
+			if (colors) {
+				/* An empty table, where only colors are taken: name what is missing. */
+				lua_pushnil(L);
+				if (!lua_next(L, -2)) {
+					lua_pop(L, 2);
+					stage_clear();
+					lua_pushnil(L);
+					lua_pushfstring(L, "%s: textures: texture colors: give hue, saturation or lightness", who);
+					return 2;
+				}
+				lua_pop(L, 2);
+			}
+			if (colors && !get_pictures(L, lua_gettop(L), "*", &star, err, sizeof err)) {
+				lua_pop(L, 2);
+				stage_clear();
+				lua_pushnil(L);
+				lua_pushfstring(L, "%s: textures: %s", who, err);
+				return 2;
+			}
+			if (!colors || !star.colors) {
+				free_pictures(&star);
+				lua_pop(L, 2);
+				stage_clear();
+				lua_pushnil(L);
+				lua_pushfstring(L, "%s: textures: '*' takes colors", who);
+				return 2;
+			}
+			have_star = true;
+			lua_pop(L, 1);
+			continue;
 		}
 		if (snprintf(given, sizeof given, "%s/%s", folder_shown, key) >= (int)sizeof given ||
 		    strchr(key, '/') || strchr(key, '\\') || !split_path(given, &st.tp)) {
@@ -727,7 +864,7 @@ static int l_textures_stage(lua_State *L)
 			lua_pushfstring(L, "%s: textures: %s", who, err);
 			return 2;
 		}
-		if (!rq_textures_check(l, folder_shown, st.tp.name_sjis, key, st.pics.n, why, sizeof why)) {
+		if (!rq_textures_check(l, folder_shown, st.tp.name_sjis, key, st.pics.colors ? 0 : st.pics.n, why, sizeof why)) {
 			free_pictures(&st.pics);
 			lua_pop(L, 2);
 			stage_clear();
@@ -738,16 +875,48 @@ static int l_textures_stage(lua_State *L)
 		/* The path as rq.image.textures shows it (`given` fit, so it fits). */
 		if (snprintf(st.tp.shown, sizeof st.tp.shown, "%s/%s", folder_shown, key) >= (int)sizeof st.tp.shown)
 			st.tp.shown[sizeof st.tp.shown - 1] = '\0';
-		total += st.pics.n;
+		total += st.pics.colors ? 1 : st.pics.n;
 		g_stage = xrealloc(g_stage, (g_nstage + 1) * sizeof *g_stage);
 		g_stage[g_nstage++] = st;
 		lua_pop(L, 1);
+	}
+	/* "*": the same colors on each colour texture no name gave. */
+	for (int i = 0; have_star && l && i < l->n; i++) {
+		const struct rq_texture *t = &l->rows[i];
+		struct staged st;
+		char nm[256], path[RQ_PATH_MAX];
+		bool named = false;
+		char *u;
+
+		if (!(t->kinds & RQ_TEXTURE_COLOR) || t->missing)
+			continue;
+		snprintf(nm, sizeof nm, "%s", t->name);
+		sjis_normalize_path(nm);
+		for (int j = 0; j < g_nstage; j++) {
+			if (!strcmp(g_stage[j].tp.name, nm))
+				named = true;
+		}
+		u = sjis2utf(t->name, 0);
+		memset(&st, 0, sizeof st);
+		if (named || snprintf(path, sizeof path, "%s/%s", folder_shown, u) >= (int)sizeof path ||
+		    !split_path(path, &st.tp)) {
+			free(u);
+			continue;
+		}
+		free(u);
+		st.pics.colors = true;
+		st.pics.hue = star.hue;
+		st.pics.saturation = star.saturation;
+		st.pics.lightness = star.lightness;
+		total += 1;
+		g_stage = xrealloc(g_stage, (g_nstage + 1) * sizeof *g_stage);
+		g_stage[g_nstage++] = st;
 	}
 	{
 		int had = 0;
 		for (int i = 0; no && i < g_ntex; i++) {
 			if (g_tex[i].own == no)
-				had += g_tex[i].nfiles;
+				had += tex_cost(&g_tex[i]);
 		}
 		if (g_npictures - had + total > TEX_PICTURES_MAX) {
 			stage_clear();

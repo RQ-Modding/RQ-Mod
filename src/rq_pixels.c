@@ -21,6 +21,7 @@
  * libpng's own transforms, with an error handler of its own, and gives a reason instead.
  */
 
+#include <math.h>
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -190,6 +191,74 @@ struct cg *rq_pixels_png(const uint8_t *data, size_t size, int max_side, char *w
 	free(rows);
 	png_destroy_read_struct(&png, &info, NULL);
 	return cg;
+}
+
+bool rq_pixels_colors_ok(double hue, double saturation, double lightness, char *why, size_t why_len)
+{
+	if (!(hue >= -RQ_PIXELS_HUE_MAX && hue <= RQ_PIXELS_HUE_MAX)) {
+		say(why, why_len, "texture colors: hue must be a number from -360 to 360");
+		return false;
+	}
+	if (!(saturation >= 0.0 && saturation <= RQ_PIXELS_FACTOR_MAX)) {
+		say(why, why_len, "texture colors: saturation must be a number from 0 to 4");
+		return false;
+	}
+	if (!(lightness >= 0.0 && lightness <= RQ_PIXELS_FACTOR_MAX)) {
+		say(why, why_len, "texture colors: lightness must be a number from 0 to 4");
+		return false;
+	}
+	return true;
+}
+
+static uint8_t to_byte(double v)
+{
+	double t = floor(v * 255.0 + 0.5);
+
+	return t < 0.0 ? 0 : t > 255.0 ? 255 : (uint8_t)t;
+}
+
+void rq_pixels_recolor(struct cg *cg, double hue, double saturation, double lightness)
+{
+	uint8_t *p = cg->pixels;
+	size_t n = (size_t)cg->metrics.w * cg->metrics.h;
+
+	for (size_t i = 0; i < n; i++, p += 4) {
+		double r = p[0] / 255.0, g = p[1] / 255.0, b = p[2] / 255.0;
+		double mx = fmax(r, fmax(g, b)), mn = fmin(r, fmin(g, b));
+		double l = (mx + mn) / 2.0, d = mx - mn, h = 0.0, s = 0.0;
+		double c, x, m, r1, g1, b1;
+
+		if (d > 0.0) {
+			s = d / (1.0 - fabs(2.0 * l - 1.0));
+			if (mx == r)
+				h = 60.0 * fmod((g - b) / d, 6.0);
+			else if (mx == g)
+				h = 60.0 * ((b - r) / d + 2.0);
+			else
+				h = 60.0 * ((r - g) / d + 4.0);
+		}
+		h = fmod(h + hue, 360.0);
+		if (h < 0.0)
+			h += 360.0;
+		if (h >= 360.0)
+			h = 0.0;
+		s = fmin(1.0, s * saturation);
+		l = fmin(1.0, l * lightness);
+		c = (1.0 - fabs(2.0 * l - 1.0)) * s;
+		x = c * (1.0 - fabs(fmod(h / 60.0, 2.0) - 1.0));
+		m = l - c / 2.0;
+		switch ((int)floor(h / 60.0)) {
+		case 0: r1 = c; g1 = x; b1 = 0.0; break;
+		case 1: r1 = x; g1 = c; b1 = 0.0; break;
+		case 2: r1 = 0.0; g1 = c; b1 = x; break;
+		case 3: r1 = 0.0; g1 = x; b1 = c; break;
+		case 4: r1 = x; g1 = 0.0; b1 = c; break;
+		default: r1 = c; g1 = 0.0; b1 = x; break;
+		}
+		p[0] = to_byte(r1 + m);
+		p[1] = to_byte(g1 + m);
+		p[2] = to_byte(b1 + m);
+	}
 }
 
 void rq_pixels_game_alpha(struct cg *mod, bool game_has_alpha, const struct cg *game)

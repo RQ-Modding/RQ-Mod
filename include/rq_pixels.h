@@ -54,6 +54,30 @@ bool rq_pixels_png_size(const uint8_t *data, size_t size, int *w, int *h);
  */
 struct cg *rq_pixels_png(const uint8_t *data, size_t size, int max_side, char *why, size_t why_len);
 
+/* The ranges of colors by numbers: hue -360 to 360 degrees, saturation and lightness factors 0 to 4. */
+#define RQ_PIXELS_HUE_MAX 360.0
+#define RQ_PIXELS_FACTOR_MAX 4.0
+
+/*
+ * Whether colors by numbers are in range: false with the reason in `why` ("texture colors: hue must
+ * be a number from -360 to 360", the same for saturation and lightness from 0 to 4). A NaN is out.
+ */
+bool rq_pixels_colors_ok(double hue, double saturation, double lightness, char *why, size_t why_len);
+
+/*
+ * Colors by numbers on an 8-bit RGBA cg, in place, alpha untouched: each point's hue moved by `hue`
+ * degrees, its saturation and its lightness multiplied by the factors, in HSL with doubles. Grey,
+ * white and black stay grey (hue and saturation move coloured points only; lightness scales every
+ * point). The docs' recolour script follows the same rule to the byte:
+ *   r,g,b = R/255, G/255, B/255; mx, mn = max, min; l = (mx+mn)/2; d = mx-mn;
+ *   d = 0: h = 0, s = 0; else s = d / (1 - |2l - 1|), h = 60*fmod((g-b)/d, 6) when mx = r,
+ *   60*((b-r)/d + 2) when mx = g, 60*((r-g)/d + 4) otherwise;
+ *   h' = fmod(h + hue, 360) in [0, 360), s' = min(1, s*saturation), l' = min(1, l*lightness);
+ *   c = (1 - |2l' - 1|)*s', x = c*(1 - |fmod(h'/60, 2) - 1|), m = l' - c/2, by the sector of h'/60;
+ *   each channel floor((v + m)*255 + 0.5), clamped to 0..255.
+ */
+void rq_pixels_recolor(struct cg *cg, double hue, double saturation, double lightness);
+
 /*
  * A mod's picture drawn with the game's alpha kind, so a material stays as see-through as the game
  * made it. `game_has_alpha` is the game's picture's; `game` is that picture decoded, needed only

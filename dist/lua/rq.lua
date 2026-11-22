@@ -3892,8 +3892,9 @@ function chara.on_level_up(fn) end
 ---`.aff` from PNG frames and WAV sounds, and `rqmod-aff check` says what in a file the game would not
 ---play.
 ---
----`texture` puts a PNG on one of the game's 3D textures, wherever a model uses it: a monster, a prop,
----a room or a fight background in new colours (2.64.0). `textures` lists a model's textures.
+---`texture` puts a PNG, or colors by numbers, on one of the game's 3D textures, wherever a model
+---uses it: a monster, a prop, a room or a fight background in new colours (2.64.0). `textures` lists
+---a model's textures.
 ---
 ---A PNG of any kind works in every call: 16-bit, grey, a palette, 1 to 4 bits, a see-through colour
 ---(`tRNS`) and interlaced files. A broken one is refused with a reason (2.64.0).
@@ -4154,11 +4155,21 @@ function image.flash_bitmaps(file) end
 ---@field h? integer The game's picture's height, in pixels.
 ---@field alpha? boolean Whether the game's picture has alpha.
 ---@field mod? string When a mod changed it: that mod's id.
----@field picture? string|string[] When a mod changed it: the PNG, or the list of PNGs, as the mod gave them (a copy).
+---@field picture? string|string[] When a mod put a picture on it: the PNG, or the list of PNGs, as the mod gave them (a copy).
+---@field colors? rq.TextureColors When a mod changed its colors: the numbers, with the defaults filled in.
 ---@field own? boolean When a mod changed it: true for a mod's model's own texture, from `rq.monster.model`.
 ---@field used? integer When a mod changed it: how many times a model's material was loaded with the change since it was made. 0 means nothing has drawn it yet; frames do not count apart.
 
----Puts a PNG from the mod's folder on one of the game's 3D textures, wherever a model uses it.
+---Colors by numbers on a texture, as `rq.image.texture` takes them. At least one field.
+---
+---Since: 2.64.0
+---@class rq.TextureColors
+---@field hue? number Degrees added to each point's hue, -360 to 360. Default 0.
+---@field saturation? number A factor on each point's saturation, 0 (grey) to 4. Default 1.
+---@field lightness? number A factor on each point's lightness, 0 (black) to 4. Default 1.
+
+---Puts a PNG from the mod's folder, or colors by numbers, on one of the game's 3D textures, wherever
+---a model uses it.
 ---
 ---`texture` is the texture's path in the game's archive, as Rance Browser's 3D tab and
 ---`rq.image.textures` show it: "Data/PolyData/Chara/gokiburi/gokiburi.png". Slashes either way and
@@ -4172,8 +4183,13 @@ function image.flash_bitmaps(file) end
 ---works, up to 4096 pixels a side. A picture of another size than the game's is drawn over the same
 ---UVs, so keep the proportions. The game's alpha kind stays: on a texture the game draws solid the
 ---picture is drawn solid, and a picture without alpha on a texture with alpha takes the game's alpha,
----so the model's see-through parts stay where they were. With `picture` nil the texture is the game's
----own again, whichever mod changed it.
+---so the model's see-through parts stay where they were.
+---
+---`picture` may also be colors by numbers, `{ hue = 200, saturation = 1.1, lightness = 0.9 }`: the
+---game's own picture, every frame, with its colors changed in HSL. Grey, white and black stay grey:
+---hue and saturation move coloured points only, and lightness scales every point; to colour a grey
+---monster, paint a picture. Colors change colour textures only. With `picture` nil the texture is the
+---game's own again, whichever mod changed it.
 ---
 ---On one path the last call wins, whichever mod made it, and a mod's model's own textures
 ---(`rq.monster.model`'s `textures`) stay over it. The log names each change. A change made at a mod's
@@ -4188,19 +4204,22 @@ function image.flash_bitmaps(file) end
 ---
 ---Raises an error for a path that is not a text or holds a `*`, a folder with no model, a name that is
 ---not one of its model's textures, a frame's name, a file the game lacks, a picture that is neither a
----PNG's path nor a list of them, a list with a hole or an item that is not a text, a number of pictures
----other than the texture's frames, a picture outside the mod's folder, not found, not a PNG, that
----cannot be read or over 4096 pixels a side, or past 4096 changed textures in all (a list counts each
----frame). A call that raises an error changes nothing.
+---PNG's path, a list of them nor colors, a list with a hole or an item that is not a text, a number of
+---pictures other than the texture's frames, a picture outside the mod's folder, not found, not a PNG,
+---that cannot be read or over 4096 pixels a side, colors out of range, an unknown field or none, colors
+---on a texture that is not a colour texture, or past 4096 changed textures in all (a list counts each
+---frame, colors count one). A call that raises an error changes nothing.
 ---
 ---Since: 2.64.0
 ---
 ---```lua
 ----- The Cockroach in the mod's own colours, wherever the game draws it.
 ---rq.image.texture("Data/PolyData/Chara/gokiburi/gokiburi.png", "textures/roach.png")
+----- The goldfish's body in blue, by numbers.
+---rq.image.texture("Data/PolyData/Chara/kingyo/karada.png", { hue = 180 })
 ---```
 ---@param texture string The texture's path in the game's archive.
----@param picture string|string[]|nil A PNG inside the mod's folder, a list of PNGs for a texture with frames, or nil for the game's own.
+---@param picture string|string[]|rq.TextureColors|nil A PNG inside the mod's folder, a list of PNGs for a texture with frames, colors by numbers, or nil for the game's own.
 function image.texture(texture, picture) end
 
 ---Lists the textures a game model uses, as the game has them, with what mods put there.
@@ -4209,8 +4228,9 @@ function image.texture(texture, picture) end
 ---number from `rq.monster.models` (100122 is the Cockroach, in `Data/PolyData/Chara/gokiburi`). A
 ---mod's model number gives its base's textures with the model's own over them. The rows come in the
 ---model's order, one per texture, a texture's frames folded into it. For a row without `own`,
----`rq.image.texture(r.path, r.picture)` makes its change again; an `own` row's change is made again
----through `rq.monster.model`, with `textures[r.name] = r.picture` in its model's definition.
+---`rq.image.texture(r.path, r.picture or r.colors)` makes its change again; an `own` row's change is
+---made again through `rq.monster.model`, with `textures[r.name] = r.picture or r.colors` in its
+---model's definition.
 ---
 ---Returns nil for a folder or a number with no model, so a loop over `rq.monster.models()` works.
 ---Raises an error for a model that is neither a text nor a whole number, or a path that holds a `*`.
@@ -4220,6 +4240,10 @@ function image.texture(texture, picture) end
 ---```lua
 ---for _, t in ipairs(rq.image.textures(100122) or {}) do
 ---  rq.log(("%s %s %dx%d%s"):format(t.name, t.kind, t.w or 0, t.h or 0, t.mod and (" by " .. t.mod) or ""))
+---end
+----- New colours on every colour texture of a model, wherever the game draws it.
+---for _, t in ipairs(rq.image.textures("Data/PolyData/Chara/kingyo") or {}) do
+---  if t.kind == "color" and not t.missing then rq.image.texture(t.path, { hue = 180 }) end
 ---end
 ---```
 ---@param model string|integer A folder in the game's archive, or a monster model number.
@@ -9709,7 +9733,7 @@ function monster.group(def) end
 ---@field z number Its offset in depth.
 ---@field motions integer How many motions it has.
 ---@field id? string The text id, for a model a mod made (`rq.monster.model`).
----@field textures? table<string, string|string[]> For a mod's model with textures of its own: a copy of the `textures` it was given. `poly` stays the folder it draws.
+---@field textures? table<string, string|string[]|rq.TextureColors> For a mod's model with textures of its own: a copy of the `textures` it was given. `poly` stays the folder it draws.
 
 ---Lists the game's model table, with the models mods made after it.
 ---
@@ -9732,7 +9756,7 @@ function monster.models() end
 ---@field x? number The offset across. Default: the base's.
 ---@field y? number The offset up. Default: the base's.
 ---@field z? number The offset in depth. Default: the base's.
----@field textures? table<string, string|string[]> Textures of its own: a texture's name in the base's folder (as `rq.image.textures(base)` lists it) to a PNG inside the mod's folder or a list of PNGs for a texture with frames (as `rq.image.texture` takes them).
+---@field textures? table<string, string|string[]|rq.TextureColors> Textures of its own: a texture's name in the base's folder (as `rq.image.textures(base)` lists it) to a PNG inside the mod's folder, a list of PNGs for a texture with frames, or colors (as `rq.image.texture` takes them). The key "*" takes colors only, for every colour texture of the model; a name given beside it wins.
 
 ---Makes a model of the game's at another size or place, for a monster's `model` field.
 ---
@@ -9745,9 +9769,9 @@ function monster.models() end
 ---
 ---With `textures`, the model has pictures of its own: the game loads it apart from its base, so the
 ---base and the game's other monsters on it keep theirs. Its own textures win over `rq.image.texture`
----on the same path; the names it does not give follow `rq.image.texture`, then the game. A change
----shows as `rq.image.texture`'s does: at the next load of the model while the game holds no copy of
----it. An empty table is no textures.
+---on the same path; the names it does not give follow `rq.image.texture`, then the game. Colors start
+---from the game's own picture. A change shows as `rq.image.texture`'s does: at the next load of the
+---model while the game holds no copy of it. An empty table is no textures.
 ---
 ---A mod's model, with textures or not, plays its base's attack effects and waits for its hits as its
 ---base does: the game's tables of both know the game's model numbers only. The effect table is read
@@ -9758,8 +9782,8 @@ function monster.models() end
 ---Raises an error for a `def` that is not a table, an `id` that is not a text, an unknown field, a
 ---`base` that is not a game model, a `scale` that is not above 0 and at most 50, an offset that is
 ---not a number, an id another mod made, or when the table cannot be read; for `textures` that are
----not a table, a key that is not a texture's name, or an entry `rq.image.texture` would refuse, each
----with the call's id. A call that raises an error changes
+---not a table, a key that is not a texture's name, "*" given anything but colors, or an entry
+---`rq.image.texture` would refuse, each with the call's id. A call that raises an error changes
 ---nothing.
 ---
 ---Since: 2.40.0
@@ -9773,6 +9797,9 @@ function monster.models() end
 ----- A blue Cockroach of its own, painted: the game's Cockroaches keep their picture.
 ---local BLUE = rq.monster.model({ id = "mymod:blue_roach", base = ROACH_MODEL,
 ---  textures = { ["gokiburi.png"] = "textures/roach-blue.png" } })
+----- A cyan goldfish of its own, by numbers (the Cockroach is grey, which numbers leave grey).
+---local CYAN_FISH = rq.monster.model({ id = "mymod:cyan_fish", base = 100131,
+---  textures = { ["*"] = { hue = 170 } } })
 ---```
 ---@param def rq.ModelDef The base model and its size and place.
 ---@return integer model The model number.
