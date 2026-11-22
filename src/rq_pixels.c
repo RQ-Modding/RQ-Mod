@@ -86,6 +86,19 @@ bool rq_pixels_is_png(const uint8_t *data, size_t size)
 	return data && size >= 8 && !png_sig_cmp((png_const_bytep)data, 0, 8);
 }
 
+bool rq_pixels_png_size(const uint8_t *data, size_t size, int *w, int *h)
+{
+	uint32_t hw, hh;
+
+	if (!rq_pixels_is_png(data, size) || size < 24 || memcmp(data + 12, "IHDR", 4))
+		return false;
+	hw = be32(data + 16);
+	hh = be32(data + 20);
+	*w = hw > INT32_MAX ? INT32_MAX : (int)hw;
+	*h = hh > INT32_MAX ? INT32_MAX : (int)hh;
+	return true;
+}
+
 struct cg *rq_pixels_png(const uint8_t *data, size_t size, int max_side, char *why, size_t why_len)
 {
 	struct reader r = { data, size, 8, "" };

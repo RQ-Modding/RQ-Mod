@@ -8,7 +8,9 @@
 --   rq.monster.group(def)           an enemy group of a mod's own (rq.encounters.set_groups and
 --                                   rq.battle.start's group are in basics.lua)
 --   rq.monster.models(), model(def) the model table, and a game model at another scale (the table
---                                   is C: hll/MonsterInfo.c, through the private table)
+--                                   is C: hll/MonsterInfo.c, through the private table); since
+--                                   2.64.0 with textures of its own (modloader_texture.c), and the
+--                                   game's attack effects and hit wait read for its base
 --
 -- Built only on public calls: rq.ain.call, global, set_global, hook and stack.
 --   Ｃ敵登録(iic, no)        the list: one if per monster, each calling Ｃ敵登録１, then ＣＬＶ and
@@ -958,8 +960,9 @@ end
 -- ---- Models (2.40.0) ----
 
 local MODEL0 = 100000
-local models_made = {} -- id -> { slot, mod, no }
+local models_made = {} -- id -> { slot, mod, no, textures }
 local nmodels = 0
+local base_of = {} -- a mod's model number -> its base's (2.64.0)
 
 local function model_table()
   local n, file = priv.models_count()
@@ -975,14 +978,16 @@ function monster.models()
   for i = 0, n - 1 do
     local name, poly, scale, x, y, z, motions = priv.model_info(i)
     if name then
+      local id = i >= file and by_index[i] or nil
+      local made = id and models_made[id]
       out[#out + 1] = { model = MODEL0 + i, name = name, poly = poly, scale = scale, x = x, y = y, z = z,
-        motions = motions, id = i >= file and by_index[i] or nil }
+        motions = motions, id = id, textures = made and made.textures and copy(made.textures) or nil }
     end
   end
   return out
 end
 
-local MODEL_FIELDS = { id = true, base = true, scale = true, x = true, y = true, z = true }
+local MODEL_FIELDS = { id = true, base = true, scale = true, x = true, y = true, z = true, textures = true }
 
 function monster.model(def)
   if type(def) ~= "table" then error("rq.monster.model: expected a table", 2) end
@@ -1006,11 +1011,16 @@ function monster.model(def)
     end
   end
   if def.scale ~= nil and (def.scale <= 0 or def.scale > 50) then error(who .. ": scale must be above 0, at most 50", 2) end
+  local tex = def.textures
+  if tex ~= nil and type(tex) ~= "table" then error(who .. ": textures must be a table", 2) end
   local mod = mod_id()
   local old = models_made[id]
   if old and old.mod ~= mod then error(string.format("%s: made by %s", who, old.mod), 2) end
+  -- Every texture is checked before the model is made or changed: a refused table changes nothing.
+  local staged, err = priv.textures_stage(base - MODEL0, tex, who, old and old.no or 0)
+  if not staged then error(err, 2) end
   local at = priv.model_derive(old and old.slot or -1, base - MODEL0, def.scale or scale, def.x or x,
-    def.y or y, def.z or z)
+    def.y or y, def.z or z, staged > 0)
   if not at then error(who .. ": the model cannot be made", 2) end
   if not old then
     old = { slot = nmodels, mod = mod }
@@ -1018,7 +1028,39 @@ function monster.model(def)
     models_made[id] = old
   end
   old.no = MODEL0 + at
+  old.textures = staged > 0 and copy(tex) or nil
+  base_of[old.no] = base
+  priv.textures_commit(old.no, id)
   return old.no
+end
+
+-- The game's attack-effect table and hit wait know the game's model numbers only: a mod's model
+-- reads its base's (2.64.0). The effect table's own row for the number wins (a mod may add one;
+-- the table's add asks for the number itself). Placed when this file loads, before any mod's hook.
+local in_search = false
+local function hook_model_lookups()
+  hook("T_BattleEffectDataManager@search", { before = function(h)
+    local b = base_of[h.args[1]]
+    if not b or in_search then return end
+    local ok, st = pcall(rq.ain.stack, 4)
+    if ok and type(st) == "table" then
+      for _, n in ipairs(st) do
+        if n ~= "T_BattleEffectDataManager@search" then
+          if n == "T_BattleEffectDataManager@add" then return end
+          break
+        end
+      end
+    end
+    in_search = true
+    local ok2, own = pcall(rq.ain.method, { "g_sBattleEffectData" }, "T_BattleEffectDataManager@search", h.args[1])
+    in_search = false
+    if ok2 and type(own) == "number" and own >= 0 then return end
+    h.args[1] = b
+  end })
+  hook("戦闘_敵モーション当たり待ち率", { before = function(h)
+    local b = base_of[h.args[1]]
+    if b then h.args[1] = b end
+  end })
 end
 
 -- For rq.battle.start (basics.lua): whether the list has a number, and a defined monster's number.
@@ -1038,3 +1080,4 @@ end
 install()
 hook_groups()
 hook_groups()
+hook_model_lookups()

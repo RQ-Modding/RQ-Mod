@@ -183,12 +183,13 @@ static int l_model_info(lua_State *L)
 	return 7;
 }
 
-/* model_derive(slot, base, scale, x, y, z) -> index, or nil. slot -1 adds one. */
+/* model_derive(slot, base, scale, x, y, z, textures) -> index, or nil. slot -1 adds one; textures
+ * true gives the model a load of its own (2.64.0). */
 static int l_model_derive(lua_State *L)
 {
 	int at = rq_model_derive((int)luaL_checkinteger(L, 1), (int)luaL_checkinteger(L, 2),
 		(float)luaL_checknumber(L, 3), (float)luaL_checknumber(L, 4), (float)luaL_checknumber(L, 5),
-		(float)luaL_checknumber(L, 6));
+		(float)luaL_checknumber(L, 6), lua_toboolean(L, 7));
 	if (at < 0)
 		return 0;
 	lua_pushinteger(L, at);
@@ -216,6 +217,8 @@ void rq_state_private(lua_State *L, int priv)
 	lua_setfield(L, priv, "model_info");
 	lua_pushcfunction(L, l_model_derive);
 	lua_setfield(L, priv, "model_derive");
+	/* 2.64.0: a mod's model's own textures (lua/monster.lua). */
+	rq_texture_private(L, priv);
 	/* 2.45.0: trying the game's code on a character, then putting it back (lua/skills.lua). */
 	lua_pushcfunction(L, rq_lua_keep);
 	lua_setfield(L, priv, "keep");

@@ -73,6 +73,7 @@ static struct monster *monsters = NULL;
 struct rq_derived {
 	int base;
 	float scale, x, y, z;
+	bool textures; /* textures of its own (2.64.0): its folder is marked, so it loads apart */
 };
 static struct rq_derived *rq_derived = NULL;
 static unsigned rq_nderived = 0;
@@ -345,6 +346,14 @@ static void rq_apply_one(unsigned k)
 	m->pos_x = d->x;
 	m->pos_y = d->y;
 	m->pos_z = d->z;
+	/* A model with textures of its own loads from "*<number>\<base's folder>": the plugins keep it
+	 * apart from the base, and the 3D code reads the base's files (3d/rq_textures.h). */
+	if (d->textures && m->poly_name && m->poly_name[0]) {
+		char *marked = xmalloc(strlen(m->poly_name) + 16);
+		sprintf(marked, "*%u\\%s", 100000u + at, m->poly_name);
+		free(m->poly_name);
+		m->poly_name = marked;
+	}
 }
 
 static void rq_apply_derived(void)
@@ -380,7 +389,16 @@ bool rq_model_info(int i, char **name, char **poly, float *scale, float *x, floa
 		return false;
 	struct monster *m = &monsters[i];
 	*name = m->name ? sjis2utf(m->name, 0) : strdup("");
-	*poly = m->poly_name ? sjis2utf(m->poly_name, 0) : strdup("");
+	/* The folder it draws, without a mod's model's mark. */
+	const char *p = m->poly_name;
+	if (p && p[0] == '*') {
+		const char *q = p + 1;
+		while (*q >= '0' && *q <= '9')
+			q++;
+		if (q > p + 1 && *q == '\\')
+			p = q + 1;
+	}
+	*poly = p ? sjis2utf(p, 0) : strdup("");
 	*scale = m->scale;
 	*x = m->pos_x;
 	*y = m->pos_y;
@@ -391,7 +409,7 @@ bool rq_model_info(int i, char **name, char **poly, float *scale, float *x, floa
 
 /* A mod's model: slot -1 adds one, else changes that one (0-based among the mod's models).
  * Returns the entry's index, or -1 for a base that is not one of the file's entries. */
-int rq_model_derive(int slot, int base, float scale, float x, float y, float z)
+int rq_model_derive(int slot, int base, float scale, float x, float y, float z, bool textures)
 {
 	if (!rq_models_ensure() || base < 0 || (unsigned)base >= rq_file_count)
 		return -1;
@@ -401,7 +419,7 @@ int rq_model_derive(int slot, int base, float scale, float x, float y, float z)
 	} else if ((unsigned)slot >= rq_nderived) {
 		return -1;
 	}
-	rq_derived[slot] = (struct rq_derived){ base, scale, x, y, z };
+	rq_derived[slot] = (struct rq_derived){ base, scale, x, y, z, textures };
 	rq_apply_one(slot);
 	return rq_file_count + slot;
 }

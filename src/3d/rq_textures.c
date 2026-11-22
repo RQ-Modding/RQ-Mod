@@ -340,7 +340,9 @@ bool rq_textures_check(const struct rq_texture_list *l, const char *folder, cons
 		say(why, why_len, "the game has no file '%s' in '%s'", leaf(shown), folder);
 		return false;
 	}
-	if (pictures <= 0) {
+	if (pictures < 0)
+		return true;
+	if (pictures == 0) {
 		if (!(t->kinds & RQ_TEXTURE_COLOR)) {
 			say(why, why_len, "texture '%s' is %s: colors change color textures only", shown,
 			    kind_with_article(t->kinds));

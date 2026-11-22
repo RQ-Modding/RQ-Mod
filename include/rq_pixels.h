@@ -39,6 +39,11 @@ struct cg;
 /* Whether the bytes start with PNG's signature. */
 bool rq_pixels_is_png(const uint8_t *data, size_t size);
 
+/* A PNG's size from its header (IHDR, the first chunk), with nothing decoded; false when the
+ * bytes are not a PNG with a header. Lets a caller name a picture too large apart from one that
+ * cannot be read. */
+bool rq_pixels_png_size(const uint8_t *data, size_t size, int *w, int *h);
+
 /*
  * Any PNG (1 to 16 bits; RGB, RGBA, grey, grey with alpha or a palette; tRNS; interlaced) as an
  * 8-bit RGBA cg, has_alpha when the file has an alpha channel or tRNS. A side over `max_side` is

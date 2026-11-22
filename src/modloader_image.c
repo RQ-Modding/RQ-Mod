@@ -41,6 +41,7 @@
 #include "asset_manager.h"
 #include "modloader.h"
 #include "modloader_priv.h"
+#include "rq_pixels.h"
 #include "swf.h"
 #include "vm.h"
 #include "vm/heap.h"
@@ -772,6 +773,68 @@ static struct cg *anim_decode(struct img *m, int kind)
 	return m->cg = ld.still;
 }
 
+/* A still picture file's bytes at most. */
+#define STILL_FILE_BYTES (256u << 20)
+
+/* A mod's still picture: the file's bytes read as the mod paths are made (fopen on the resolved
+ * path, in the ANSI code page like every mod path), a PNG through rq_pixels (every kind of PNG, and
+ * a reason instead of an abort), the rest through libsys4. NULL with the reason in `why`. */
+static struct cg *load_still(const char *path, char *why, size_t why_len)
+{
+	FILE *f = fopen(path, "rb");
+	long n;
+	uint8_t *data;
+	struct cg *cg;
+
+	why[0] = '\0';
+	if (!f) {
+		snprintf(why, why_len, "it cannot be opened");
+		return NULL;
+	}
+	if (fseek(f, 0, SEEK_END) || (n = ftell(f)) < 0 || fseek(f, 0, SEEK_SET)) {
+		fclose(f);
+		snprintf(why, why_len, "it cannot be read");
+		return NULL;
+	}
+	if ((unsigned long)n > STILL_FILE_BYTES) {
+		fclose(f);
+		snprintf(why, why_len, "the file is too large");
+		return NULL;
+	}
+	if (n < 16) {
+		fclose(f);
+		snprintf(why, why_len, "the file is too small to be a picture");
+		return NULL;
+	}
+	data = malloc((size_t)n);
+	if (!data || fread(data, 1, (size_t)n, f) != (size_t)n) {
+		free(data);
+		fclose(f);
+		snprintf(why, why_len, "it cannot be read");
+		return NULL;
+	}
+	fclose(f);
+	if (rq_pixels_is_png(data, (size_t)n)) {
+		cg = rq_pixels_png(data, (size_t)n, RQ_PIXELS_PICTURE_SIDE, why, why_len);
+	} else {
+		cg = cg_load_buffer(data, (size_t)n);
+		if (cg && (!cg->pixels || cg->metrics.w <= 0 || cg->metrics.h <= 0)) {
+			cg_free(cg);
+			cg = NULL;
+		}
+		if (!cg) {
+			snprintf(why, why_len, "not a picture the engine reads");
+		} else if (cg->metrics.w > RQ_PIXELS_PICTURE_SIDE || cg->metrics.h > RQ_PIXELS_PICTURE_SIDE) {
+			snprintf(why, why_len, "%dx%d (max %d a side)", cg->metrics.w, cg->metrics.h,
+				 RQ_PIXELS_PICTURE_SIDE);
+			cg_free(cg);
+			cg = NULL;
+		}
+	}
+	free(data);
+	return cg;
+}
+
 static struct cg *decode(struct img *m)
 {
 	struct cg *cg;
@@ -804,9 +867,10 @@ static struct cg *decode(struct img *m)
 	}
 	if ((kind = file_kind(m->path)) != KIND_STILL)
 		return anim_decode(m, kind);
-	cg = cg_load_file(m->path);
+	char why[200];
+	cg = load_still(m->path, why, sizeof why);
 	if (!cg || !cg->pixels) {
-		rq_log("image: cannot decode %s", m->path);
+		rq_log("image: cannot decode %s: %s", m->path, why);
 		m->failed = 1;
 		return NULL;
 	}
@@ -1107,11 +1171,12 @@ int rq_lua_image_flash_bitmap(lua_State *L)
 	fclose(f);
 	if (file_kind(path) != KIND_STILL)
 		return luaL_error(L, "image '%s': a Flash bitmap takes a still picture, not a GIF or an animated WebP", rel);
-	cg = cg_load_file(path);
+	char why[200];
+	cg = load_still(path, why, sizeof why);
 	if (!cg || !cg->pixels) {
 		if (cg)
 			cg_free(cg);
-		return luaL_error(L, "image '%s' cannot be decoded", rel);
+		return luaL_error(L, "image '%s' cannot be decoded: %s", rel, why);
 	}
 	cg = fit_cg(cg, w, h, fit);
 	if (cg->metrics.w != w || cg->metrics.h != h) {

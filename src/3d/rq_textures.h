@@ -73,7 +73,8 @@ int rq_textures_frame(const char *name, char *base, size_t base_len);
 /*
  * Whether a mod may change the texture `name` (Shift-JIS) of the model `l` lists (NULL: the folder
  * has no model) with `pictures` pictures (a PNG, or a list of them), or with colors (`pictures`
- * 0). On a refusal `why` holds the reason, with the texture shown as `shown` (the path or the name
+ * 0), or only whether the texture is one a mod may change (`pictures` -1, as for putting the
+ * game's back). On a refusal `why` holds the reason, with the texture shown as `shown` (the path or the name
  * the mod gave, UTF-8) and the model as `folder` (its folder with /, UTF-8).
  */
 bool rq_textures_check(const struct rq_texture_list *l, const char *folder, const char *name,

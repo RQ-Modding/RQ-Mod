@@ -1733,6 +1733,8 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "gif_info", rq_lua_image_gif_info);
 	set_cfn(L, "flash_bitmap", rq_lua_image_flash_bitmap);
 	set_cfn(L, "flash_bitmaps", rq_lua_image_flash_bitmaps);
+	set_cfn(L, "texture", rq_lua_image_texture);
+	set_cfn(L, "textures", rq_lua_image_textures);
 	/* 2.63.0; play_flash is Lua over rq.sprite (lua/sprite.lua). */
 	set_cfn(L, "add_flash", rq_lua_image_add_flash);
 	set_cfn(L, "remove_flash", rq_lua_image_remove_flash);

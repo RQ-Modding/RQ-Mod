@@ -26,6 +26,14 @@
 #include "reign.h"
 #include "vm/page.h"
 
+#ifdef RQ_MODLOADER
+#include "system4/hashtable.h"
+#include "system4/utfsjis.h"
+#include "../3d/3d_internal.h"
+#include "../3d/rq_textures.h"
+#include "modloader.h"
+#endif
+
 struct RE_options RE_options;
 
 static struct RE_plugin *plugins[RE_MAX_PLUGINS];
@@ -40,6 +48,133 @@ struct cg *RE_mod_texture(struct archive_data *game, const char *path, const cha
 	(void)kind;
 	return NULL;
 }
+#define rq_pending_clear(handle) ((void)(handle))
+#define rq_drop_stale(handle, self, name) ((void)0)
+#else
+// RQ MOD: a model a plugin keeps (model_cache) whose textures a mod changed is loaded again at its
+// next load with no copy of it on screen (modloader_texture.c). The keys waiting for that, per
+// plugin. Nothing is freed outside a load, so no GL work happens in a mod's call.
+struct rq_pending {
+	char **keys;
+	int n;
+};
+static struct rq_pending rq_pending[RE_MAX_PLUGINS];
+
+static void rq_pending_clear(int handle)
+{
+	struct rq_pending *p = &rq_pending[handle];
+	for (int i = 0; i < p->n; i++)
+		free(p->keys[i]);
+	free(p->keys);
+	p->keys = NULL;
+	p->n = 0;
+}
+
+static int rq_pending_find(struct rq_pending *p, const char *key)
+{
+	for (int i = 0; i < p->n; i++) {
+		if (!strcmp(p->keys[i], key))
+			return i;
+	}
+	return -1;
+}
+
+static void rq_pending_take(struct rq_pending *p, int at)
+{
+	free(p->keys[at]);
+	p->keys[at] = p->keys[--p->n];
+}
+
+struct rq_changed {
+	const char *folder, *name;
+	int own;
+	struct rq_pending *pending;
+};
+
+// A kept model is touched by a change in its folder: an unmarked one by any change for every use;
+// a marked one (a mod's model with textures of its own) by its own model's change, or by a change
+// for every use to a texture it has no own picture for.
+static void rq_mark_key(struct ht_slot *slot, void *data)
+{
+	struct rq_changed *c = data;
+	char key[1024];
+	size_t n;
+	int mark;
+
+	if (!slot->key || strlen(slot->key) >= sizeof key)
+		return;
+	strcpy(key, slot->key);
+	mark = rq_textures_mark(key);
+	rq_textures_strip_mark(key);
+	sjis_normalize_path(key);
+	n = strlen(key);
+	while (n > 0 && key[n - 1] == '\\')
+		key[--n] = '\0';
+	if (strcmp(key, c->folder))
+		return;
+	if (c->own ? mark != c->own : (mark && c->name && rq_texture_has_own(mark, c->folder, c->name)))
+		return;
+	if (rq_pending_find(c->pending, slot->key) < 0) {
+		c->pending->keys = xrealloc(c->pending->keys, (c->pending->n + 1) * sizeof(char *));
+		c->pending->keys[c->pending->n++] = xstrdup(slot->key);
+	}
+}
+
+void rq_reign_texture_changed(const char *folder, const char *name, int own)
+{
+	for (int h = 0; h < RE_MAX_PLUGINS; h++) {
+		if (!plugins[h] || !plugins[h]->model_cache)
+			continue;
+		struct rq_changed c = { folder, name, own, &rq_pending[h] };
+		ht_foreach(plugins[h]->model_cache, rq_mark_key, &c);
+	}
+}
+
+struct rq_rebuild {
+	struct hash_table *ht;
+	const char *skip;
+};
+
+static void rq_copy_slot(struct ht_slot *slot, void *data)
+{
+	struct rq_rebuild *r = data;
+	if (strcmp(slot->key, r->skip))
+		ht_put(r->ht, slot->key, slot->value);
+}
+
+// Before the game loads `name` into an instance: a kept copy whose textures changed goes, unless
+// another instance of the plugin holds it (then the load takes it, and it goes at a later load).
+static void rq_drop_stale(int handle, int self, const char *name)
+{
+	struct RE_plugin *p = RE_get_plugin(handle);
+	struct rq_pending *pend;
+	struct model *m;
+	int at;
+
+	if (!p || !name || !name[0])
+		return;
+	pend = &rq_pending[handle];
+	if (!pend->n || (at = rq_pending_find(pend, name)) < 0)
+		return;
+	m = ht_get(p->model_cache, name, NULL);
+	if (m) {
+		for (int i = 0; i < p->nr_instances; i++) {
+			if (i != self && p->instances[i] && p->instances[i]->model == m)
+				return;
+		}
+		if (self >= 0 && self < p->nr_instances && p->instances[self] && p->instances[self]->model == m)
+			RE_instance_load(p->instances[self], "");
+		struct rq_rebuild r = { ht_create(32), name };
+		ht_foreach(p->model_cache, rq_copy_slot, &r);
+		ht_free(p->model_cache);
+		p->model_cache = r.ht;
+		model_free(m);
+		char *shown = sjis2utf(name, 0);
+		rq_log("texture: dropped %s from plugin %d", shown, handle);
+		free(shown);
+	}
+	rq_pending_take(pend, at);
+}
 #endif
 
 int ReignEngine_create_plugin(enum RE_plugin_version version)
@@ -47,6 +182,7 @@ int ReignEngine_create_plugin(enum RE_plugin_version version)
 	for (int i = 0; i < RE_MAX_PLUGINS; i++) {
 		if (!plugins[i]) {
 			plugins[i] = RE_plugin_new(version);
+			rq_pending_clear(i);
 			return plugins[i] ? i : -1;
 		}
 	}
@@ -117,6 +253,7 @@ bool ReignEngine_ReleasePlugin(int handle)
 		return false;
 	RE_plugin_free(plugins[handle]);
 	plugins[handle] = NULL;
+	rq_pending_clear(handle);
 	return true;
 }
 
@@ -147,6 +284,7 @@ static bool ReignEngine_ReleaseInstance(int plugin, int instance)
 
 static bool ReignEngine_LoadInstance(int plugin, int instance, struct string *name)
 {
+	rq_drop_stale(plugin, instance, name->text);
 	return RE_instance_load(get_instance(plugin, instance), name->text);
 }
 

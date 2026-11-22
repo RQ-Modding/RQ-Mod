@@ -89,6 +89,18 @@ int rq_lua_image_compose(struct lua_State *L);
 /* Bitmaps inside the game's Flash files (modloader_image.c, 2.25.0). */
 int rq_lua_image_flash_bitmap(struct lua_State *L);
 int rq_lua_image_flash_bitmaps(struct lua_State *L);
+/* A mod's pictures on the game's 3D textures (modloader_texture.c, 2.64.0). */
+int rq_lua_image_texture(struct lua_State *L);
+int rq_lua_image_textures(struct lua_State *L);
+/* textures_stage and textures_commit for lua/monster.lua, set in the private table at priv. */
+void rq_texture_private(struct lua_State *L, int priv);
+/* Whether the model numbered `own` has a picture of its own for the texture `name` of `folder`
+ * (both in the archive's terms: Shift-JIS, ASCII upper case, backslashes). */
+bool rq_texture_has_own(int own, const char *folder, const char *name);
+/* hll/ReignEngine.c: a texture of `folder` changed (name NULL: every texture of the model numbered
+ * own). Each plugin loads the models it keeps from there again, at their next load with no copy on
+ * screen. */
+void rq_reign_texture_changed(const char *folder, const char *name, int own);
 typedef void (*rq_flash_bitmap_fn)(void *ctx, int id, int w, int h, const uint8_t *rgba, int mod, int used);
 int rq_flash_bitmaps_each(const char *name_utf8, rq_flash_bitmap_fn fn, void *ctx);
 /* Text in the HUD font as straight-alpha RGBA (modloader_hud.c). Main thread. */
@@ -557,7 +569,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.63.0"
+#define RQ_VERSION "2.64.0"
 /* The project's stage, after the version in the window title and the main menu's banner (2.59.2):
  * the tools that help make content are not done yet. "" when the stage ends. */
 #define RQ_STAGE "Public Beta"
@@ -601,7 +613,7 @@ int rq_lua_random_fix(struct lua_State *L);
  * entries (the file's in *file_count), or -1 when the table cannot be read. */
 int rq_models_count(int *file_count);
 bool rq_model_info(int i, char **name, char **poly, float *scale, float *x, float *y, float *z, int *motions);
-int rq_model_derive(int slot, int base, float scale, float x, float y, float z);
+int rq_model_derive(int slot, int base, float scale, float x, float y, float z, bool textures);
 void rq_random_seed(int seed);
 void rq_random_fix(int value);
 int rq_random_int(int max);
