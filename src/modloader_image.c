@@ -517,7 +517,7 @@ static int file_kind(const char *path)
 {
 	unsigned char h[32];
 	size_t n;
-	FILE *f = fopen(path, "rb");
+	FILE *f = rq_fopen(path, "rb");
 
 	if (!f)
 		return KIND_STILL;
@@ -588,7 +588,7 @@ static const char *webp_frames(const char *path, struct anim_load *ld)
 	uint8_t *buf;
 	long len;
 	int prev = 0;
-	FILE *f = fopen(path, "rb");
+	FILE *f = rq_fopen(path, "rb");
 
 	if (!f)
 		return "not found";
@@ -844,7 +844,7 @@ static bool still_size(uint8_t *data, size_t n, long long *w, long long *h)
  * a reason instead of an abort), the rest through libsys4. NULL with the reason in `why`. */
 static struct cg *load_still(const char *path, char *why, size_t why_len)
 {
-	FILE *f = fopen(path, "rb");
+	FILE *f = rq_fopen(path, "rb");
 	long n;
 	uint8_t *data;
 	struct cg *cg;
@@ -1242,7 +1242,7 @@ int rq_lua_image_flash_bitmap(lua_State *L)
 
 	if (!rq_sandbox_resolve(L, rel, path, (int)sizeof path))
 		return luaL_error(L, "image path '%s' is not inside the mod folder", rel);
-	if (!(f = fopen(path, "rb")))
+	if (!(f = rq_fopen(path, "rb")))
 		return luaL_error(L, "image '%s' not found in the mod folder", rel);
 	fclose(f);
 	if (file_kind(path) != KIND_STILL)
@@ -1391,7 +1391,7 @@ static void resolve_file(lua_State *L, const char *rel, char *full, int n)
 
 	if (!rq_sandbox_resolve(L, rel, full, n))
 		luaL_error(L, "image path '%s' is not inside the mod folder", rel);
-	f = fopen(full, "rb");
+	f = rq_fopen(full, "rb");
 	if (!f)
 		luaL_error(L, "image '%s' not found in the mod folder", rel);
 	fclose(f);

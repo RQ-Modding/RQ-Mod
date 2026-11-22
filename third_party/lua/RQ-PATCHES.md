@@ -29,3 +29,19 @@ Lua's test suite (`lua-5.4.7-tests` from lua.org, every file, run with `_port=tr
 changed VM as on the unchanged one (2026-11-10). On Windows, `os.tmpname` names a file at the root
 of the drive, so `verybig.lua` and `files.lua` need it pointed at a folder you can write to:
 `lua -e "_port=true; local n=0; os.tmpname=function() n=n+1; return [[C:\some\dir\t]]..n end" files.lua`.
+
+## 2. File names in UTF-8 on Windows (loader 2.64.0)
+
+`onelua.c`, before the libraries. On Windows, `fopen`, `freopen`, `remove` and `rename` in `lauxlib.c`,
+`liolib.c`, `loadlib.c` and `loslib.c` go through small functions that turn a UTF-8 name into wide
+characters and call `_wfopen`, `_wfreopen`, `_wremove` and `_wrename`. A name that is not valid UTF-8
+is read in the system's code page, as the C library's own calls read it (each name of a `rename` on its
+own). Lua's core, above the change in `onelua.c`, opens no file.
+
+Why: the engine's paths are UTF-8, as libsys4's are, while the C library's calls read a name in the
+system's code page. A mod's `io.open`, `require`, `dofile` and `loadfile` would fail in a folder named
+outside ASCII, and no code page can spell every folder's name.
+
+What it costs: a name in the system's code page whose bytes happen to be valid UTF-8 is read as UTF-8.
+
+Lua's test suite has not been run on this change.

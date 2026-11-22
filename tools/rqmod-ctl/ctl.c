@@ -99,7 +99,7 @@ int main(int argc, char **argv)
 			"  rqmod-ctl ungrab             release the agent cursor\n"
 			"  rqmod-ctl pause              hold the game on this frame (ui and shot still work)\n"
 			"  rqmod-ctl resume             let the game run again\n"
-			"  rqmod-ctl shot <path.png>    save the game surface as a PNG (ASCII path)\n"
+			"  rqmod-ctl shot <path.png>    save the game surface as a PNG (any path)\n"
 			"  rqmod-ctl cgdump FROM TO DIR save the game's CGs in that number range as PNG\n"
 			"  rqmod-ctl flashdump NAME DIR save every bitmap of a game Flash file as\n"
 			"                               <id>_<w>x<h>.png; NAME as in rq.image.flash_bitmap\n"

@@ -592,7 +592,7 @@ const char *rq_gif_frames(const char *path, gif_frame_fn frame, void *ctx, int *
 	const char *err;
 	uint8_t *data;
 	long len;
-	FILE *f = fopen(path, "rb");
+	FILE *f = rq_fopen(path, "rb");
 
 	if (!f)
 		return "not found";
@@ -830,7 +830,7 @@ int rq_lua_image_add_gif(lua_State *L)
 	}
 	if (!rq_sandbox_resolve(L, rel, full, (int)sizeof full))
 		return luaL_error(L, "GIF path '%s' is not inside the mod folder", rel);
-	f = fopen(full, "rb");
+	f = rq_fopen(full, "rb");
 	if (!f)
 		return luaL_error(L, "GIF '%s' not found in the mod folder", rel);
 	fseek(f, 0, SEEK_END);
@@ -962,7 +962,7 @@ int rq_lua_image_add_flash(lua_State *L)
 		return luaL_error(L, "add_flash key must be 1 to 103 bytes");
 	if (!rq_sandbox_resolve(L, rel, full, (int)sizeof full))
 		return luaL_error(L, "Flash path '%s' is not inside the mod folder", rel);
-	f = fopen(full, "rb");
+	f = rq_fopen(full, "rb");
 	if (!f)
 		return luaL_error(L, "Flash file '%s' not found in the mod folder", rel);
 	fseek(f, 0, SEEK_END);

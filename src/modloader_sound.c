@@ -276,7 +276,7 @@ static int play_file(lua_State *L, const char *rel, int opts)
 	snprintf(key, sizeof key, "file:%s", full);
 	if ((c = cache_get(key)))
 		return play_bytes(L, c, opts);
-	f = fopen(full, "rb");
+	f = rq_fopen(full, "rb");
 	if (!f)
 		return luaL_error(L, "sound '%s' not found in the mod folder", rel);
 	fseek(f, 0, SEEK_END);

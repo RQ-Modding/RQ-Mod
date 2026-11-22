@@ -1008,7 +1008,7 @@ function ui.aim(id) end
 ---  if ok ~= nil then rq.log("shot saved:", ok) end
 ---end)
 ---```
----@param path string A path inside the mod's folder, in ASCII.
+---@param path string A path inside the mod's folder.
 ---@see rq.ui.shot_result
 function ui.shot(path) end
 
@@ -9964,8 +9964,8 @@ function encounters.on_encounter(fn) end
 ---```
 ---@class rq
 ---@field version string The loader version, such as "1.16.0". A mod whose `mod.json` asks for a newer `loader` is not loaded.
----@field game_dir string The game folder (where the AIN is).
----@field mods_dir string The `mods` folder, ending in a backslash.
+---@field game_dir string The game folder (where the AIN is), in UTF-8 as every path the loader gives.
+---@field mods_dir string The `mods` folder, in UTF-8, with no backslash at the end.
 ---@field units rq.units
 ---@field items rq.items
 ---@field castle rq.castle

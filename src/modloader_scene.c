@@ -1621,7 +1621,7 @@ static int l_read_json(lua_State *L)
 		lua_pushstring(L, "not a file in the mod's folder");
 		return 2;
 	}
-	f = fopen(full, "rb");
+	f = rq_fopen(full, "rb");
 	if (!f) {
 		lua_pushnil(L);
 		lua_pushstring(L, "no such file");

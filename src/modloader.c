@@ -63,6 +63,55 @@ lua_State *rq_lua(void)
 	return g_L;
 }
 
+#ifdef _WIN32
+int rq_wpath(const char *path, wchar_t *out, int n)
+{
+	if (!path || !out || n <= 0)
+		return 0;
+	return MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, out, n) > 0;
+}
+
+int rq_utf8_name(const wchar_t *name, char *out, int n)
+{
+	if (!name || !out || n <= 0)
+		return 0;
+	return WideCharToMultiByte(CP_UTF8, 0, name, -1, out, n, NULL, NULL) > 0;
+}
+
+FILE *rq_fopen(const char *path, const char *mode)
+{
+	wchar_t wp[RQ_PATH_MAX], wm[16];
+	if (!path || !mode)
+		return NULL;
+	if (!rq_wpath(path, wp, RQ_PATH_MAX))
+		return GetLastError() == ERROR_NO_UNICODE_TRANSLATION ? fopen(path, mode) : NULL;
+	if (!rq_wpath(mode, wm, (int)(sizeof wm / sizeof wm[0])))
+		return NULL;
+	return _wfopen(wp, wm);
+}
+
+unsigned long rq_file_attrs(const char *path)
+{
+	wchar_t wp[RQ_PATH_MAX];
+	if (!rq_wpath(path, wp, RQ_PATH_MAX))
+		return INVALID_FILE_ATTRIBUTES;
+	return GetFileAttributesW(wp);
+}
+
+int rq_move_file(const char *from, const char *to, unsigned long flags)
+{
+	wchar_t wf[RQ_PATH_MAX], wt[RQ_PATH_MAX];
+	if (!rq_wpath(from, wf, RQ_PATH_MAX) || !rq_wpath(to, wt, RQ_PATH_MAX))
+		return 0;
+	return MoveFileExW(wf, wt, flags) != 0;
+}
+#else
+FILE *rq_fopen(const char *path, const char *mode)
+{
+	return fopen(path, mode);
+}
+#endif
+
 static void rq_vlog(const char *tag, const char *fmt, va_list ap)
 {
 	char buf[1024];
@@ -2051,7 +2100,7 @@ static int read_manifest(const char *path, const char *folder, struct rq_mod_dis
 	long sz;
 	cJSON *root, *v;
 	memset(d, 0, sizeof *d);
-	fp = fopen(path, "rb");
+	fp = rq_fopen(path, "rb");
 	if (!fp)
 		return 0;
 	if (fseek(fp, 0, SEEK_END) != 0) {
@@ -2135,9 +2184,10 @@ static void log_skips(struct rq_mod_disk *mods, int n)
 
 static int load_mods(lua_State *L)
 {
-	WIN32_FIND_DATAA fd;
+	WIN32_FIND_DATAW fd;
 	HANDLE h;
 	char pattern[RQ_PATH_MAX];
+	wchar_t wpattern[RQ_PATH_MAX];
 	struct rq_mod_disk mods[RQ_ORDER_MAX];
 	struct rq_mod_node nodes[RQ_ORDER_MAX];
 	int order[RQ_ORDER_MAX];
@@ -2146,44 +2196,48 @@ static int load_mods(lua_State *L)
 
 	/* Folders with mod.json only. loadorder.txt is not read. */
 	snprintf(pattern, sizeof pattern, "%s\\*", g_rq_mods_dir);
-	h = FindFirstFileA(pattern, &fd);
+	if (!rq_wpath(pattern, wpattern, RQ_PATH_MAX))
+		return 0;
+	h = FindFirstFileW(wpattern, &fd);
 	if (h == INVALID_HANDLE_VALUE)
 		return 0;
 	do {
-		char json[RQ_PATH_MAX], init[RQ_PATH_MAX];
+		char json[RQ_PATH_MAX], init[RQ_PATH_MAX], folder[RQ_PATH_MAX];
 		int rc;
 		if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
 			continue;
-		if (fd.cFileName[0] == '.')
+		if (fd.cFileName[0] == L'.')
+			continue;
+		if (!rq_utf8_name(fd.cFileName, folder, (int)sizeof folder))
 			continue;
 		if (n >= RQ_ORDER_MAX) {
-			rq_log("skip %s: mod list is full", fd.cFileName);
+			rq_log("skip %s: mod list is full", folder);
 			continue;
 		}
-		snprintf(json, sizeof json, "%s\\%s\\mod.json", g_rq_mods_dir, fd.cFileName);
-		snprintf(init, sizeof init, "%s\\%s\\init.lua", g_rq_mods_dir, fd.cFileName);
-		if (GetFileAttributesA(json) == INVALID_FILE_ATTRIBUTES) {
-			if (GetFileAttributesA(init) != INVALID_FILE_ATTRIBUTES)
-				rq_log("skip %s: no mod.json", fd.cFileName);
+		snprintf(json, sizeof json, "%s\\%s\\mod.json", g_rq_mods_dir, folder);
+		snprintf(init, sizeof init, "%s\\%s\\init.lua", g_rq_mods_dir, folder);
+		if (rq_file_attrs(json) == INVALID_FILE_ATTRIBUTES) {
+			if (rq_file_attrs(init) != INVALID_FILE_ATTRIBUTES)
+				rq_log("skip %s: no mod.json", folder);
 			continue;
 		}
-		rc = read_manifest(json, fd.cFileName, &mods[n]);
+		rc = read_manifest(json, folder, &mods[n]);
 		if (rc == 0) {
-			rq_log("skip %s: bad mod.json", fd.cFileName);
+			rq_log("skip %s: bad mod.json", folder);
 			continue;
 		}
 		if (rc < 0) {
-			rq_log("skip %s: too many dependencies", mods[n].node.id[0] ? mods[n].node.id : fd.cFileName);
+			rq_log("skip %s: too many dependencies", mods[n].node.id[0] ? mods[n].node.id : folder);
 			continue;
 		}
-		if (GetFileAttributesA(init) == INVALID_FILE_ATTRIBUTES) {
+		if (rq_file_attrs(init) == INVALID_FILE_ATTRIBUTES) {
 			rq_log("skip %s: no init.lua", mods[n].node.id);
 			continue;
 		}
-		snprintf(mods[n].dir, sizeof mods[n].dir, "%s\\%s", g_rq_mods_dir, fd.cFileName);
+		snprintf(mods[n].dir, sizeof mods[n].dir, "%s\\%s", g_rq_mods_dir, folder);
 		snprintf(mods[n].init, sizeof mods[n].init, "%s", init);
 		n++;
-	} while (FindNextFileA(h, &fd));
+	} while (FindNextFileW(h, &fd));
 	FindClose(h);
 
 	for (i = 0; i < n; i++)
@@ -2213,13 +2267,13 @@ static int load_mods(lua_State *L)
 
 static int dir_exists(const char *p)
 {
-	DWORD a = GetFileAttributesA(p);
+	DWORD a = rq_file_attrs(p);
 	return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY);
 }
 
 static int file_exists(const char *p)
 {
-	DWORD a = GetFileAttributesA(p);
+	DWORD a = rq_file_attrs(p);
 	return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
 }
 
@@ -2229,8 +2283,12 @@ static void resolve_dirs(void)
 	char parent[RQ_PATH_MAX];
 	char *slash;
 	char ainpath[RQ_PATH_MAX], inipath[RQ_PATH_MAX], mods1[RQ_PATH_MAX], mods2[RQ_PATH_MAX];
+	wchar_t wexe[RQ_PATH_MAX];
+	DWORD got = GetModuleFileNameW(NULL, wexe, RQ_PATH_MAX);
 
-	GetModuleFileNameA(NULL, exe, RQ_PATH_MAX);
+	/* In UTF-8, as every path of the loader: the code page cannot name every folder. */
+	if (!got || got >= RQ_PATH_MAX || !rq_utf8_name(wexe, exe, (int)sizeof exe))
+		snprintf(exe, sizeof exe, ".\\xsystem4.exe");
 	slash = strrchr(exe, '\\');
 	if (slash)
 		*slash = 0;
@@ -2265,22 +2323,28 @@ static void resolve_dirs(void)
 static void prepare_logs_dir(void)
 {
 	static const char *const k_old[] = { "rqmod*.log", "rqmod-crash-*.dmp", "rqmod-running.flag" };
-	WIN32_FIND_DATAA fd;
-	char pattern[RQ_PATH_MAX], from[RQ_PATH_MAX], to[RQ_PATH_MAX];
+	WIN32_FIND_DATAW fd;
+	wchar_t wide[RQ_PATH_MAX];
+	char pattern[RQ_PATH_MAX], name[RQ_PATH_MAX], from[RQ_PATH_MAX], to[RQ_PATH_MAX];
 	size_t i;
 	HANDLE h;
 
-	CreateDirectoryA(g_rq_logs_dir, NULL);
+	if (rq_wpath(g_rq_logs_dir, wide, RQ_PATH_MAX))
+		CreateDirectoryW(wide, NULL);
 	for (i = 0; i < sizeof k_old / sizeof k_old[0]; i++) {
 		snprintf(pattern, sizeof pattern, "%s\\%s", g_rq_mods_dir, k_old[i]);
-		h = FindFirstFileA(pattern, &fd);
+		if (!rq_wpath(pattern, wide, RQ_PATH_MAX))
+			continue;
+		h = FindFirstFileW(wide, &fd);
 		if (h == INVALID_HANDLE_VALUE)
 			continue;
 		do {
-			snprintf(from, sizeof from, "%s\\%s", g_rq_mods_dir, fd.cFileName);
-			snprintf(to, sizeof to, "%s\\%s", g_rq_logs_dir, fd.cFileName);
-			MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING);
-		} while (FindNextFileA(h, &fd));
+			if (!rq_utf8_name(fd.cFileName, name, (int)sizeof name))
+				continue;
+			snprintf(from, sizeof from, "%s\\%s", g_rq_mods_dir, name);
+			snprintf(to, sizeof to, "%s\\%s", g_rq_logs_dir, name);
+			rq_move_file(from, to, MOVEFILE_REPLACE_EXISTING);
+		} while (FindNextFileW(h, &fd));
 		FindClose(h);
 	}
 }
@@ -2357,9 +2421,9 @@ static void load_config(void)
 	g_rq_verbose = 0;
 	g_rq_terminal = 1;
 	snprintf(path, sizeof path, "%s\\config.json", g_rq_exe_dir);
-	fp = fopen(path, "rb");
+	fp = rq_fopen(path, "rb");
 	if (!fp) {
-		fp = fopen(path, "wb");
+		fp = rq_fopen(path, "wb");
 		if (fp) {
 			fwrite(DEFAULT_JSON, 1, sizeof DEFAULT_JSON - 1, fp);
 			fclose(fp);
@@ -2407,7 +2471,7 @@ void rq_mods_early_init(void)
 		prepare_logs_dir();
 		snprintf(logpath, sizeof logpath, "%s\\rqmod.log", g_rq_logs_dir);
 		rq_crash_rotate_logs(g_rq_logs_dir);
-		g_rq_log = fopen(logpath, "w");
+		g_rq_log = rq_fopen(logpath, "w");
 		rq_crash_install();
 	}
 	if (g_rq_terminal)
@@ -2580,7 +2644,7 @@ void rq_mods_init(struct ain *ain)
 		prepare_logs_dir();
 		snprintf(logpath, sizeof logpath, "%s\\rqmod.log", g_rq_logs_dir);
 		rq_crash_rotate_logs(g_rq_logs_dir);
-		g_rq_log = fopen(logpath, "w");
+		g_rq_log = rq_fopen(logpath, "w");
 		rq_crash_install();
 	} else if (!dir_exists(g_rq_mods_dir)) {
 		rq_log("No mods folder at %s — running vanilla AIN", g_rq_mods_dir);

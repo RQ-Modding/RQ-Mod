@@ -18,6 +18,8 @@
 #include "profile.h"
 #include "gfx/font.h"
 #include "system4/instructions.h"
+#include "system4/file.h"
+#include "system4/utfsjis.h"
 
 #define RQ_PROF_SLOW_MS 50.0
 #define RQ_HLL_CAP 1024
@@ -183,10 +185,19 @@ static void reset_accum(void)
 
 static void resolve_path(void)
 {
-	const char *env = getenv("XSYS4_PROFILE");
+	/* Every path here is UTF-8, as SDL's folder is: the files open with file_open_utf8. */
+#ifdef _WIN32
+	const wchar_t *wenv = _wgetenv(L"XSYS4_PROFILE");
+	char *env = wenv && wenv[0] ? wchar_to_utf8(wenv) : NULL;
+#else
+	const char *genv = getenv("XSYS4_PROFILE");
+	char *env = genv && genv[0] ? strdup(genv) : NULL;
+#endif
 	if (env && env[0]) {
 		snprintf(out_path, sizeof(out_path), "%s", env);
+		free(env);
 	} else {
+		free(env);
 		char *base = SDL_GetBasePath();
 		if (base) {
 			snprintf(out_path, sizeof(out_path), "%sxsystem4-profile.csv", base);
@@ -339,7 +350,7 @@ void rq_prof_init(void)
 	t_last_frame = t_start;
 	resolve_path();
 	if (g_rq_prof.csv) {
-		out = fopen(out_path, "w");
+		out = file_open_utf8(out_path, "w");
 		if (!out) {
 			fprintf(stderr, "[rq-prof] could not open %s\n", out_path);
 		} else {
@@ -354,7 +365,7 @@ void rq_prof_init(void)
 		}
 	}
 	if (g_rq_prof.leftover_ain) {
-		ain_log = fopen(ain_path, "w");
+		ain_log = file_open_utf8(ain_path, "w");
 		if (ain_log) {
 			fprintf(ain_log, "t_ms,kind,elapsed_ms,requested_ms,ain_stack,hll,hll_ms\n");
 			fflush(ain_log);
@@ -367,7 +378,7 @@ void rq_prof_init(void)
 	want_hll_log = g_rq_prof.hll || g_rq_prof.update_split || g_rq_prof.vm_ops
 		|| g_rq_prof.ain_fn || g_rq_prof.text_cache;
 	if (want_hll_log) {
-		hll_log = fopen(hll_path, "w");
+		hll_log = file_open_utf8(hll_path, "w");
 		if (hll_log) {
 			fprintf(hll_log, "t_ms,hll,ms,n,ain_stack\n");
 			fflush(hll_log);

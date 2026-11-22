@@ -24,7 +24,6 @@ __declspec(dllimport) int __stdcall WriteFile(rq_handle, const void *, unsigned 
 __declspec(dllimport) int __stdcall ReadFile(rq_handle, void *, unsigned long, unsigned long *, void *);
 __declspec(dllimport) int __stdcall PeekNamedPipe(rq_handle, void *, unsigned long, unsigned long *, unsigned long *, unsigned long *);
 __declspec(dllimport) int __stdcall CloseHandle(rq_handle);
-__declspec(dllimport) int __stdcall MoveFileExA(const char *, const char *, unsigned long);
 __declspec(dllimport) unsigned long __stdcall GetCurrentProcessId(void);
 __declspec(dllimport) unsigned long long __stdcall GetTickCount64(void);
 __declspec(dllimport) unsigned long __stdcall GetEnvironmentVariableA(const char *, char *, unsigned long);
@@ -146,7 +145,7 @@ static cJSON *load_json(void)
 	char *buf;
 	cJSON *root;
 	config_path(path, sizeof path);
-	fp = fopen(path, "rb");
+	fp = rq_fopen(path, "rb");
 	if (!fp)
 		return NULL;
 	if (fseek(fp, 0, SEEK_END) != 0) {
@@ -224,7 +223,7 @@ static void save_disabled(void)
 		}
 		return;
 	}
-	fp = fopen(tmp, "wb");
+	fp = rq_fopen(tmp, "wb");
 	if (!fp) {
 		free(text);
 		if (!g_save_warned) {
@@ -238,7 +237,7 @@ static void save_disabled(void)
 	fclose(fp);
 	free(text);
 #ifdef _WIN32
-	if (!MoveFileExA(tmp, path, RQ_MOVE_REPLACE | RQ_MOVE_WRITE_THROUGH)) {
+	if (!rq_move_file(tmp, path, RQ_MOVE_REPLACE | RQ_MOVE_WRITE_THROUGH)) {
 		if (!g_save_warned) {
 			g_save_warned = 1;
 			rq_log("Discord presence: could not replace config.json");

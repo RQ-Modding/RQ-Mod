@@ -83,18 +83,41 @@ static void strip_slash(char *p)
 static int full_path(const char *in, char *out, int n)
 {
 #ifdef _WIN32
+	wchar_t win[RQ_PATH_MAX], wout[RQ_PATH_MAX];
 	DWORD got;
-	if (!in || !out || n <= 0)
+	/* UTF-8 only: a mod's name was made UTF-8 before it met its folder (mod_name_utf8) */
+	if (!in || !out || n <= 0 || !rq_wpath(in, win, RQ_PATH_MAX))
 		return 0;
-	got = GetFullPathNameA(in, (DWORD)n, out, NULL);
-	if (got == 0 || got >= (DWORD)n)
+	got = GetFullPathNameW(win, RQ_PATH_MAX, wout, NULL);
+	if (got == 0 || got >= RQ_PATH_MAX)
 		return 0;
-	return 1;
+	return rq_utf8_name(wout, out, n);
 #else
 	(void)in;
 	(void)out;
 	(void)n;
 	return 0;
+#endif
+}
+
+/* A name a mod gave, in UTF-8: one that is not UTF-8 is read in the system's code page, as every
+ * name was before 2.64.0. The mod's folder is UTF-8, so the two make one path read one way. NULL
+ * when it cannot be read. */
+static const char *mod_name_utf8(const char *name, char *buf, int n)
+{
+#ifdef _WIN32
+	wchar_t w[RQ_PATH_MAX];
+	if (rq_wpath(name, w, RQ_PATH_MAX))
+		return name;
+	if (GetLastError() != ERROR_NO_UNICODE_TRANSLATION)
+		return NULL;
+	if (MultiByteToWideChar(CP_ACP, 0, name, -1, w, RQ_PATH_MAX) <= 0 || !rq_utf8_name(w, buf, n))
+		return NULL;
+	return buf;
+#else
+	(void)buf;
+	(void)n;
+	return name;
 #endif
 }
 
@@ -371,7 +394,8 @@ static int resolve_in_mod(lua_State *L, const char *path, int allow_abs, char *o
 	char dir[RQ_PATH_MAX];
 	char joined[RQ_PATH_MAX];
 	char full[RQ_PATH_MAX];
-	if (!path || !path[0])
+	char named[RQ_PATH_MAX];
+	if (!path || !path[0] || !(path = mod_name_utf8(path, named, (int)sizeof named)))
 		return 0;
 	if (!caller_dir(L, dir, (int)sizeof dir))
 		return 0;
@@ -624,9 +648,11 @@ static int rq_module_loader(lua_State *L)
  * 0 when there is no such file. A file that does not compile is an error. */
 static int module_file(lua_State *L, int mod, const char *rel, char *path, int n)
 {
-	char joined[RQ_PATH_MAX], full[RQ_PATH_MAX];
+	char joined[RQ_PATH_MAX], full[RQ_PATH_MAX], named[RQ_PATH_MAX];
 	const char *dir = g_mod_dirs[mod];
 	int err;
+	if (!(rel = mod_name_utf8(rel, named, (int)sizeof named)))
+		return 0;
 	snprintf(joined, sizeof joined, "%s\\%s", dir, rel);
 	if (!full_path(joined, full, (int)sizeof full))
 		return 0;

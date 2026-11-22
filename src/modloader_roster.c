@@ -1457,7 +1457,7 @@ static void store_open(struct store *st)
 		snprintf(st->path, sizeof st->path, "%s\\rqmod-store.json",
 			 config.save_dir && config.save_dir[0] ? config.save_dir : g_rq_game_dir);
 	}
-	f = fopen(st->path, "rb");
+	f = rq_fopen(st->path, "rb");
 	if (f) {
 		fseek(f, 0, SEEK_END);
 		n = ftell(f);
@@ -1487,7 +1487,7 @@ static void store_flush(struct store *st)
 	s = cJSON_Print(st->doc);
 	if (!s)
 		return;
-	f = fopen(st->path, "wb");
+	f = rq_fopen(st->path, "wb");
 	if (f) {
 		fwrite(s, 1, strlen(s), f);
 		fclose(f);

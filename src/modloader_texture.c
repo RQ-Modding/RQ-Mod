@@ -167,7 +167,7 @@ static void remove_tex(struct tex *e)
 /* The whole file, read as the engine's mod paths are made (fopen on the resolved path). */
 static uint8_t *read_file(const char *path, size_t *size, char *why, size_t why_len)
 {
-	FILE *f = fopen(path, "rb");
+	FILE *f = rq_fopen(path, "rb");
 	long n;
 	uint8_t *data;
 
@@ -486,7 +486,7 @@ static bool get_pictures(lua_State *L, int idx, const char *shown, struct pictur
 		}
 		out->files[i] = xstrdup(full);
 		if (!(data = read_file(full, &size, why, sizeof why))) {
-			FILE *f = fopen(full, "rb");
+			FILE *f = rq_fopen(full, "rb");
 			if (f) {
 				fclose(f);
 				snprintf(err, err_len, "texture picture '%s' cannot be read: %s", out->given[i], why);

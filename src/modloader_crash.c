@@ -236,17 +236,19 @@ static const char *exc_name(DWORD code)
  * a stale file is ignored instead of giving wrong names. */
 static int sym_lookup(uint64_t rva, char *name, size_t n, uint64_t *off)
 {
-	char path[MAX_PATH], line[512];
+	char path[RQ_PATH_MAX], line[512];
+	wchar_t wpath[RQ_PATH_MAX];
 	FILE *f;
 	char *slash;
 	uint64_t best = 0, cur;
 	int found = 0;
 	long exe_size = 0, want = 0;
 	HANDLE h;
+	DWORD got = GetModuleFileNameW(NULL, wpath, RQ_PATH_MAX);
 
-	if (!GetModuleFileNameA(NULL, path, sizeof path))
+	if (!got || got >= RQ_PATH_MAX || !rq_utf8_name(wpath, path, (int)sizeof path))
 		return 0;
-	h = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+	h = CreateFileW(wpath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
 			OPEN_EXISTING, 0, NULL);
 	if (h != INVALID_HANDLE_VALUE) {
 		exe_size = (long)GetFileSize(h, NULL);
@@ -256,7 +258,7 @@ static int sym_lookup(uint64_t rva, char *name, size_t n, uint64_t *off)
 	if (!slash)
 		return 0;
 	snprintf(slash + 1, sizeof path - (size_t)(slash + 1 - path), "xsystem4.sym");
-	f = fopen(path, "r");
+	f = rq_fopen(path, "r");
 	if (!f)
 		return 0;
 	if (!fgets(line, sizeof line, f) || sscanf(line, "# exe-size %ld", &want) != 1
@@ -374,7 +376,10 @@ static void write_minidump(const char *path, EXCEPTION_POINTERS *ep)
 	dump = (minidump_fn)GetProcAddress(dbg, "MiniDumpWriteDump");
 	if (!dump)
 		return;
-	h = CreateFileA(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	wchar_t wpath[RQ_PATH_MAX];
+	if (!rq_wpath(path, wpath, RQ_PATH_MAX))
+		return;
+	h = CreateFileW(wpath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (h == INVALID_HANDLE_VALUE)
 		return;
 	mei.ThreadId = GetCurrentThreadId();
@@ -406,7 +411,7 @@ static void write_report(const char *why, EXCEPTION_POINTERS *ep)
 		return; /* the report itself crashed */
 	g_in_report = 1;
 	report_path(path, sizeof path, "log");
-	f = fopen(path, "w");
+	f = rq_fopen(path, "w");
 	if (f)
 		outs[n++] = f;
 	if (g_rq_log)
@@ -502,7 +507,7 @@ int rq_crash_where(char *out, size_t outn)
 	snprintf(path, sizeof path, "%s\\rqmod-where-%04d%02d%02d-%02d%02d%02d.txt", g_crash_dir,
 		 (int)t.wYear, (int)t.wMonth, (int)t.wDay, (int)t.wHour, (int)t.wMinute,
 		 (int)t.wSecond);
-	f = fopen(path, "w");
+	f = rq_fopen(path, "w");
 	if (!f)
 		return 0;
 	write_header(f, "where the game thread is (rqmod-ctl where)");
@@ -539,7 +544,7 @@ static void write_report(const char *why, void *ep)
 		return;
 	g_in_report = 1;
 	snprintf(path, sizeof path, "%s/rqmod-crash-%ld.log", g_crash_dir, (long)time(NULL));
-	f = fopen(path, "w");
+	f = rq_fopen(path, "w");
 	if (!f)
 		return;
 	write_header(f, why);
@@ -559,8 +564,14 @@ static void on_abort(int sig)
 
 static void on_clean_exit(void)
 {
+#ifdef _WIN32
+	wchar_t w[RQ_PATH_MAX];
+	if (g_flag_path[0] && rq_wpath(g_flag_path, w, RQ_PATH_MAX))
+		_wremove(w);
+#else
 	if (g_flag_path[0])
 		remove(g_flag_path);
+#endif
 }
 
 /* Called by the VM error path (and usable from anywhere with a message). */
@@ -582,7 +593,7 @@ void rq_crash_test(void)
 
 static int exists(const char *p)
 {
-	FILE *f = fopen(p, "rb");
+	FILE *f = rq_fopen(p, "rb");
 	if (!f)
 		return 0;
 	fclose(f);
@@ -608,9 +619,11 @@ void rq_crash_rotate_logs(const char *dir)
 		snprintf(keep, sizeof keep, "%s\\rqmod-unclean-%04d%02d%02d-%02d%02d%02d.log", dir,
 			 (int)t.wYear, (int)t.wMonth, (int)t.wDay, (int)t.wHour,
 			 (int)t.wMinute, (int)t.wSecond);
-		CopyFileA(cur, keep, FALSE);
+		wchar_t wcur[RQ_PATH_MAX], wkeep[RQ_PATH_MAX];
+		if (rq_wpath(cur, wcur, RQ_PATH_MAX) && rq_wpath(keep, wkeep, RQ_PATH_MAX))
+			CopyFileW(wcur, wkeep, FALSE);
 	}
-	MoveFileExA(cur, prev, MOVEFILE_REPLACE_EXISTING);
+	rq_move_file(cur, prev, MOVEFILE_REPLACE_EXISTING);
 #else
 	(void)keep;
 	rename(cur, prev);
@@ -629,7 +642,7 @@ void rq_crash_install(void)
 #endif
 	if (g_flag_path[0]) {
 		int unclean = exists(g_flag_path);
-		f = fopen(g_flag_path, "w");
+		f = rq_fopen(g_flag_path, "w");
 		if (f) {
 			fprintf(f, "running\n");
 			fclose(f);
