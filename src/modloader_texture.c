@@ -880,6 +880,27 @@ static int l_textures_stage(lua_State *L)
 		g_stage[g_nstage++] = st;
 		lua_pop(L, 1);
 	}
+	/* "*" on a base with no model or no colour texture would change nothing: refused, as a name
+	 * would be. */
+	if (have_star) {
+		int colors = 0;
+		for (int i = 0; l && i < l->n; i++) {
+			if ((l->rows[i].kinds & RQ_TEXTURE_COLOR) && !l->rows[i].missing)
+				colors++;
+		}
+		if (!l || !colors) {
+			free_pictures(&star);
+			stage_clear();
+			lua_pushnil(L);
+			if (!l)
+				lua_pushfstring(L, "%s: textures: no model in '%s' (rq.image.textures lists a model's textures)",
+						who, folder_shown);
+			else
+				lua_pushfstring(L, "%s: textures: '*': the model in '%s' has no colour texture", who,
+						folder_shown);
+			return 2;
+		}
+	}
 	/* "*": the same colors on each colour texture no name gave. */
 	for (int i = 0; have_star && l && i < l->n; i++) {
 		const struct rq_texture *t = &l->rows[i];

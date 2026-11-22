@@ -4147,7 +4147,7 @@ function image.flash_bitmaps(file) end
 ---@class rq.TextureInfo
 ---@field name string The texture's file name, as the model names it, such as "gokiburi.png".
 ---@field path string Its full path in the game's archive with `/`, as `rq.image.texture` takes it. For a mod's model, the path in its base's folder.
----@field kind "color"|"alpha"|"light"|"normal"|"specular" How the model uses it: "color" when any material draws its colours from it, else its other use. Rance Quest's models use colour and alpha maps.
+---@field kind "color"|"alpha"|"light"|"normal"|"specular" How the model uses it: "color" when any material draws its colours from it, else its other use. Rance Quest's models use colour, alpha and light maps; a model may also name a map its archive lacks (see `missing`).
 ---@field alpha_map boolean True when a material also uses this colour file as its own alpha map. It matters only where `alpha` is false: the game's red then keeps cutting the model's holes whatever picture is put there. Where `alpha` is true, the picture's alpha decides, as on any texture with alpha.
 ---@field frames integer For a colour texture the game animates, its frames (`face.png`, `face[1].png` and `face[2].png` are 3); otherwise 1.
 ---@field missing boolean True when the game's archive lacks the file. Such a texture cannot be changed and has no `w`, `h` or `alpha`.
@@ -9782,9 +9782,9 @@ function monster.models() end
 ---Raises an error for a `def` that is not a table, an `id` that is not a text, an unknown field, a
 ---`base` that is not a game model, a `scale` that is not above 0 and at most 50, an offset that is
 ---not a number, an id another mod made, or when the table cannot be read; for `textures` that are
----not a table, a key that is not a texture's name, "*" given anything but colors, or an entry
----`rq.image.texture` would refuse, each with the call's id. A call that raises an error changes
----nothing.
+---not a table, a key that is not a texture's name, "*" given anything but colors, "*" on a base
+---with no model or no colour texture, or an entry `rq.image.texture` would refuse, each with the
+---call's id. A call that raises an error changes nothing.
 ---
 ---Since: 2.40.0
 ---Changed: 2.64.0 `textures`; the base's attack effects and hit timing.

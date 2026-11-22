@@ -776,6 +776,69 @@ static struct cg *anim_decode(struct img *m, int kind)
 /* A still picture file's bytes at most. */
 #define STILL_FILE_BYTES (256u << 20)
 
+static uint32_t le32(const uint8_t *p)
+{
+	return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
+/* A still's size from its header, before libsys4 decodes it: its decoders size their buffers with
+ * int products of the header's width and height, so a file over the cap must be refused before
+ * them. False when the header cannot be read (a QNT whose parts go past the file, a format with no
+ * size reader). The file is at least 32 bytes. */
+static bool still_size(uint8_t *data, size_t n, long long *w, long long *h)
+{
+	struct cg_metrics m;
+	struct archive_data d;
+
+	switch (cg_check_format(data)) {
+	case ALCG_AJP:
+		/* libsys4 reads no AJP size; its header has it at 12 and 16. */
+		if (n < 36)
+			return false;
+		*w = le32(data + 12);
+		*h = le32(data + 16);
+		return true;
+	case ALCG_QNT: {
+		/* The header is 48 bytes or its own size, with the parts' sizes in it. */
+		uint64_t hdr, parts;
+		if (n < 48)
+			return false;
+		if (le32(data + 4) == 0) {
+			hdr = 48;
+			parts = (uint64_t)le32(data + 32) + le32(data + 36);
+		} else {
+			hdr = le32(data + 8);
+			parts = (uint64_t)le32(data + 36) + le32(data + 40);
+		}
+		if (hdr < 48 || hdr > n || parts > n - hdr)
+			return false;
+		break;
+	}
+	case ALCG_PMS8:
+	case ALCG_PMS16:
+		/* Its header reads up to the 44th byte. */
+		if (n < 48)
+			return false;
+		break;
+	case ALCG_DCF:
+		/* A difference over a base CG of the game's archive, which a mod's file is not in; its
+		 * reader follows offsets with no size check. */
+	case ALCG_UNKNOWN:
+		return false;
+	default:
+		break;
+	}
+	memset(&m, 0, sizeof m);
+	memset(&d, 0, sizeof d);
+	d.data = data;
+	d.size = n;
+	if (!cg_get_metrics_data(&d, &m))
+		return false;
+	*w = m.w;
+	*h = m.h;
+	return true;
+}
+
 /* A mod's still picture: the file's bytes read as the mod paths are made (fopen on the resolved
  * path, in the ANSI code page like every mod path), a PNG through rq_pixels (every kind of PNG, and
  * a reason instead of an abort), the rest through libsys4. NULL with the reason in `why`. */
@@ -819,6 +882,17 @@ static struct cg *load_still(const char *path, char *why, size_t why_len)
 	if (rq_pixels_is_png(data, (size_t)n)) {
 		cg = rq_pixels_png(data, (size_t)n, RQ_PIXELS_PICTURE_SIDE, why, why_len);
 	} else {
+		long long sw = 0, sh = 0;
+		if (!still_size(data, (size_t)n, &sw, &sh) || sw <= 0 || sh <= 0) {
+			snprintf(why, why_len, "not a picture the engine reads");
+			free(data);
+			return NULL;
+		}
+		if (sw > RQ_PIXELS_PICTURE_SIDE || sh > RQ_PIXELS_PICTURE_SIDE) {
+			snprintf(why, why_len, "%lldx%lld (max %d a side)", sw, sh, RQ_PIXELS_PICTURE_SIDE);
+			free(data);
+			return NULL;
+		}
 		cg = cg_load_buffer(data, (size_t)n);
 		if (cg && (!cg->pixels || cg->metrics.w <= 0 || cg->metrics.h <= 0)) {
 			cg_free(cg);
