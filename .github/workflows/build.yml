@@ -117,11 +117,17 @@ jobs:
           name: RQ-MOD-${{ steps.version.outputs.version }}-windows
           path: RQ-MOD-${{ steps.version.outputs.version }}-windows.zip
 
-      # The release page: what RQ MOD is, how to install it, and this version's CHANGELOG section.
+      # The release page: what RQ MOD is, how to install it, the programs in the zip, what this
+      # release brings (.github/release-notes/<version>.md, written for it, when there is one), and
+      # every CHANGELOG section since the last release: a version never released on its own goes out
+      # with the next one.
       - name: Release notes
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           v="${{ steps.version.outputs.version }}"
+          # The last release before this one, from the repository's tags.
+          prev=$( { git ls-remote --tags --refs origin 'v*' | sed -n 's#.*refs/tags/v\([0-9][0-9.]*\)$#\1#p'; echo "$v"; } | sort -uV | awk -v v="$v" '$0 == v { print p; exit } { p = $0 }')
+          echo "Release notes for $v, since ${prev:-the start}"
           cat > notes.md <<'EOF'
           Mod support for **Rance Quest Magnum**: mods in Lua, loaded at runtime. RQ MOD is a fork of [xsystem4](https://github.com/nunuhara/xsystem4); see [CREDITS.md](https://github.com/RQ-Modding/RQ-Mod/blob/main/CREDITS.md).
 
@@ -134,8 +140,24 @@ jobs:
           **Community:** [RQ MOD on Discord](https://discord.gg/maCKqfTGne), the official server (also the Discord icon by the version on the main menu); [Rance & Alicesoft Western Community](https://discord.gg/RANCE) on Discord; [Moru on X (Twitter)](https://x.com/Moru_zerinho6).
 
           EOF
-          printf '## Changes in %s\n' "$v" >> notes.md
-          awk -v v="$v" '/^## / { p = ($2 == v); next } p' CHANGELOG.md >> notes.md
+          # The programs beside the engine, each at the version its submodule's meson.build gives.
+          rb=$(sed -n "s/^ *version : '\([^']*\)'.*/\1/p" subprojects/rance-browser/meson.build | head -1)
+          se=$(sed -n "s/^ *version : '\([^']*\)'.*/\1/p" subprojects/rq-scene-editor/meson.build | head -1)
+          g=https://rq-modding.github.io/rq-modding-docs/guide
+          {
+            printf '## In the zip\n\nIn the game'"'"'s `xsystem4` folder, beside the engine (`xsystem4.exe`):\n\n'
+            printf -- '- **[Rance Browser](https://github.com/RQ-Modding/rance-browser) %s** (`rance-browser.exe`): the game'"'"'s pictures, Flash files, music, sounds, 3D models and names, each with the Lua line that changes it. Guide: [Looking through the game'"'"'s files](%s/file-browser).\n' "$rb" "$g"
+            printf -- '- **[RQ Scene Editor](https://github.com/RQ-Modding/rq-scene-editor) %s** (`rq-scene-editor.exe`): writes a mod'"'"'s scene files and plays them in the game. Guide: [Writing scenes in the scene editor](%s/scene-editor).\n' "$se" "$g"
+            printf -- '- **rqmod-aff** (`rqmod-aff.exe`): makes and checks a mod'"'"'s Flash animations. Guide: [Animations](%s/animations).\n' "$g"
+            printf -- '- **rqmod-ctl** (`rqmod-ctl.exe`): drives the running game from a script; run alone, it lists its commands.\n\n'
+          } >> notes.md
+          if [ -f ".github/release-notes/$v.md" ]; then
+            cat ".github/release-notes/$v.md" >> notes.md
+            echo >> notes.md
+          fi
+          if [ -n "$prev" ]; then printf '## Changes since %s\n' "$prev" >> notes.md; else printf '## Changes in %s\n' "$v" >> notes.md; fi
+          # From this version's section down to the last release's (without one, this section alone).
+          awk -v v="$v" -v prev="$prev" '/^## / { if (on && (prev == "" || $2 == prev)) exit; if ($2 == v) on = 1; if (on) print "\n### " $2; next } on' CHANGELOG.md >> notes.md
           printf '\nEvery version: [CHANGELOG.md](https://github.com/RQ-Modding/RQ-Mod/blob/main/CHANGELOG.md)\n' >> notes.md
 
       - name: Release
