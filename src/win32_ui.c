@@ -1,5 +1,5 @@
-/* Win32-only extras: title-bar Image filter menu. Isolated so windows.h
- * never collides with xsystem4 Rectangle / ERROR / VK_* macros. */
+/* Win32-only extras: the title bar's filter menu, with a mark on the filter in use. Isolated so
+ * windows.h never collides with xsystem4 Rectangle / ERROR / VK_* macros. */
 
 #ifdef _WIN32
 
@@ -9,8 +9,23 @@
 #include <SDL_syswm.h>
 
 #include "xsystem4.h"
+#include "win32_ui.h"
 
 #define RQ_FILTER_MENU_BASE 0xE100
+#define RQ_FILTER_COUNT 5
+
+/* The window's system menu once the filters are in it. */
+static HMENU filter_menu;
+
+/* Windows sends WM_INITMENU, which SDL's hook never sees (it gets posted messages only), so the
+ * mark moves when the filter changes, wherever it is changed: here, Config or the game's Window tab. */
+void win32_ui_mark_scaling(int type)
+{
+	if (!filter_menu || type < 0 || type >= RQ_FILTER_COUNT)
+		return;
+	CheckMenuRadioItem(filter_menu, RQ_FILTER_MENU_BASE, RQ_FILTER_MENU_BASE + RQ_FILTER_COUNT - 1,
+			   RQ_FILTER_MENU_BASE + type, MF_BYCOMMAND);
+}
 
 static void SDLCALL win_msg_hook(void *userdata, void *hWnd, unsigned int message,
 				 Uint64 wParam, Sint64 lParam)
@@ -21,7 +36,7 @@ static void SDLCALL win_msg_hook(void *userdata, void *hWnd, unsigned int messag
 	if (message != WM_SYSCOMMAND)
 		return;
 	unsigned cmd = (unsigned)wParam;
-	if (cmd >= RQ_FILTER_MENU_BASE && cmd < RQ_FILTER_MENU_BASE + 5)
+	if (cmd >= RQ_FILTER_MENU_BASE && cmd < RQ_FILTER_MENU_BASE + RQ_FILTER_COUNT)
 		rq_set_scaling((int)(cmd - RQ_FILTER_MENU_BASE));
 }
 
@@ -45,6 +60,8 @@ void win32_ui_init(SDL_Window *window)
 				    L"Filter: Lanczos");
 			AppendMenuW(sys, MF_STRING, RQ_FILTER_MENU_BASE + 4,
 				    L"Filter: xBRZ");
+			filter_menu = sys;
+			win32_ui_mark_scaling(rq_get_scaling());
 		}
 	}
 	SDL_SetWindowsMessageHook(win_msg_hook, NULL);
@@ -83,6 +100,11 @@ void rq_focus_sdl_window(SDL_Window *window)
 void win32_ui_init(SDL_Window *window)
 {
 	(void)window;
+}
+
+void win32_ui_mark_scaling(int type)
+{
+	(void)type;
 }
 
 void rq_focus_sdl_window(SDL_Window *window)

@@ -30,6 +30,7 @@
 #include "savedata.h"
 #include "vm.h"
 #include "xsystem4.h"
+#include "win32_ui.h"
 #include "hll.h"
 
 static int SystemService_GetMixerName(int n, struct string **name)
@@ -168,6 +169,7 @@ static int clamp_scaling(int type)
 static void apply_scaling(void)
 {
 	gfx_set_scaling_type(window_settings.scaling_type);
+	win32_ui_mark_scaling(window_settings.scaling_type);
 }
 
 static void save_window_settings_sav(void)
