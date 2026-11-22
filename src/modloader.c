@@ -1674,6 +1674,9 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "rename", rq_lua_saves_rename);
 	set_cfn(L, "delete", rq_lua_saves_delete);
 	set_cfn(L, "switch", rq_lua_saves_switch);
+	set_cfn(L, "faces", rq_lua_saves_faces);               /* 2.65.0 */
+	set_cfn(L, "import_faces", rq_lua_saves_import_faces); /* 2.65.0 */
+	set_cfn(L, "open_folder", rq_lua_saves_open_folder);   /* 2.65.0 */
 	lua_setfield(L, -2, "saves");
 
 	lua_newtable(L);

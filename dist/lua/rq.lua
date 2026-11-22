@@ -2388,6 +2388,15 @@ function knownskills.set_page(page) end
 ---@field path? string Its folder.
 ---@field summary? rq.SaveSummary What it holds.
 
+---What `rq.saves.faces` returns: the folders of the character creator's faces.
+---@class rq.SaveFaces
+---@field path string The `Face CG` folder of the save in use, the one the game reads: `<save folder>\Face CG`, so a profile's own (`Profiles\<id>\save\Face CG`). Backslashes on Windows.
+---@field exists boolean That folder exists. The game makes it at its start, with a copy of the faces in the game's own `Face CG` folder.
+---@field count integer The `.png` and `.bmp` files in it.
+---@field vanilla? string The vanilla game's `Face CG` folder (`Documents\AliceSoft\<game>\SaveData\Face CG`), nil when it does not exist.
+---@field vanilla_count? integer The `.png` and `.bmp` files in the vanilla folder, with `vanilla`.
+---@field missing integer The vanilla folder's files the save's folder has no file of that name for: what `rq.saves.import_faces` would copy. 0 without a vanilla folder.
+
 ---Save profiles: whole save folders the player can switch between.
 ---
 ---The base profile is the engine's own `SaveData` folder and can never be deleted. Every other profile
@@ -2509,6 +2518,67 @@ function saves.delete(id) end
 ---@return nil ok Nothing: on success it does not return.
 ---@return string? err Why the choice could not be recorded.
 function saves.switch(id) end
+
+---Returns where the game reads the character creator's faces, and the vanilla game's.
+---
+---The character creator lists the pictures in the `Face CG` folder of the save in use, and the
+---game's own text on its face screen names the vanilla game's folder in Documents instead. Each
+---profile has its own folder: a face added to one is not in the others. The vanilla folder is only
+---read. It lists the folders, so call it when a screen opens, not every frame.
+---
+---Since: 2.65.0
+---
+---```lua
+---local f = rq.saves.faces()
+---rq.log("faces in " .. f.path .. ": " .. f.count)
+---if f.missing > 0 then rq.log(f.missing .. " more in the vanilla game's folder") end
+---```
+---@return rq.SaveFaces|nil faces The folders, or nil.
+---@return string? err Why: no save folder.
+---@see rq.saves.import_faces
+---@see rq.saves.open_folder
+function saves.faces() end
+
+---Copies the vanilla game's faces into the `Face CG` folder of the save in use.
+---
+---It copies the `.png` and `.bmp` files the save's folder has no file of that name for (the
+---`missing` of `rq.saves.faces`), and never overwrites or removes one, so a face changed in the
+---save stays. The vanilla folder is only read. The save's folder is made when it is missing; the
+---game copies its own faces only into a folder it does not find at its start, so call it after the
+---game started (on the title screen or later). The character creator reads the folder each time its
+---face screen opens, so a copy shows from the next one.
+---
+---Since: 2.65.0
+---
+---```lua
+---local n, err = rq.saves.import_faces()
+---if n then rq.log(n .. " faces copied") else rq.log(err) end
+---```
+---@return integer|nil copied How many files were copied (0 when none was missing), or nil.
+---@return string? err Why: no vanilla `Face CG` folder, the save's folder could not be made, or how many files could not be copied (those copied stay).
+---@see rq.saves.faces
+function saves.import_faces() end
+
+---Opens a folder of the save in use in the system's file window.
+---
+---For the player, who puts the pictures of their own characters in `"faces"`. It opens one window a
+---second at most: a second call within a second fails. Windows only.
+---
+---Since: 2.65.0
+---
+---```lua
+---rq.on_frame(function()
+---  if rq.uikit.button("Open folder", { x = 512, y = 722, w = 130, id = "faces-open" }) then
+---    local ok, err = rq.saves.open_folder("faces")
+---    if not ok then rq.log(err) end
+---  end
+---end)
+---```
+---@param which "faces"|"save" `"faces"`: the `Face CG` folder of the save in use (`rq.saves.faces().path`); `"save"`: the save folder itself. Another value raises an error.
+---@return boolean|nil ok true when the window was asked for, or nil.
+---@return string? err Why: the folder does not exist, a folder was opened less than a second ago, or the system refused.
+---@see rq.saves.faces
+function saves.open_folder(which) end
 
 ---What `rq.saves.on_save` and `on_load` callbacks get.
 ---@class rq.SaveCtx
@@ -10008,7 +10078,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.64.0"
+rq.version = "2.65.0"
 
 rq.units = units
 rq.items = items

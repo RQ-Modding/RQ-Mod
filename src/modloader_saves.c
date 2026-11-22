@@ -1058,6 +1058,216 @@ int rq_lua_saves_delete(lua_State *L)
 	return 1;
 }
 
+/* ---- the character creator's faces (2.65.0) ------------------------------ */
+
+/* The game's character creator lists the pictures in <save folder>\Face CG
+ * (キャラ生成_顔ＣＧフォルダ名), and at its start copies <game>\Face CG there when that
+ * folder is missing. So each profile has a folder of its own, and the vanilla
+ * game's (in Documents) is another one, only ever read here. */
+
+#define FACES_DIR "Face CG"
+
+static int is_face_file(const char *name)
+{
+	const char *dot = strrchr(name, '.');
+	return dot && (!strcasecmp(dot, ".png") || !strcasecmp(dot, ".bmp"));
+}
+
+/* The folder the game reads now: the active profile's. */
+static char *faces_dir(void)
+{
+	return config.save_dir ? path_cat(config.save_dir, FACES_DIR) : NULL;
+}
+
+static int vanilla_faces_dir(char *out, size_t n)
+{
+	char dir[SAVES_PATH_MAX];
+	int len;
+	if (!vanilla_dir(dir, sizeof dir))
+		return 0;
+	len = snprintf(out, n, "%s/%s", dir, FACES_DIR);
+	if (len < 0 || (size_t)len >= n)
+		return 0;
+	return is_directory(out);
+}
+
+/* A path as the player's system writes it: backslashes on Windows. */
+static void push_os_path(lua_State *L, const char *path)
+{
+	char buf[SAVES_PATH_MAX];
+	snprintf(buf, sizeof buf, "%s", path);
+#ifdef _WIN32
+	for (char *c = buf; *c; c++) {
+		if (*c == '/')
+			*c = '\\';
+	}
+#endif
+	lua_pushstring(L, buf);
+}
+
+static int count_faces(const char *dir)
+{
+	UDIR *d = opendir_utf8(dir);
+	char *name;
+	int n = 0;
+	if (!d)
+		return 0;
+	while ((name = readdir_utf8(d))) {
+		if (is_face_file(name)) {
+			char *p = path_cat(dir, name);
+			if (!is_directory(p))
+				n++;
+			free(p);
+		}
+		free(name);
+	}
+	closedir_utf8(d);
+	return n;
+}
+
+/* The faces in src that dst has no file of that name for: counted, or copied when copy is set
+ * (a copy that fails is removed and counted in *failed). A name is never overwritten. */
+static int faces_missing(const char *src, const char *dst, int copy, int *failed)
+{
+	UDIR *d = opendir_utf8(src);
+	char *name;
+	int n = 0;
+	if (!d)
+		return 0;
+	while ((name = readdir_utf8(d))) {
+		if (is_face_file(name)) {
+			char *s = path_cat(src, name);
+			char *t = path_cat(dst, name);
+			if (!is_directory(s) && !file_exists(t)) {
+				if (!copy) {
+					n++;
+				} else if (copy_file(s, t)) {
+					n++;
+				} else {
+					remove_utf8(t);
+					(*failed)++;
+				}
+			}
+			free(s);
+			free(t);
+		}
+		free(name);
+	}
+	closedir_utf8(d);
+	return n;
+}
+
+int rq_lua_saves_faces(lua_State *L)
+{
+	char van[SAVES_PATH_MAX];
+	char *dir = faces_dir();
+	int exists;
+	if (!dir)
+		return fail(L, "no save folder");
+	exists = is_directory(dir);
+	lua_newtable(L);
+	push_os_path(L, dir);
+	lua_setfield(L, -2, "path");
+	lua_pushboolean(L, exists);
+	lua_setfield(L, -2, "exists");
+	lua_pushinteger(L, exists ? count_faces(dir) : 0);
+	lua_setfield(L, -2, "count");
+	if (vanilla_faces_dir(van, sizeof van)) {
+		push_os_path(L, van);
+		lua_setfield(L, -2, "vanilla");
+		lua_pushinteger(L, count_faces(van));
+		lua_setfield(L, -2, "vanilla_count");
+		lua_pushinteger(L, faces_missing(van, dir, 0, NULL));
+	} else {
+		lua_pushinteger(L, 0);
+	}
+	lua_setfield(L, -2, "missing");
+	free(dir);
+	return 1;
+}
+
+int rq_lua_saves_import_faces(lua_State *L)
+{
+	char van[SAVES_PATH_MAX];
+	char *dir;
+	int copied, failed = 0;
+	if (!vanilla_faces_dir(van, sizeof van))
+		return fail(L, "the vanilla game has no Face CG folder");
+	dir = faces_dir();
+	if (!dir)
+		return fail(L, "no save folder");
+	if (mkdir_p(dir) != 0 && !is_directory(dir)) {
+		free(dir);
+		return fail(L, "could not create this save's Face CG folder");
+	}
+	copied = faces_missing(van, dir, 1, &failed);
+	free(dir);
+	if (copied || failed)
+		rq_log("saves: copied %d face(s) from the vanilla game's Face CG, %d failed", copied, failed);
+	if (failed) {
+		char msg[96];
+		snprintf(msg, sizeof msg, "%d face(s) could not be copied (%d copied)", failed, copied);
+		return fail(L, msg);
+	}
+	lua_pushinteger(L, copied);
+	return 1;
+}
+
+int rq_lua_saves_open_folder(lua_State *L)
+{
+	const char *which = luaL_checkstring(L, 1);
+	char *dir;
+	if (!strcmp(which, "faces"))
+		dir = faces_dir();
+	else if (!strcmp(which, "save"))
+		dir = config.save_dir ? strdup(config.save_dir) : NULL;
+	else
+		return luaL_error(L, "rq.saves.open_folder: \"faces\" or \"save\", not \"%s\"", which);
+	if (!dir)
+		return fail(L, "no save folder");
+	if (!is_directory(dir)) {
+		free(dir);
+		return fail(L, "the folder does not exist");
+	}
+#ifdef _WIN32
+	{
+		/* One window a second at most, so a mod that calls it every frame opens one. */
+		static ULONGLONG last;
+		ULONGLONG now = GetTickCount64();
+		wchar_t w[SAVES_PATH_MAX];
+		char os[SAVES_PATH_MAX];
+		HINSTANCE r;
+		if (last && now - last < 1000) {
+			free(dir);
+			return fail(L, "a folder was opened less than a second ago");
+		}
+		snprintf(os, sizeof os, "%s", dir);
+		for (char *c = os; *c; c++) {
+			if (*c == '/')
+				*c = '\\';
+		}
+		if (!rq_wpath(os, w, SAVES_PATH_MAX)) {
+			free(dir);
+			return fail(L, "the folder's name cannot be read");
+		}
+		last = now;
+		r = ShellExecuteW(NULL, L"explore", w, NULL, NULL, SW_SHOWNORMAL);
+		if ((INT_PTR)r <= 32) {
+			rq_log("saves: could not open %s (%d)", dir, (int)(INT_PTR)r);
+			free(dir);
+			return fail(L, "the folder could not be opened");
+		}
+		rq_log("saves: opened %s", dir);
+	}
+	free(dir);
+	lua_pushboolean(L, 1);
+	return 1;
+#else
+	free(dir);
+	return fail(L, "opening a folder works on Windows only");
+#endif
+}
+
 #ifdef _WIN32
 static int relaunch(void)
 {
