@@ -4460,7 +4460,7 @@ function image.play_flash(key, opts) end
 ---@field classes? integer[] The classes that may equip it, 1 to 8. Default: all.
 ---@field characters? integer[] The characters that may equip it (`装備キャラ`).
 ---@field effects? rq.ItemEffect[] Up to five effects.
----@field info? string The description; `$` is a line break.
+---@field info? string The description; `$` is a line break. It stays when the game builds an item's description again from its kind and effects (its appraisal after a quest, gear that grows, the move to the third world); since 2.65.1, an appraised item of a mod had " |C| : " instead.
 ---@field locked? boolean Cannot be taken off (`外せません`).
 ---@field vanishes? boolean Vanishes (`消滅します`).
 ---@field keep? boolean The player cannot get rid of it: the vault's DISCARD, SELL and DONATE refuse it, as the game does for Chaos the Darksword (`アイテム_破棄可能` says false). `rq.item.remove` still removes it. Default false. Since 2.50.0.
@@ -4554,6 +4554,7 @@ function item.get(ii) end
 ---`sound` that is not true or false.
 ---
 ---Since: 2.47.0
+---Changed: 2.65.1 A mod's item gets the description its mod gave the number (it got " |C| : ").
 ---
 ---```lua
 ---for _, row in ipairs(rq.items()) do
@@ -4595,8 +4596,13 @@ function item.transform(ii, who) end
 ---and `no`; an equipped item recalculates its owner). The save then keeps those values, also when the
 ---mod is removed. Each mod keeps one patch per item.
 ---
+---A patch's `info` stays when the game builds an item's description again from its kind and effects
+---(its appraisal after a quest, gear that grows, the move to the third world); with several patches,
+---the last one with an `info` gives it.
+---
 ---Since: 0.8.0
 ---Changed: 0.15.0 Reaches instances already in the save.
+---Changed: 2.65.1 A patch's `info` stays through the game's own description.
 ---@param who string|integer An item number or text id.
 ---@param patch table The fields to set.
 function item.edit(who, patch) end
@@ -10078,7 +10084,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.65.0"
+rq.version = "2.65.1"
 
 rq.units = units
 rq.items = items

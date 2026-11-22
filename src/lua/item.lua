@@ -793,6 +793,28 @@ local function keep_install()
   end })
 end
 
+-- ---- A mod's description through the game's auto text (2.65.1) ----
+-- Ｉ情報(ii, "自動生成") builds a description from the item's kind, its rank and its effects, unless
+-- the item number is one of the game's with a fixed text (a list inside Ｉ情報). The game asks for
+-- it in Ｉ鑑定 (the appraisal at a quest's end, rq.item.appraise), Ｉ成長装備の処理／内部 (gear
+-- that grows), a fight's familiar growth and armour wear, and the move to the third world (each
+-- item that could not be taken off). A mod's item number is not in that list, so its description
+-- became " |C| : ". The number's own text (priv.text: the last rq.item.edit with an info, else the
+-- rq.item.define info) is asked for instead, as a new instance gets it.
+local AUTO_TEXT = "自動生成"
+local text_hooked = false
+
+local function auto_text_install()
+  if text_hooked or not (priv and priv.text) then return end
+  text_hooked = true
+  rq.ain.hook("Ｉ情報", { before = function(h)
+    if h.args[2] ~= AUTO_TEXT then return end
+    local no = item.number(h.args[1])
+    local s = math.type(no) == "integer" and priv.text(no)
+    if s then h.args[2] = s end
+  end })
+end
+
 do
   local define = item.define
   if define then
@@ -801,8 +823,16 @@ do
       if math.type(no) == "integer" then
         keep[no] = type(def) == "table" and def.keep == true or nil
         if keep[no] then keep_install() end
+        auto_text_install()
       end
       return no
+    end
+  end
+  local edit = item.edit
+  if edit then
+    function item.edit(who, patch, ...)
+      edit(who, patch, ...)
+      if type(patch) == "table" and patch.info ~= nil then auto_text_install() end
     end
   end
 end

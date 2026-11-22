@@ -1562,6 +1562,49 @@ int rq_lua_item_count(lua_State *L)
 	return 1;
 }
 
+/* The description a mod gave an item number, as a new instance gets it: the last rq.item.edit
+ * patch with an info, else the rq.item.define template's info; nil when no mod gave one. For the
+ * game's auto text (lua/item.lua, 2.65.1). */
+static int l_item_text(lua_State *L)
+{
+	int no = (int)luaL_checkinteger(L, 1);
+	struct tpl *t = tpl_by_no(no);
+	int i, found = 0;
+
+	for (i = g_nedit - 1; i >= 0 && !found; i--) {
+		if (g_edit[i].no != no)
+			continue;
+		lua_rawgeti(L, LUA_REGISTRYINDEX, g_edit[i].ref);
+		if (lua_istable(L, -1)) {
+			lua_getfield(L, -1, "info");
+			if (lua_type(L, -1) == LUA_TSTRING && lua_tostring(L, -1)[0]) {
+				lua_remove(L, -2);
+				found = 1;
+				break;
+			}
+			lua_pop(L, 1);
+		}
+		lua_pop(L, 1);
+	}
+	if (!found && t) {
+		lua_rawgeti(L, LUA_REGISTRYINDEX, t->ref);
+		if (lua_istable(L, -1)) {
+			lua_getfield(L, -1, "info");
+			if (lua_type(L, -1) == LUA_TSTRING && lua_tostring(L, -1)[0]) {
+				lua_remove(L, -2);
+				found = 1;
+			} else {
+				lua_pop(L, 1);
+			}
+		}
+		if (!found)
+			lua_pop(L, 1);
+	}
+	if (!found)
+		lua_pushnil(L);
+	return 1;
+}
+
 /* rq.item.lock, sell, donate and store: Lua over the game's own calls (lua/item.lua, loader 2.9.0);
  * rq.item.info (2.20.0). */
 extern const char rq_item_lua[];
@@ -1584,6 +1627,9 @@ void rq_item_open_lua(lua_State *L, int rq_index)
 	lua_setfield(L, -2, "bought");
 	lua_pushcfunction(L, l_item_no_of);
 	lua_setfield(L, -2, "no_of");
+	/* A mod's description of an item number, kept through the game's auto text (2.65.1). */
+	lua_pushcfunction(L, l_item_text);
+	lua_setfield(L, -2, "text");
 	if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
 		rq_log("item.lua: %s", lua_tostring(L, -1));
 		lua_pop(L, 1);
