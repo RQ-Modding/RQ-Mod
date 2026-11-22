@@ -1516,8 +1516,14 @@ static bool ReignEngine_SetLSSunColor(int plugin, float r, float g, float b)
 //bool ReignEngine_SetDrawTextureFog(int plugin, bool bDraw);
 //bool ReignEngine_GetDrawTextureFog(int plugin);
 
+// Config's 3D tab, Anti-Aliasing: 0 Disabled, 1 2X, 2 4X, 3 8X. The renderer draws the scene with
+// that many samples (src/3d/renderer.c). The game sets it each time it loads its 3D settings.
 static bool ReignEngine_SetOptionAntiAliasing(int flag)
 {
+	if (flag != RE_options.anti_aliasing) {
+		static const char *names[] = { "off", "2x", "4x", "8x" };
+		rq_log("3D anti-aliasing: %s", names[flag <= 0 ? 0 : flag > 3 ? 3 : flag]);
+	}
 	RE_options.anti_aliasing = flag;
 	return true;
 }
