@@ -801,7 +801,9 @@ static struct cg *load_still(const char *path, char *why, size_t why_len)
 		snprintf(why, why_len, "the file is too large");
 		return NULL;
 	}
-	if (n < 16) {
+	/* libsys4's format checks read a file's first bytes (up to the 24th) with no size check; no
+	 * picture is this small. */
+	if (n < 32) {
 		fclose(f);
 		snprintf(why, why_len, "the file is too small to be a picture");
 		return NULL;

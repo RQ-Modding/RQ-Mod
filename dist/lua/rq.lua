@@ -4147,7 +4147,7 @@ function image.flash_bitmaps(file) end
 ---@field name string The texture's file name, as the model names it, such as "gokiburi.png".
 ---@field path string Its full path in the game's archive with `/`, as `rq.image.texture` takes it. For a mod's model, the path in its base's folder.
 ---@field kind "color"|"alpha"|"light"|"normal"|"specular" How the model uses it: "color" when any material draws its colours from it, else its other use. Rance Quest's models use colour and alpha maps.
----@field alpha_map boolean True when a material also uses this colour file as its own alpha map.
+---@field alpha_map boolean True when a material also uses this colour file as its own alpha map. It matters only where `alpha` is false: the game's red then keeps cutting the model's holes whatever picture is put there. Where `alpha` is true, the picture's alpha decides, as on any texture with alpha.
 ---@field frames integer For a colour texture the game animates, its frames (`face.png`, `face[1].png` and `face[2].png` are 3); otherwise 1.
 ---@field missing boolean True when the game's archive lacks the file. Such a texture cannot be changed and has no `w`, `h` or `alpha`.
 ---@field w? integer The game's picture's width, in pixels.
@@ -4178,8 +4178,10 @@ function image.flash_bitmaps(file) end
 ---On one path the last call wins, whichever mod made it, and a mod's model's own textures
 ---(`rq.monster.model`'s `textures`) stay over it. The log names each change. A change made at a mod's
 ---top level shows from the first load. A change made while the game runs shows the next time the game
----loads a model with that texture while no copy of the model is on screen: the next fight's monsters,
----the next area of a quest's map, the next visit to the girls' room. A fight background keeps its
+---loads a model with that texture and holds no copy of the model: in a fight, from the next fight's
+---monsters; on a quest's map, from the next area (an area loads every prop on it with the area, seen
+---or not); in the girls' room, at the next visit. A copy loaded meanwhile beside one the game holds,
+---such as a chest placed beside another, has the old pictures too. A fight background keeps its
 ---pictures while fights follow on it, until a fight on another background, the quest's end, a load or
 ---a restart. Only the file's name is kept: each load reads the file again, and a file gone or broken
 ---by then logs a warning and the game's picture is drawn.
@@ -4206,8 +4208,9 @@ function image.texture(texture, picture) end
 ---`model` is a folder in the game's archive, such as "Data/PolyData/Map/dk_a01", or a monster model
 ---number from `rq.monster.models` (100122 is the Cockroach, in `Data/PolyData/Chara/gokiburi`). A
 ---mod's model number gives its base's textures with the model's own over them. The rows come in the
----model's order, one per texture, a texture's frames folded into it. `rq.image.texture(r.path,
----r.picture)` makes a row's change again.
+---model's order, one per texture, a texture's frames folded into it. For a row without `own`,
+---`rq.image.texture(r.path, r.picture)` makes its change again; an `own` row's change is made again
+---through `rq.monster.model`, with `textures[r.name] = r.picture` in its model's definition.
 ---
 ---Returns nil for a folder or a number with no model, so a loop over `rq.monster.models()` works.
 ---Raises an error for a model that is neither a text nor a whole number, or a path that holds a `*`.
@@ -9371,8 +9374,14 @@ function game.set_mode(mode) end
 ---unknown group in an area's list becomes the area's first game group (group 135 when it has none),
 ---each with a line in the log.
 ---
+---A mod's model (`model`) may have textures of its own (2.64.0): the game keeps it apart from its
+---base, so the base and the game's monsters on it keep their pictures. A mod's model draws its
+---base's attack effects, unless the game's effect table has a row for its own number, and waits for
+---its hits as its base does.
+---
 ---Since: 2.36.0
 ---Changed: 2.40.0 `define`, `group`, `models` and `model`.
+---Changed: 2.64.0 A model's own textures; a mod's model's attack effects and hit timing are its base's.
 ---
 ---```lua
 ---rq.monster.edit(rq.ids.monster.COCKROACH, { name = "Big Cockroach", hp = 200 })
@@ -9700,12 +9709,14 @@ function monster.group(def) end
 ---@field z number Its offset in depth.
 ---@field motions integer How many motions it has.
 ---@field id? string The text id, for a model a mod made (`rq.monster.model`).
+---@field textures? table<string, string|string[]> For a mod's model with textures of its own: a copy of the `textures` it was given. `poly` stays the folder it draws.
 
 ---Lists the game's model table, with the models mods made after it.
 ---
 ---Raises an error when the table cannot be read.
 ---
 ---Since: 2.40.0
+---Changed: 2.64.0 `textures` on a mod's model with textures of its own.
 ---
 ---```lua
 ---for _, m in ipairs(rq.monster.models()) do rq.log(m.model, m.name, m.scale) end
@@ -9721,6 +9732,7 @@ function monster.models() end
 ---@field x? number The offset across. Default: the base's.
 ---@field y? number The offset up. Default: the base's.
 ---@field z? number The offset in depth. Default: the base's.
+---@field textures? table<string, string|string[]> Textures of its own: a texture's name in the base's folder (as `rq.image.textures(base)` lists it) to a PNG inside the mod's folder or a list of PNGs for a texture with frames (as `rq.image.texture` takes them).
 
 ---Makes a model of the game's at another size or place, for a monster's `model` field.
 ---
@@ -9728,19 +9740,39 @@ function monster.models() end
 ---number; the table is built again with it each time the game reads it. The number comes from the
 ---order of the calls in a run, so give it to a monster (`rq.monster.define` or `edit`) at the top
 ---level of the mod and do not keep it in a save. The mod that made an id may call again, which
----changes the same model.
+---changes the same model: give every field again, as an omitted one goes back to the base's (and
+---without `textures` the model has the base's pictures again).
+---
+---With `textures`, the model has pictures of its own: the game loads it apart from its base, so the
+---base and the game's other monsters on it keep theirs. Its own textures win over `rq.image.texture`
+---on the same path; the names it does not give follow `rq.image.texture`, then the game. A change
+---shows as `rq.image.texture`'s does: at the next load of the model while the game holds no copy of
+---it. An empty table is no textures.
+---
+---A mod's model, with textures or not, plays its base's attack effects and waits for its hits as its
+---base does: the game's tables of both know the game's model numbers only. The effect table is read
+---for the base's number unless it has a row for the model's own number (a mod may add one); the hit
+---timing is always the base's. A mod's `rq.ain.hook` on `T_BattleEffectDataManager@search` or
+---`戦闘_敵モーション当たり待ち率` sees the number the game then uses.
 ---
 ---Raises an error for a `def` that is not a table, an `id` that is not a text, an unknown field, a
 ---`base` that is not a game model, a `scale` that is not above 0 and at most 50, an offset that is
----not a number, an id another mod made, or when the table cannot be read.
+---not a number, an id another mod made, or when the table cannot be read; for `textures` that are
+---not a table, a key that is not a texture's name, or an entry `rq.image.texture` would refuse, each
+---with the call's id. A call that raises an error changes
+---nothing.
 ---
 ---Since: 2.40.0
+---Changed: 2.64.0 `textures`; the base's attack effects and hit timing.
 ---
 ---```lua
 ---local ROACH_MODEL = 100122  -- rq.monster.get(rq.ids.monster.COCKROACH).model
 ---local BIG = rq.monster.model({ id = "mymod:big_roach", base = ROACH_MODEL, scale = 2 })
 ---rq.monster.define({ id = "mymod:big_roach", base = rq.ids.monster.COCKROACH, name = "Big Roach",
 ---  model = BIG, hp = 1200 })
+----- A blue Cockroach of its own, painted: the game's Cockroaches keep their picture.
+---local BLUE = rq.monster.model({ id = "mymod:blue_roach", base = ROACH_MODEL,
+---  textures = { ["gokiburi.png"] = "textures/roach-blue.png" } })
 ---```
 ---@param def rq.ModelDef The base model and its size and place.
 ---@return integer model The model number.

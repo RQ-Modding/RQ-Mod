@@ -52,7 +52,7 @@ struct cg *RE_mod_texture(struct archive_data *game, const char *path, const cha
 #define rq_drop_stale(handle, self, name) ((void)0)
 #else
 // RQ MOD: a model a plugin keeps (model_cache) whose textures a mod changed is loaded again at its
-// next load with no copy of it on screen (modloader_texture.c). The keys waiting for that, per
+// next load while no instance of the plugin holds it (modloader_texture.c). The keys waiting for that, per
 // plugin. Nothing is freed outside a load, so no GL work happens in a mod's call.
 struct rq_pending {
 	char **keys;

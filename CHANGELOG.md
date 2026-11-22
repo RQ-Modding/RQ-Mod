@@ -3,6 +3,16 @@
 Each version is the loader version mods see as `rq.version` and declare as `loader` in `mod.json`.
 A patch version fixes or adjusts behavior, a minor version adds calls or fields, a major version removes, renames or changes the meaning of a call.
 
+## 2.64.0
+
+A mod's pictures on the game's 3D models: a monster, a prop, a room or a fight background in new colours.
+- `rq.image.texture(path, picture)`: a PNG from the mod's folder on one of the game's 3D textures, by its path in the game's archive (`Data/PolyData/Chara/gokiburi/gokiburi.png`), wherever a model uses it. A texture the game animates takes a list of PNGs, one per frame. Any kind of PNG, up to 4096 pixels a side. The game's alpha kind stays: on a texture the game draws solid the picture is drawn solid, and a picture without alpha on a texture with alpha takes the game's alpha, so the model's holes stay where they were. nil gives the game's own back. The last call on a path wins, whichever mod made it, and the log names each change. A change made at a mod's top level shows from the first load; one made while the game runs shows the next time the game loads the model and holds no copy of it (the next fight, the next area of a quest's map, the next visit to the girls' room; a fight background keeps its pictures while fights follow on it). Each load reads the file again, and a file gone or broken by then logs a warning once and the game's picture is drawn. The call checks the texture and the pictures as the game takes them and refuses with the reason; a call that raises changes nothing.
+- `rq.image.textures(model)`: a model's textures by its folder or a model number, each with its path, kind ("color", "alpha", "light", "normal", "specular"), whether it is its own alpha map, its frames, its size and alpha, and what a mod put there (`mod`, `picture`, `own`, `used`).
+- `rq.monster.model`'s `textures`: a mod's model with pictures of its own, by texture name, or a list for frames. The game loads such a model apart from its base, so the base and the game's monsters on it keep their pictures. `rq.monster.models()` lists a model's `textures`.
+- A mod's model (with textures or not) plays its base's attack effects and waits for its hits as its base does: the game's effect table and hit timing know the game's model numbers only, and a mod's model got no effect and the default timing. The effect table is read for the base's number unless it has a row for the model's own.
+- Every kind of PNG for `rq.image.add`, `replace` and `flash_bitmap`: 16-bit, grey, palette, interlaced and with a transparent colour. They closed the game or were refused; a broken or cut-off PNG is refused with the reason instead of closing the game, and a picture over 16384 pixels a side is refused before it is read. A file under 32 bytes is refused as no picture.
+- The Lab: `model-textures` (every call, the alpha kinds, frames, two mods on one path, a change at a mod's top level, the effect table, every PNG drawn 1:1, the refusals) and `texture-places` (a fight background and a map's chest), with `check-model-textures.py` counting each monster's colours in the shots.
+
 ## 2.63.0
 
 A mod's own Flash animations: made from pictures, checked, played in the game.

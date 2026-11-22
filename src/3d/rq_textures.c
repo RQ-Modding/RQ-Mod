@@ -301,6 +301,15 @@ static const char *kind_with_article(unsigned kinds)
 	return "a specular map";
 }
 
+int rq_textures_answer(int frame, int kind, bool colors, int pictures)
+{
+	if (frame < 0)
+		return RQ_TEXTURES_GAME;
+	if (colors)
+		return kind == COLOR_MAP ? RQ_TEXTURES_COLORS : RQ_TEXTURES_GAME;
+	return frame < pictures ? frame : RQ_TEXTURES_GAME;
+}
+
 bool rq_textures_check(const struct rq_texture_list *l, const char *folder, const char *name,
 		       const char *shown, int pictures, char *why, size_t why_len)
 {

@@ -9,8 +9,8 @@
  * The 3D code (3d/model.c) asks RE_mod_texture for each texture a model loads, and draws the
  * answer with the game's alpha kind. Nothing is kept but the files' names: each load reads the
  * file again, with the same reader and caps as the call. A model the game keeps in memory is
- * loaded again when one of its textures changes, at its next load with no copy of it on screen
- * (ReignEngine.c, rq_reign_texture_changed).
+ * loaded again when one of its textures changes, at its next load while no instance of the plugin
+ * holds it (ReignEngine.c, rq_reign_texture_changed).
  */
 
 #ifdef RQ_MODLOADER
@@ -215,10 +215,9 @@ struct cg *RE_mod_texture(struct archive_data *game, const char *path, const cha
 	struct cg *cg;
 	uint8_t *data;
 	size_t size = 0;
-	int own, frame = 0;
+	int own, frame = 0, pick;
 
 	(void)game;
-	(void)kind;
 	if (!g_ntex || !path || !name || !name[0] || strlen(path) >= sizeof folder || strlen(name) >= sizeof nm)
 		return NULL;
 	snprintf(folder, sizeof folder, "%s", path);
@@ -230,10 +229,13 @@ struct cg *RE_mod_texture(struct archive_data *game, const char *path, const cha
 	e = lookup(folder, nm, own);
 	if (!e && (frame = rq_textures_frame(nm, base, sizeof base)) > 0)
 		e = lookup(folder, base, own);
-	if (!e || frame >= e->nfiles)
+	if (!e)
+		return NULL;
+	pick = rq_textures_answer(frame, kind, false, e->nfiles);
+	if (pick == RQ_TEXTURES_GAME)
 		return NULL;
 
-	data = read_file(e->files[frame], &size, why, sizeof why);
+	data = read_file(e->files[pick], &size, why, sizeof why);
 	cg = data ? rq_pixels_png(data, size, RQ_PIXELS_TEXTURE_SIDE, why, sizeof why) : NULL;
 	free(data);
 	if (!cg) {

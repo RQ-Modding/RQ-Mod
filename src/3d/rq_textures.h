@@ -70,6 +70,20 @@ const char *rq_textures_kind(unsigned kinds);
  * ("face.png") in `base`. 0 for any other name. */
 int rq_textures_frame(const char *name, char *base, size_t base_len);
 
+/* rq_textures_answer's answers other than a picture's index. */
+#define RQ_TEXTURES_GAME   (-1)
+#define RQ_TEXTURES_COLORS (-2)
+
+/*
+ * What a change answers when a model loads one of its textures, the rule both programs' hooks
+ * follow: `frame` is rq_textures_frame's number for the name asked (0 for the base itself), `kind`
+ * the POL's texture kind it is loaded as (COLOR_MAP, ALPHA_MAP and so on), `colors` whether the
+ * change is colors by numbers and `pictures` its number of pictures. Colors answer a colour map
+ * only (RQ_TEXTURES_COLORS: the game's own picture, recoloured); pictures answer any kind, with the
+ * frame-th picture's index. RQ_TEXTURES_GAME (the game's own picture) for anything else.
+ */
+int rq_textures_answer(int frame, int kind, bool colors, int pictures);
+
 /*
  * Whether a mod may change the texture `name` (Shift-JIS) of the model `l` lists (NULL: the folder
  * has no model) with `pictures` pictures (a PNG, or a list of them), or with colors (`pictures`
