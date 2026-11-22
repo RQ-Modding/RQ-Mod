@@ -22,7 +22,7 @@ static void SDLCALL win_msg_hook(void *userdata, void *hWnd, unsigned int messag
 		return;
 	unsigned cmd = (unsigned)wParam;
 	if (cmd >= RQ_FILTER_MENU_BASE && cmd < RQ_FILTER_MENU_BASE + 5)
-		rq_notify_scaling_from_menu((int)(cmd - RQ_FILTER_MENU_BASE));
+		rq_set_scaling((int)(cmd - RQ_FILTER_MENU_BASE));
 }
 
 void win32_ui_init(SDL_Window *window)

@@ -8,7 +8,9 @@
 -- a blank page with no checkboxes, so the game keeps its own tabs, buttons, keys and sounds.
 -- rq.config.settings (2.35.0) builds a page from a list of rows and keeps its values in the
 -- mod's store; as_mod (modloader_roster.c) files those store calls under the mod.
-local rq, set_tab, set_mods, as_mod = ...
+-- Other 2 itself shows the window's magnification filter as a choice of five (2.65.2), with or
+-- without mods; filter (modloader_config.c) reads it by name and sets it.
+local rq, set_tab, set_mods, as_mod, filter = ...
 local ui = rq.uikit
 local hook = rq.ain.hook
 
@@ -30,6 +32,21 @@ local let_go = false
 local RING = { 100001, 100002, 100003, 100004, 100005, 100006, 100007, 100009 }
 local LIST_ROW = "list:rq.config.pages."
 local ARROWS = { "up", "down", "left", "right" }
+
+-- The kit takes the keys' cursor: the game's stays on id, turned off, and the kit's starts on target.
+local function take_keys(id, target)
+  pcall(rq.ain.call, "コンフィグ_選択設定", id, false)
+  ui.focus(target)
+  kit_keys = true
+end
+
+-- And gives it back, onto the game's button id. The arrow stays hidden from the game until it is
+-- let go.
+local function give_keys(id)
+  kit_keys, let_go = false, true
+  ui.focus(nil)
+  pcall(rq.ain.call, "コンフィグ_選択設定", id, true)
+end
 
 local TABS = { "T_ConfigMessage", "T_ConfigSound", "T_ConfigWindow", "T_Config3D",
   "T_ConfigConfirm", "T_ConfigEtc", "T_ConfigEtc2" }
@@ -162,9 +179,7 @@ local function install()
   local function hand_in(h)
     local id = h.args[1]
     h.skip, h.result = true, id
-    pcall(rq.ain.call, "コンフィグ_選択設定", id, false)
-    ui.focus(LIST_ROW .. current)
-    kit_keys = true
+    take_keys(id, LIST_ROW .. current)
   end
   local function on_page() return open and not hidden and #pages > 0 end
   local function checkbox(id) return id > 200000 end
@@ -223,13 +238,143 @@ local function draw_page()
   end
 end
 
--- Up past the page's top widget gives the cursor back to the tab row, on the Mods tab. The arrow
--- stays hidden from the game until it is let go.
+-- Up past the page's top widget gives the cursor back to the tab row, on the Mods tab.
 local function hand_back(dir)
-  if dir ~= "up" then return end
-  kit_keys, let_go = false, true
-  ui.focus(nil)
-  pcall(rq.ain.call, "コンフィグ_選択設定", 100009, true)
+  if dir == "up" then give_keys(100009) end
+end
+
+-- ---- Magnification on Other 2 (2.65.2) ----
+-- The Window tab's Magnification has the game's two filters, Standard and Bicubic; the engine has
+-- five (also in the title bar's menu). Other 2 shows all five under its checkboxes, as the Window
+-- tab's rows, drawn with the kit. The engine's own, so its hooks are placed when the game starts.
+local FILTERS = {
+  { name = "standard", text = "Standard (bilinear)",
+    tip = "The game's own: smooth, a little soft. The Window tab's Standard." },
+  { name = "bicubic", text = "Bicubic", tip = "Sharper than Standard. The Window tab's Bicubic." },
+  { name = "nearest", text = "Nearest (pixel)",
+    tip = "Square pixels, no smoothing. Even only at whole sizes: 2x, 3x." },
+  { name = "lanczos", text = "Lanczos", tip = "Sharp and smooth, with a light halo on hard edges." },
+  { name = "xbrz", text = "xBRZ",
+    tip = "Rounds the stairs of edges, as for pixel art. Best when the window is larger." },
+}
+local MAG_ID = "magnification."
+-- The heading where the Window tab has its own (x 63), the rows 30 apart as there, 70 under the
+-- last checkbox (Disable Discord Rich Presence at y 275; the stock rows are 70 apart).
+local MAG = { head_x = 63, head_y = 345, x = 70, y = 370, step = 30, w = 280 }
+local mag_open = false   -- Other 2 shows as itself, not as the Mods page
+local mag_hidden = false -- the game's dialog, or a checkbox's own action, is over it
+
+local function mag_shown()
+  return mag_open and not mag_hidden
+end
+
+-- Config's theme with the labels of Other 2's own rows: bold, as the Discord row's.
+local mag_theme
+
+local function draw_rows(cur)
+  ui.label("Magnification", { x = MAG.head_x, y = MAG.head_y })
+  for i, f in ipairs(FILTERS) do
+    local v, c = ui.checkbox(f.name == cur, f.text, { id = MAG_ID .. f.name, x = MAG.x,
+      y = MAG.y + (i - 1) * MAG.step, w = MAG.w, tip = f.tip })
+    if c and v and f.name ~= cur then
+      local set, err = pcall(filter, f.name)
+      if set then
+        rq.log("config: magnification " .. f.name)
+        cur = f.name
+      else
+        rq.log("config: magnification: " .. tostring(err))
+      end
+    end
+  end
+end
+
+local function draw_magnification()
+  local ok, cur = pcall(filter)
+  if not ok then return end
+  if not mag_theme then
+    mag_theme = ui.copy_theme(ui.themes.config)
+    mag_theme.label = { size = 16, bold = true }
+  end
+  local was = ui.theme
+  ui.use(mag_theme)
+  local drawn, err = pcall(draw_rows, cur)
+  ui.use(was)
+  if not drawn then error(err, 0) end
+end
+
+-- The game's checkbox that Up from the first row goes back to: Other 2's last (Discord's row).
+local function last_check()
+  local ok, id = pcall(rq.ain.method, { "g_sConfig", "m_sConfigEtc2" }, "T_ConfigEtc2@getLastCheckBox")
+  if ok and math.type(id) == "integer" and id > 210000 then return id end
+  return 210002
+end
+
+-- Up from the first row: the last checkbox. Down from the last: Return to game, as Down from the
+-- last checkbox went before.
+local function mag_edge(dir)
+  if dir == "up" then
+    give_keys(last_check())
+  elseif dir == "down" then
+    give_keys(100011)
+  end
+end
+
+local function mag_install()
+  hook("T_ConfigEtc2@create", { after = function()
+    mag_open, mag_hidden = not mods, false
+  end })
+  hook("T_ConfigEtc2@delete", { before = function()
+    mag_open = false
+  end })
+  -- Returning to the title or quitting asks first, and going to the title leaves Config without
+  -- Other 2's delete or this after: the rows stay hidden there until Other 2 is made again. A
+  -- checkbox's action can ask too (Connect to network).
+  hook("コンフィグ共通_処理", {
+    before = function(h)
+      local id = h.args[1]
+      if mag_open and (id == 100012 or id == 100013) then mag_hidden = true end
+    end,
+    after = function() mag_hidden = false end,
+  })
+  hook("T_ConfigEtc2@execCheckBox", {
+    before = function() if mag_open then mag_hidden = true end end,
+    after = function() mag_hidden = false end,
+  })
+  -- Down from the last checkbox (the game goes on to Return to game) gives the kit's cursor the
+  -- filter in use.
+  hook("T_ConfigEtc2@getNextCheckBox", { after = function(h)
+    if mag_shown() and h.result == 100011 then
+      local id = h.args[1]
+      h.result = id
+      local ok, cur = pcall(filter)
+      take_keys(id, MAG_ID .. (ok and cur or FILTERS[1].name))
+    end
+  end })
+  -- Up from the buttons at the bottom (the game goes to the last checkbox) gives it the last row.
+  hook("T_ConfigEtc2@moveUp", { before = function(h)
+    local id = h.args[1]
+    if mag_shown() and id >= 100011 and id <= 100013 then
+      h.skip, h.result = true, id
+      take_keys(id, MAG_ID .. FILTERS[#FILTERS].name)
+    end
+  end })
+  -- The Window tab ticks Standard for every filter but Bicubic, and keeps the ticked one from being
+  -- clicked (T_ConfigWindow::setValue). With one of the engine's other filters neither is ticked,
+  -- and both can be clicked.
+  hook("T_ConfigWindow@setValue", { after = function()
+    local ok, cur = pcall(filter)
+    if not ok or cur == "standard" or cur == "bicubic" then return end
+    for i = 4, 5 do
+      pcall(rq.ain.method, { "g_sConfig", "m_sConfigWindow", "m_aspCheck", i }, "T_Sprite@setShow", 0)
+      pcall(rq.ain.method, { "g_sConfig", "m_sConfigWindow", "m_sButton" }, "T_ButtonGroup@setButtonActive",
+        210001 + i, true)
+    end
+  end })
+end
+
+do
+  local ok, err = pcall(mag_install)
+  if not ok then rq.log("config: no magnification choice on Other 2: " .. tostring(err)) end
 end
 
 rq.on_frame(function()
@@ -238,6 +383,10 @@ rq.on_frame(function()
     -- The kit has the cursor while one of its widgets is under it: given by Down, or by the mouse.
     if ui.focused() ~= nil then kit_keys = true elseif kit_keys and not let_go then kit_keys = false end
     if kit_keys then ui.keys({ edge = hand_back }) end
+  elseif mag_shown() then
+    draw_magnification()
+    if ui.focused() ~= nil then kit_keys = true elseif kit_keys and not let_go then kit_keys = false end
+    if kit_keys then ui.keys({ edge = mag_edge }) end
   else
     kit_keys = false
   end

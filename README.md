@@ -21,6 +21,7 @@ RQ MOD is a fork of [xsystem4](https://github.com/nunuhara/xsystem4), the open-s
 - Debug overlay on F3 (mods can add to it).
 - Logs and crash reports in the `logs` folder.
 - Discord Rich Presence (can be turned off in Config, "Other 2").
+- Five filters for the game drawn larger than 1024 by 768 (a bigger window, full screen): Standard, Bicubic, Nearest, Lanczos and xBRZ, chosen in Config, "Other 2", or in the menu of the window's title bar.
 - A link to the RQ MOD Discord server on the main menu, by the version (the game asks before it opens the browser).
 
 RQ MOD targets Rance Quest Magnum on Windows. Other AliceSoft games are not supported; use [xsystem4](https://github.com/nunuhara/xsystem4) for those.

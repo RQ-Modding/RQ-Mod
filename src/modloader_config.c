@@ -2,8 +2,9 @@
  *
  * rq.config: a Mods tab in the game's Config screen. The tab, its page and its
  * hooks are Lua (src/lua/config.lua, built into the exe). C does what Lua cannot:
- * it adds the tab button to the game's button group (a ref argument), and tells
- * the Discord row on Other 2 to stay off while that page stands in for the Mods page.
+ * it adds the tab button to the game's button group (a ref argument), tells
+ * the Discord row on Other 2 to stay off while that page stands in for the Mods page,
+ * and reads and sets the window's magnification filter for Other 2's radio.
  */
 
 #ifdef RQ_MODLOADER
@@ -20,6 +21,8 @@
 #include "system4/instructions.h"
 #include "system4/utfsjis.h"
 
+#include "xsystem4.h"
+#include "gfx/gfx.h"
 #include "modloader.h"
 #include "modloader_priv.h"
 #define VM_PRIVATE
@@ -138,7 +141,23 @@ static int l_mods(lua_State *L)
 	return 0;
 }
 
-/* Runs config.lua with rq, the two calls above and as_mod (modloader_roster.c); sets rq.config. */
+/* filter([name]): the window's magnification filter by name ("standard", "bicubic", "nearest",
+ * "lanczos", "xbrz"), set first when a name is given, and saved as the title bar's menu saves it. */
+static int l_filter(lua_State *L)
+{
+	if (!lua_isnoneornil(L, 1)) {
+		const char *name = luaL_checkstring(L, 1);
+		int t = gfx_scaling_from_name(name);
+		if (t < 0)
+			return luaL_error(L, "no filter named %s", name);
+		if (t != rq_get_scaling())
+			rq_set_scaling(t);
+	}
+	lua_pushstring(L, gfx_scaling_name(rq_get_scaling()));
+	return 1;
+}
+
+/* Runs config.lua with rq, the calls above and as_mod (modloader_roster.c); sets rq.config. */
 void rq_config_open(lua_State *L, int rq_index)
 {
 	if (luaL_loadbuffer(L, rq_config_lua, rq_config_lua_len, "=config") != LUA_OK) {
@@ -150,7 +169,8 @@ void rq_config_open(lua_State *L, int rq_index)
 	lua_pushcfunction(L, l_tab);
 	lua_pushcfunction(L, l_mods);
 	lua_pushcfunction(L, rq_lua_as_mod);
-	if (lua_pcall(L, 4, 1, 0) != LUA_OK) {
+	lua_pushcfunction(L, l_filter);
+	if (lua_pcall(L, 5, 1, 0) != LUA_OK) {
 		rq_log("config: %s", lua_tostring(L, -1));
 		lua_pop(L, 1);
 		return;

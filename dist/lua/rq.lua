@@ -10084,7 +10084,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.65.1"
+rq.version = "2.65.2"
 
 rq.units = units
 rq.items = items

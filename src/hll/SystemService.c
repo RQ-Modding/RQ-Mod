@@ -497,11 +497,18 @@ static void SystemService_GetSystemBufferName(struct string **text) {
 
 static void SystemService_PreLink(void);
 
-void rq_notify_scaling_from_menu(int type)
+/* The filter from outside the game's Config Window tab, which knows 0 and 1 only: the title bar's
+ * menu and Config's Other 2 (src/lua/config.lua). Kept and saved as the game's own setting. */
+void rq_set_scaling(int type)
 {
 	window_settings.scaling_type = clamp_scaling(type);
 	apply_scaling();
 	save_window_settings();
+}
+
+int rq_get_scaling(void)
+{
+	return window_settings.scaling_type;
 }
 
 static void SystemService_ModuleInit(void)
