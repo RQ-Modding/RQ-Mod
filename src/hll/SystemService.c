@@ -141,7 +141,9 @@ struct window_settings {
 
 static struct window_settings window_settings = {
 	.aspect_ratio = ASPECT_RATIO_NORMAL,
-	.scaling_type = SCALING_STANDARD,
+	// Lanczos until the player saves a filter (WindowSetting.json or .sav): sharper than the
+	// game's Standard on a larger window, full screen or a monitor scaled above 100%.
+	.scaling_type = SCALING_LANCZOS,
 	.wait_vsync = false,
 	.record_pos_size = false,
 	.minimize_by_full_screen_inactive = true,

@@ -377,6 +377,42 @@ do
   if not ok then rq.log("config: no magnification choice on Other 2: " .. tostring(err)) end
 end
 
+-- A first run's 3D settings (2.66.2). With no 3D level saved (３Ｄ設定レベル, 1 to 5) and no
+-- 3DSetting.asd, the game saves its level 3: no anti-aliasing, bilinear filtering. RQ MOD saves
+-- its highest level, 4 (4X anti-aliasing, high shadows), with 16X anisotropic filtering in place of
+-- the level's 4X, as the 3D tab's own custom level (5). A level or a file the player has is never
+-- changed; the 3D tab changes any of it.
+local first_3d = false
+
+local function first_3d_install()
+  hook("３Ｄ設定_レベル保存", {
+    before = function(h)
+      if h.args[1] ~= 3 then return end
+      local ok, level = pcall(rq.ain.call, "３Ｄ設定レベル")
+      if ok and math.type(level) == "integer" and level >= 1 and level <= 5 then return end
+      first_3d = true
+      h.args[1] = 4
+    end,
+    after = function(h)
+      if not first_3d then return end
+      first_3d = false
+      pcall(rq.ain.call, "３Ｄ設定レベル設定", 5)
+      h.result = 5
+      rq.log("config: a first run's 3D settings: the highest level with 16x anisotropic filtering")
+    end,
+  })
+  hook("CReignSetting@SetTextureFilterMode", {
+    before = function(h)
+      if first_3d and h.args[1] == 2 then h.args[1] = 4 end
+    end,
+  })
+end
+
+do
+  local ok, err = pcall(first_3d_install)
+  if not ok then rq.log("config: no first-run 3D settings: " .. tostring(err)) end
+end
+
 rq.on_frame(function()
   if open and not hidden and #pages > 0 then
     draw_page()

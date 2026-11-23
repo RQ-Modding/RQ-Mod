@@ -1313,11 +1313,18 @@ static bool ReignEngine_SetShadowBias(int plugin, int num, float shadow_bias)
 //bool ReignEngine_SetShadowFilterMag(int plugin, float fShadowFilterMag);
 //bool ReignEngine_SetShadowTargetDistance(int plugin, int num, float fDistance);
 
+// Config's 3D tab, Shadow Map Resolution: 1 high, 2 medium, 3 low. The renderer draws the shadow
+// map at 2048, 1024 or 512 pixels a side (src/3d/renderer.c).
 static bool ReignEngine_SetShadowMapResolutionLevel(int plugin, int level)
 {
 	struct RE_plugin *p = RE_get_plugin(plugin);
 	if (!p)
 		return false;
+	static int logged = -1;
+	if (level != logged) {
+		rq_log("3D shadow map: %d", level == 1 ? 2048 : level == 2 ? 1024 : 512);
+		logged = level;
+	}
 	p->shadow_map_resolution_level = level;
 	return true;
 }
@@ -1566,11 +1573,19 @@ static bool ReignEngine_SetRenderMode(int plugin, int mode)
 	return true;
 }
 
+// Config's 3D tab, Shadows: 0 off, 1 low, 2 medium, 3 high. The renderer softens the shadow's edge
+// over 1, 3 by 3 or 5 by 5 samples (src/3d/renderer.c).
 static bool ReignEngine_SetShadowMode(int plugin, int mode)
 {
 	struct RE_plugin *p = RE_get_plugin(plugin);
 	if (!p)
 		return false;
+	static int logged = -1;
+	if (mode != logged) {
+		static const char *names[] = { "off", "low", "medium", "high" };
+		rq_log("3D shadows: %s", mode >= 0 && mode <= 3 ? names[mode] : "high");
+		logged = mode;
+	}
 	p->shadow_mode = mode;
 	return true;
 }
