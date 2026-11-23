@@ -42,6 +42,7 @@
 #include "gfx/gfx.h"
 #include "scene.h"
 #include "sprite.h"
+#include "plugin.h"
 #include "vm.h"
 #include "sact.h"
 #include "modloader.h"
@@ -2567,6 +2568,7 @@ struct scene_row {
 	int no, z, z2, x, y, w, h, cg;
 	const char *mod;
 	const char *part;
+	const char *plugin;
 };
 
 struct scene_walk {
@@ -2610,6 +2612,8 @@ static void walk_one(struct sprite *sp, void *data)
 		r->x = ss->rect.x; r->y = ss->rect.y;
 		r->w = ss->rect.w; r->h = ss->rect.h;
 		r->cg = ss->cg_no;
+		if (ss->plugin)
+			r->plugin = ss->plugin->name ? ss->plugin->name : "other";
 	} else if (rq_parts_describe(sp, &r->no, &type, &r->x, &r->y, &r->w, &r->h, &r->cg)) {
 		r->kind = "part";
 		r->part = part_type_name(type);
@@ -2653,6 +2657,10 @@ static int l_scene(lua_State *L)
 			lua_pushstring(L, r->part);
 			lua_setfield(L, -2, "part");
 		}
+		if (r->plugin) {
+			lua_pushstring(L, r->plugin);
+			lua_setfield(L, -2, "plugin");
+		}
 		lua_rawseti(L, -2, i + 1);
 	}
 	free(rows);
@@ -2683,6 +2691,8 @@ char *rq_sprite_scene_json(void)
 			cJSON_AddStringToObject(e, "mod", r->mod);
 		if (r->part)
 			cJSON_AddStringToObject(e, "part", r->part);
+		if (r->plugin)
+			cJSON_AddStringToObject(e, "plugin", r->plugin);
 		cJSON_AddItemToArray(a, e);
 	}
 	cJSON_AddNumberToObject(o, "count", n);

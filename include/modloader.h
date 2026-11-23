@@ -461,6 +461,8 @@ int rq_lua_ui_aim(struct lua_State *L);
 int rq_lua_dungeon_grid(struct lua_State *L);
 int rq_lua_ui_shot(struct lua_State *L);
 int rq_lua_ui_shot_result(struct lua_State *L);
+int rq_lua_ui_window(struct lua_State *L);
+int rq_lua_ui_set_window_size(struct lua_State *L);
 int rq_lua_hud_rect(struct lua_State *L);
 int rq_lua_hud_text(struct lua_State *L);
 int rq_lua_hud_cg(struct lua_State *L);
@@ -537,6 +539,8 @@ void rq_sound_master_toggle_mute(void);
 
 void rq_ui_init(void);
 void rq_ui_on_present(void);
+/* Before the window's picture is swapped in (2.67.0): a shot of the window as shown. */
+void rq_ui_before_swap(void);
 /* The stall watch (2.31.0): handle_events logs one line when rq.on_frame has not started for 10 s
  * (the game pumps events without its update, or a callback has not returned); its numbers as text
  * for rqmod-ctl where; its clock restarted after a pause. */
@@ -572,7 +576,7 @@ char *rq_api_dump_json(void);
 void rq_ui_note_sprite_text(int sp_no, const char *sjis);
 void rq_ui_clear_sprite_text(int sp_no);
 
-#define RQ_VERSION "2.66.2"
+#define RQ_VERSION "2.67.0"
 /* The project's stage, after the version in the window title and the main menu's banner (2.59.2):
  * the tools that help make content are not done yet. "" when the stage ends. */
 #define RQ_STAGE "Public Beta"
@@ -732,6 +736,7 @@ static inline void rq_saves_on_game_delete(const char *filename) { (void)filenam
 static inline int rq_saves_syscall(int code) { (void)code; return 0; }
 static inline void rq_ui_init(void) {}
 static inline void rq_ui_on_present(void) {}
+static inline void rq_ui_before_swap(void) {}
 static inline void rq_stall_watch(void) {}
 static inline void rq_ui_on_parts_input(void) {}
 static inline int rq_ui_wants_frame(void) { return 0; }

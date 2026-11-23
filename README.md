@@ -23,6 +23,7 @@ RQ MOD is a fork of [xsystem4](https://github.com/nunuhara/xsystem4), the open-s
 - Discord Rich Presence (can be turned off in Config, "Other 2").
 - Five filters for the game drawn larger than 1024 by 768 (a bigger window, full screen): Standard, Bicubic, Nearest, Lanczos and xBRZ, chosen in Config, "Other 2", or in the menu of the window's title bar, which marks the one in use.
 - The game's 3D anti-aliasing (Config's 3D tab: 2X, 4X or 8X), which smooths the edges of the fights' and the maps' 3D, leaves and hair included, its texture filtering (anisotropic up to 16X), which keeps the floors sharp into the distance, and its shadow settings (a map up to 2048 by 2048, edges from hard to soft). A new player starts on the highest settings, with 16X filtering, and on the Lanczos filter for a larger window.
+- The 3D drawn at the window's own pixels when the window is larger than 1024 by 768, so a fight's monsters and a quest's map are as sharp as the window allows, while the 2D is enlarged by the filter (Config, "Other 2", "3D at the window's size", on by default).
 - A sharp window on a monitor that Windows scales above 100%: the window keeps its size, and the game is drawn into the screen's own pixels instead of being stretched by Windows.
 - A link to the RQ MOD Discord server on the main menu, by the version (the game asks before it opens the browser).
 

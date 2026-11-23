@@ -21,6 +21,10 @@ uniform vec2 top_right;
 uniform vec3 add_color;
 uniform vec3 multiply_color;
 uniform int draw_filter;
+// RQ MOD (2.67.0): 1 or 2 draws the texture's colour as black or white, its alpha kept, for the
+// 3D at the window's size (the scene drawn with the 3D sprite black, then white); 0, the default
+// of every program that does not set it, is off.
+uniform int layer_mask;
 
 uniform int use_clipper;
 uniform sampler2D clipper_tex;
@@ -42,6 +46,8 @@ void main() {
 		discard;
 
 	vec4 tex_color = texture(tex, tex_coord);
+	if (layer_mask != 0)
+		tex_color.rgb = vec3(float(layer_mask - 1));
 	vec3 mod_color = (tex_color.rgb + add_color) * multiply_color;
 	float alpha = tex_color.a * blend_rate;
 

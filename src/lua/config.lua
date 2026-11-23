@@ -9,8 +9,9 @@
 -- rq.config.settings (2.35.0) builds a page from a list of rows and keeps its values in the
 -- mod's store; as_mod (modloader_roster.c) files those store calls under the mod.
 -- Other 2 itself shows the window's magnification filter as a choice of five (2.65.2), with or
--- without mods; filter (modloader_config.c) reads it by name and sets it.
-local rq, set_tab, set_mods, as_mod, filter = ...
+-- without mods; filter (modloader_config.c) reads it by name and sets it. Under them, the 3D at
+-- the window's size (2.67.0), which sharp reads and sets.
+local rq, set_tab, set_mods, as_mod, filter, sharp = ...
 local ui = rq.uikit
 local hook = rq.ain.hook
 
@@ -258,6 +259,11 @@ local FILTERS = {
     tip = "Rounds the stairs of edges, as for pixel art. Best when the window is larger." },
 }
 local MAG_ID = "magnification."
+-- Under the filters (2.67.0): the 3D drawn at the window's own pixels; sharp (modloader_config.c)
+-- reads and sets it, as the title bar's menu does.
+local SHARP = { id = "sharp-3d", y = 555, w = 420, text = "3D at the window's size",
+  tip = "Fights and quest maps drawn at the window's own pixels when it is larger than the game's "
+    .. "1024 by 768: sharper models. Off, the 3D is enlarged with the rest of the picture." }
 -- The heading where the Window tab has its own (x 63), the rows 30 apart as there, 70 under the
 -- last checkbox (Disable Discord Rich Presence at y 275; the stock rows are 70 apart).
 local MAG = { head_x = 63, head_y = 345, x = 70, y = 370, step = 30, w = 280 }
@@ -285,6 +291,14 @@ local function draw_rows(cur)
         rq.log("config: magnification: " .. tostring(err))
       end
     end
+  end
+  local ok, on = pcall(sharp)
+  if not ok then return end
+  local v, c = ui.checkbox(on, SHARP.text, { id = SHARP.id, x = MAG.x, y = SHARP.y, w = SHARP.w,
+    tip = SHARP.tip })
+  if c and v ~= on then
+    local set, err = pcall(sharp, v)
+    rq.log("config: 3D at the window's size " .. (set and (v and "on" or "off") or tostring(err)))
   end
 end
 
@@ -355,7 +369,7 @@ local function mag_install()
     local id = h.args[1]
     if mag_shown() and id >= 100011 and id <= 100013 then
       h.skip, h.result = true, id
-      take_keys(id, MAG_ID .. FILTERS[#FILTERS].name)
+      take_keys(id, SHARP.id)
     end
   end })
   -- The Window tab ticks Standard for every filter but Bicubic, and keeps the ticked one from being

@@ -87,6 +87,8 @@ void screenshot_save(void);
 void crayfish_log_pump(void);
 void rq_set_scaling(int type);
 int rq_get_scaling(void);
+void rq_set_sharp_3d(int on);
+int rq_get_sharp_3d(void);
 
 void sys_show_simple_message_box(unsigned flags, const char *title, const char *msg);
 

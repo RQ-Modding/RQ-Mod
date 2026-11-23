@@ -78,6 +78,8 @@ void scene_render_split(int z, void (*mid)(void))
 {
 	bool mid_done = !mid;
 	rq_prof_begin(RQ_PROF_SCENE);
+	// RQ MOD (2.67.0): a scene drawn outside the 3D's two passes is shown as before.
+	gfx_layer_scene_drawn();
 	gfx_clear();
 	if (wp.handle) {
 		Rectangle r = RECT(0, 0, wp.w, wp.h);

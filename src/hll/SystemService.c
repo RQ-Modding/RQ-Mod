@@ -174,6 +174,14 @@ static void apply_scaling(void)
 	win32_ui_mark_scaling(window_settings.scaling_type);
 }
 
+/* RQ MOD (2.67.0): the 3D drawn at the window's size, on until the player turns it off. Kept in
+ * WindowSetting.json only; the game's own .sav has no place for it. */
+static void apply_sharp_3d(int on)
+{
+	gfx_set_sharp_3d(on);
+	win32_ui_mark_sharp_3d(on);
+}
+
 static void save_window_settings_sav(void)
 {
 	uint8_t buf[48];
@@ -212,6 +220,7 @@ static void save_window_settings(void)
 	cJSON_AddItemToArray(opts, cJSON_CreateString("lanczos"));
 	cJSON_AddItemToArray(opts, cJSON_CreateString("xbrz"));
 	cJSON_AddItemToObject(root, "scaling_options", opts);
+	cJSON_AddBoolToObject(root, "sharp_3d", gfx_get_sharp_3d());
 	save_json("WindowSetting.json", root);
 	cJSON_Delete(root);
 	save_window_settings_sav();
@@ -253,9 +262,12 @@ static void load_window_settings(void)
 		} else if ((v = cJSON_GetObjectItem(root, "scaling_type")) && cJSON_IsNumber(v)) {
 			window_settings.scaling_type = clamp_scaling(v->valueint);
 		}
+		if ((v = cJSON_GetObjectItem(root, "sharp_3d")) && cJSON_IsBool(v))
+			gfx_set_sharp_3d(cJSON_IsTrue(v));
 		cJSON_Delete(root);
 	}
 	apply_scaling();
+	apply_sharp_3d(gfx_get_sharp_3d());
 }
 
 static bool SystemService_SetWindowSetting(int type, int value)
@@ -513,6 +525,18 @@ void rq_set_scaling(int type)
 int rq_get_scaling(void)
 {
 	return window_settings.scaling_type;
+}
+
+/* The 3D at the window's size from the title bar's menu and Config's Other 2. */
+void rq_set_sharp_3d(int on)
+{
+	apply_sharp_3d(on != 0);
+	save_window_settings();
+}
+
+int rq_get_sharp_3d(void)
+{
+	return gfx_get_sharp_3d();
 }
 
 static void SystemService_ModuleInit(void)

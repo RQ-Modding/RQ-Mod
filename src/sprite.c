@@ -96,7 +96,26 @@ static struct sprite_shader {
 	GLuint add_color;
 	GLuint bot_left;
 	GLuint top_right;
+	GLint mask;
 } sprite_shader = {0};
+
+// RQ MOD (2.67.0): the sprite drawn as a mask (sprite_set_layer_mask: 1 black, 2 white), and
+// whether the texture being drawn is its own (not the text over it). Rance Quest draws its
+// sprites with the Chipmunk shader, other games with SACT's: both take it.
+static struct sact_sprite *mask_sprite;
+static int mask_value;
+static bool mask_drawing;
+
+void sprite_set_layer_mask(struct sact_sprite *sp, int value)
+{
+	mask_sprite = sp;
+	mask_value = sp ? value : 0;
+}
+
+static void set_layer_mask(struct sprite_shader *s, struct sact_sprite *sp)
+{
+	glUniform1i(s->mask, mask_drawing && sp == mask_sprite ? mask_value : 0);
+}
 
 static void prepare_sact_shader(struct gfx_render_job *job, void *data)
 {
@@ -107,6 +126,7 @@ static void prepare_sact_shader(struct gfx_render_job *job, void *data)
 			sp->multiply_color.r / 255.0f,
 			sp->multiply_color.g / 255.0f,
 			sp->multiply_color.b / 255.0f);
+	set_layer_mask(s, sp);
 }
 
 static void prepare_chipmunk_shader(struct gfx_render_job *job, void *data)
@@ -130,6 +150,7 @@ static void prepare_chipmunk_shader(struct gfx_render_job *job, void *data)
 
 	glUniform2f(s->bot_left, r.x, r.y);
 	glUniform2f(s->top_right, r.x + r.w, r.y + r.h);
+	set_layer_mask(s, sp);
 }
 
 void sprite_init_sact(void)
@@ -143,6 +164,7 @@ void sprite_init_sact(void)
 	gfx_load_shader(&sprite_shader.s, "shaders/render.v.glsl", "shaders/sprite.f.glsl");
 	sprite_shader.blend_rate = glGetUniformLocation(sprite_shader.s.program, "blend_rate");
 	sprite_shader.multiply_color = glGetUniformLocation(sprite_shader.s.program, "multiply_color");
+	sprite_shader.mask = glGetUniformLocation(sprite_shader.s.program, "layer_mask");
 	sprite_shader.s.prepare = prepare_sact_shader;
 
 }
@@ -162,6 +184,7 @@ void sprite_init_chipmunk(void)
 	sprite_shader.add_color = glGetUniformLocation(sprite_shader.s.program, "add_color");
 	sprite_shader.bot_left = glGetUniformLocation(sprite_shader.s.program, "bot_left");
 	sprite_shader.top_right = glGetUniformLocation(sprite_shader.s.program, "top_right");
+	sprite_shader.mask = glGetUniformLocation(sprite_shader.s.program, "layer_mask");
 	sprite_shader.s.prepare = prepare_chipmunk_shader;
 	glUseProgram(sprite_shader.s.program);
 	glUniform1i(glGetUniformLocation(sprite_shader.s.program, "use_clipper"), 0);
@@ -216,7 +239,9 @@ static void sprite_render(struct sprite *_sp)
 		r.y -= sp->surface_area.y;
 	}
 
+	mask_drawing = sp == mask_sprite;
 	_gfx_render_texture(&sprite_shader.s, &sp->texture, &r, sp);
+	mask_drawing = false;
 	if (sp->text.texture.handle) {
 		_gfx_render_texture(&sprite_shader.s, &sp->text.texture, &r, sp);
 	}

@@ -276,6 +276,8 @@ static atomic_int g_wants;
 static int g_lua_shot_wanted;
 static int g_lua_shot_result;
 static char g_lua_shot_path[512];
+/* rq.ui.shot's window (2.67.0): the window as shown, taken before the swap. */
+static int g_lua_shot_window;
 /* rq.ui.get or aim built the list during this update. */
 static int g_lua_built;
 /* A named screen was seen, so an empty screen is no longer the boot. */
@@ -6376,6 +6378,8 @@ enum { SHOT_IDLE, SHOT_WANTED, SHOT_OK, SHOT_FAILED };
 static atomic_int g_paused;
 static atomic_int g_shot_state;
 static char g_shot_path[512];
+/* rqmod-ctl shot PATH window (2.67.0): taken before the swap, not from the game's picture. */
+static atomic_int g_shot_window;
 
 /* cgdump: the game's own CGs (past mod replacements) saved as PNG, on the
  * main thread because archive reads are not shared with the pipe thread. */
@@ -6562,15 +6566,38 @@ static void service_shot(void)
 	int ok;
 	service_cgdump();
 	service_flashdump();
-	if (g_lua_shot_wanted) {
+	if (g_lua_shot_wanted && !g_lua_shot_window) {
 		ok = gfx_save_texture(gfx_main_surface(), g_lua_shot_path, ALCG_PNG);
 		g_lua_shot_result = ok ? 1 : -1;
 		g_lua_shot_wanted = 0;
 	}
-	if (atomic_load(&g_shot_state) != SHOT_WANTED)
+	if (atomic_load(&g_shot_state) != SHOT_WANTED || atomic_load(&g_shot_window))
 		return;
 	ok = gfx_save_texture(gfx_main_surface(), g_shot_path, ALCG_PNG);
 	atomic_store(&g_shot_state, ok ? SHOT_OK : SHOT_FAILED);
+}
+
+/* A shot of the window as shown (2.67.0): its back buffer, drawn and not yet swapped. */
+void rq_ui_before_swap(void)
+{
+	int ok;
+	if (g_lua_shot_wanted && g_lua_shot_window) {
+		ok = gfx_save_window(g_lua_shot_path);
+		g_lua_shot_result = ok ? 1 : -1;
+		g_lua_shot_wanted = 0;
+		g_lua_shot_window = 0;
+	}
+	if (atomic_load(&g_shot_state) == SHOT_WANTED && atomic_load(&g_shot_window)) {
+		ok = gfx_save_window(g_shot_path);
+		atomic_store(&g_shot_window, 0);
+		atomic_store(&g_shot_state, ok ? SHOT_OK : SHOT_FAILED);
+	}
+}
+
+static int window_shot_waiting(void)
+{
+	return (g_lua_shot_wanted && g_lua_shot_window)
+		|| (atomic_load(&g_shot_state) == SHOT_WANTED && atomic_load(&g_shot_window));
 }
 
 /* The VM stays inside this swap while paused. The window keeps answering, and
@@ -6588,6 +6615,9 @@ void rq_ui_on_present(void)
 		handle_window_events();
 		publish_frame();
 		service_shot();
+		/* A shot of the window is taken before a swap: the same frame shown again. */
+		if (window_shot_waiting())
+			gfx_swap();
 		Sleep(5);
 	}
 	in_pause = 0;
@@ -6608,11 +6638,26 @@ int rq_ui_cmd_shot(const char *path, char *err, int errsz)
 {
 	unsigned long long t0;
 	int st;
-	if (!path || !*path || strlen(path) >= sizeof g_shot_path) {
+	char path_buf[512];
+	int window = 0;
+	size_t n = path ? strlen(path) : 0;
+	/* shot PATH window: the window as shown, at its pixels (2.67.0). */
+	while (n && (path[n - 1] == ' ' || path[n - 1] == '\t'))
+		n--;
+	if (n > 7 && !_strnicmp(path + n - 7, " window", 7)) {
+		n -= 7;
+		while (n && path[n - 1] == ' ')
+			n--;
+		window = 1;
+	}
+	if (!path || !n || n >= sizeof path_buf) {
 		if (err)
-			snprintf(err, errsz, "usage: shot PATH");
+			snprintf(err, errsz, "usage: shot PATH [window]");
 		return 0;
 	}
+	memcpy(path_buf, path, n);
+	path_buf[n] = 0;
+	path = path_buf;
 	if (!g_ready) {
 		if (err)
 			snprintf(err, errsz, "not-ready");
@@ -6624,6 +6669,7 @@ int rq_ui_cmd_shot(const char *path, char *err, int errsz)
 		return 0;
 	}
 	snprintf(g_shot_path, sizeof g_shot_path, "%s", path);
+	atomic_store(&g_shot_window, window);
 	atomic_store(&g_shot_state, SHOT_WANTED);
 	t0 = GetTickCount64();
 	while ((st = atomic_load(&g_shot_state)) == SHOT_WANTED) {
@@ -6635,6 +6681,7 @@ int rq_ui_cmd_shot(const char *path, char *err, int errsz)
 		Sleep(2);
 	}
 	atomic_store(&g_shot_state, SHOT_IDLE);
+	atomic_store(&g_shot_window, 0);
 	if (st != SHOT_OK) {
 		if (err)
 			snprintf(err, errsz, "write-failed");
@@ -7363,8 +7410,16 @@ int rq_lua_ui_shot(lua_State *L)
 		return luaL_error(L, "rq.ui.shot: path too long");
 	if (g_lua_shot_wanted)
 		return luaL_error(L, "rq.ui.shot: another shot is waiting for a frame");
+	int window = 0;
+	if (!lua_isnoneornil(L, 2)) {
+		luaL_checktype(L, 2, LUA_TTABLE);
+		lua_getfield(L, 2, "window");
+		window = lua_toboolean(L, -1);
+		lua_pop(L, 1);
+	}
 	snprintf(g_lua_shot_path, sizeof g_lua_shot_path, "%s", full);
 	g_lua_shot_result = 0;
+	g_lua_shot_window = window;
 	g_lua_shot_wanted = 1;
 	return 0;
 }
@@ -7378,6 +7433,57 @@ int rq_lua_ui_shot_result(lua_State *L)
 	}
 	lua_pushboolean(L, g_lua_shot_result > 0);
 	g_lua_shot_result = 0;
+	return 1;
+}
+
+/* The window: its size in points and pixels, the game's picture in it, full screen, the 3D. */
+int rq_lua_ui_window(lua_State *L)
+{
+	struct gfx_window_info info;
+	gfx_window_info(&info);
+	lua_createtable(L, 0, 12);
+	lua_pushinteger(L, info.w);
+	lua_setfield(L, -2, "w");
+	lua_pushinteger(L, info.h);
+	lua_setfield(L, -2, "h");
+	lua_pushinteger(L, info.px_w);
+	lua_setfield(L, -2, "pixels_w");
+	lua_pushinteger(L, info.px_h);
+	lua_setfield(L, -2, "pixels_h");
+	lua_createtable(L, 0, 4);
+	lua_pushinteger(L, info.view_x);
+	lua_setfield(L, -2, "x");
+	lua_pushinteger(L, info.view_y);
+	lua_setfield(L, -2, "y");
+	lua_pushinteger(L, info.view_w);
+	lua_setfield(L, -2, "w");
+	lua_pushinteger(L, info.view_h);
+	lua_setfield(L, -2, "h");
+	lua_setfield(L, -2, "view");
+	lua_pushnumber(L, info.view_w / 1024.0);
+	lua_setfield(L, -2, "scale");
+	lua_pushboolean(L, info.fullscreen);
+	lua_setfield(L, -2, "fullscreen");
+	lua_pushboolean(L, info.sharp_3d);
+	lua_setfield(L, -2, "sharp_3d");
+	lua_pushboolean(L, info.sharp_3d_shown);
+	lua_setfield(L, -2, "sharp_3d_shown");
+	if (info.sharp_3d_shown) {
+		lua_pushinteger(L, info.sharp_3d_w);
+		lua_setfield(L, -2, "sharp_3d_w");
+		lua_pushinteger(L, info.sharp_3d_h);
+		lua_setfield(L, -2, "sharp_3d_h");
+	}
+	return 1;
+}
+
+/* The window's size in points (out of full screen). */
+int rq_lua_ui_set_window_size(lua_State *L)
+{
+	lua_Integer w = luaL_checkinteger(L, 1), h = luaL_checkinteger(L, 2);
+	if (w < 64 || h < 48 || w > 16384 || h > 16384)
+		return luaL_error(L, "rq.ui.set_window_size: %d by %d is not a window's size", (int)w, (int)h);
+	lua_pushboolean(L, gfx_set_window_size((int)w, (int)h));
 	return 1;
 }
 

@@ -144,5 +144,8 @@ int sprite_get_amap_value(struct sact_sprite *sp, int x, int y);
 void sprite_get_pixel_value(struct sact_sprite *sp, int x, int y, int *r, int *g, int *b);
 void sprite_bind_plugin(struct sact_sprite *sp, struct draw_plugin *plugin);
 void sprite_call_plugins(void);
+// RQ MOD (2.67.0): draws this sprite's texture as black (0) or white (1), its alpha kept, until
+// called with NULL; the 3D at the window's size draws the scene so twice.
+void sprite_set_layer_mask(struct sact_sprite *sp, int value);
 
 #endif /* SYSTEM4_SPRITE_H */

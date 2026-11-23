@@ -26,9 +26,11 @@ float lanczos(float x)
 	return sinc(x) * sinc(x / 3.0);
 }
 
-void main()
+// The filtered colour of src at coord (RQ MOD 2.67.0: a function, so the 3D at the window's size
+// filters two pictures the same way; see present_layered.f.glsl).
+vec4 present_sample(sampler2D src, vec2 coord)
 {
-	vec2 pixel = tex_coord * tex_size - vec2(0.5);
+	vec2 pixel = coord * tex_size - vec2(0.5);
 	vec2 f = fract(pixel);
 	vec2 base = floor(pixel) - vec2(2.0);
 	vec2 texel = 1.0 / tex_size;
@@ -39,9 +41,16 @@ void main()
 		for (int i = 0; i < 6; i++) {
 			float w = lanczos(float(i) - 2.0 - f.x) * wy;
 			vec2 uv = (base + vec2(float(i), float(j)) + vec2(0.5)) * texel;
-			color += texture(tex, uv) * w;
+			color += texture(src, uv) * w;
 			wsum += w;
 		}
 	}
-	frag_color = color / max(wsum, 0.0001);
+	return color / max(wsum, 0.0001);
 }
+
+#ifndef PRESENT_LAYERED
+void main()
+{
+	frag_color = present_sample(tex, tex_coord);
+}
+#endif

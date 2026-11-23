@@ -214,6 +214,61 @@ static void sact_prof_update_split(uint64_t ev, uint64_t plug, uint64_t scn,
 }
 #endif
 
+/* The scene, the mods' HUD and F3's overlay, as a frame draws them. */
+static void sact_draw_frame(void)
+{
+#ifdef RQ_MODLOADER
+	/* Under the game's choice menu while it shows, so a mod's page or HUD does not
+	 * cover it (2.7.0); above everything otherwise. Over Config the menu is above
+	 * Config's screen, and the HUD between them (2.28.0). */
+	if (rq_hud_choosing())
+		scene_render_split(rq_hud_under_z(), rq_hud_draw);
+	else {
+		scene_render();
+		rq_hud_draw();
+	}
+	rq_debug_draw();
+#else
+	scene_render();
+#endif
+}
+
+/* RQ MOD (2.67.0): the frame with a 3D view drawn at the window's size, when one drew alone: the
+ * scene twice, with the view's sprite black then white, from which gfx writes the game's picture
+ * and shows the window. Otherwise, or when a pass cannot be drawn, the frame as before. */
+static void sact_draw_frame_sharp(void *key)
+{
+	struct sact_sprite *sp = key;
+	if (!sp || !sp->sp.in_scene || !sp->plugin) {
+		sact_draw_frame();
+		return;
+	}
+	bool ok = true;
+	for (int pass = 0; pass < 2 && ok; pass++) {
+		ok = gfx_layer_pass(pass);
+		if (ok) {
+			sprite_set_layer_mask(sp, pass + 1);
+			sact_draw_frame();
+		}
+	}
+	sprite_set_layer_mask(NULL, 0);
+	if (!ok) {
+		gfx_layer_cancel();
+		sact_draw_frame();
+		return;
+	}
+	/* Where sprite_render draws the sprite's texture. */
+	struct texture *t = sprite_get_texture(sp);
+	Rectangle r = sp->rect;
+	if (sp->surface_area.x || sp->surface_area.y) {
+		r.x -= sp->surface_area.x;
+		r.y -= sp->surface_area.y;
+	}
+	r.w = t->w;
+	r.h = t->h;
+	gfx_layer_finish(t, &r);
+}
+
 int sact_Update(void)
 {
 #ifdef RQ_PROFILE
@@ -248,21 +303,12 @@ int sact_Update(void)
 			scene_is_dirty = true;
 	}
 #endif
+	void *sharp = gfx_sharp_3d_take();
 	if (scene_is_dirty) {
-#ifdef RQ_MODLOADER
-		/* Under the game's choice menu while it shows, so a mod's page or HUD does not
-		 * cover it (2.7.0); above everything otherwise. Over Config the menu is above
-		 * Config's screen, and the HUD between them (2.28.0). */
-		if (rq_hud_choosing())
-			scene_render_split(rq_hud_under_z(), rq_hud_draw);
-		else {
-			scene_render();
-			rq_hud_draw();
-		}
-		rq_debug_draw();
-#else
-		scene_render();
-#endif
+		if (sharp)
+			sact_draw_frame_sharp(sharp);
+		else
+			sact_draw_frame();
 #ifdef RQ_PROFILE
 		if (split) {
 			t3 = SDL_GetPerformanceCounter();

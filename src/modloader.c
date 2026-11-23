@@ -1632,6 +1632,8 @@ static void open_rq(lua_State *L)
 	set_cfn(L, "aim", rq_lua_ui_aim);
 	set_cfn(L, "shot", rq_lua_ui_shot);
 	set_cfn(L, "shot_result", rq_lua_ui_shot_result);
+	set_cfn(L, "window", rq_lua_ui_window);
+	set_cfn(L, "set_window_size", rq_lua_ui_set_window_size);
 	set_cfn(L, "choosing", rq_lua_ui_choosing);
 	lua_setfield(L, -2, "ui");
 

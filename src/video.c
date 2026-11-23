@@ -139,6 +139,39 @@ static SDL_Color clear_color = { 0, 0, 0, 255 };
 static float frame_rate;
 static bool wait_vsync = false;
 
+/*
+ * RQ MOD (2.67.0): the 3D at the window's size.
+ *
+ * A 3D view draws into sharp.target at the window's scale (and copies itself, scaled down, into
+ * its sprite). The frame then draws the scene twice into float pictures put on main_surface_fb
+ * (gfx_reset_framebuffer binds that one): with the view's sprite black (layer[0], P) and white
+ * (layer[1], P + T), every blend being affine in the colour underneath. gfx_layer_finish writes
+ * main_surface from them and the sprite's own picture (the game's picture as before, for shots
+ * and copies), and gfx_swap shows F(P) + (F(P + T) - F(P)) * X, F the filter chosen and X the
+ * view at the window's pixels (shaders/present_layered.f.glsl).
+ */
+struct layered_shader {
+	struct shader s;
+	GLint tex_size, white_tex, hires_tex, hires_rect;
+	bool tried;
+};
+static struct {
+	bool on;                  // the setting
+	bool broken;              // a shader or a picture failed: drawn as before
+	struct texture target;    // the view at the window's scale
+	void *drawn_key;          // the view that drew this frame
+	int drawn;                // how many drew
+	struct texture layer[2];  // the scene with the view black, white (RGBA16F)
+	bool layer_ok;
+	bool in_pass;
+	bool armed;               // the next swap shows the view at the window's size
+	bool shown;               // the last swap showed it
+	float rect[4];            // the view's place in the game's picture (0 to 1)
+	struct layered_shader plain, bicubic, lanczos, xbrz;
+	float logged_scale;
+	int logged_w, logged_h;
+} sharp = { .on = true, .logged_scale = -1.f };
+
 static GLchar *read_shader_file(const char *path)
 {
 	GLchar *source = SDL_LoadFile(path, NULL);
@@ -534,6 +567,395 @@ static void gfx_update_frame_rate_counter(void)
 	}
 }
 
+/* RQ MOD (2.67.0): the 3D at the window's size; see `sharp` at the top. */
+
+void gfx_set_sharp_3d(bool on)
+{
+	if (sharp.on != on)
+		rq_log("3D at the window's size: %s", on ? "on" : "off");
+	sharp.on = on;
+	if (!on)
+		sharp.armed = false;
+	sharp.logged_scale = -1.f;
+}
+
+bool gfx_get_sharp_3d(void)
+{
+	return sharp.on;
+}
+
+float gfx_sharp_3d_scale(void)
+{
+	if (!sharp.on || sharp.broken || view != &main_surface || sdl.w <= 0)
+		return 1.f;
+	float s = (float)sdl.viewport.w / sdl.w;
+	// No larger than the game's picture: nothing to gain.
+	return s < 1.01f ? 1.f : s;
+}
+
+static bool make_texture(struct texture *t, int w, int h, GLint internal, GLenum type)
+{
+	while (glGetError() != GL_NO_ERROR)
+		;
+	if (!t->handle)
+		glGenTextures(1, &t->handle);
+	glBindTexture(GL_TEXTURE_2D, t->handle);
+	glTexImage2D(GL_TEXTURE_2D, 0, internal, w, h, 0, GL_RGBA, type, NULL);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	t->w = w;
+	t->h = h;
+	return glGetError() == GL_NO_ERROR;
+}
+
+static void sharp_fail(const char *what)
+{
+	WARNING("3D at the window's size: %s; the 3D is drawn at the game's size", what);
+	rq_log("3D at the window's size: %s; the 3D is drawn at the game's size", what);
+	sharp.broken = true;
+	sharp.armed = false;
+}
+
+struct texture *gfx_sharp_3d_target(int w, int h)
+{
+	if (sharp.broken || w <= 0 || h <= 0 || w > max_texture_size || h > max_texture_size)
+		return NULL;
+	if (sharp.target.handle && sharp.target.w == w && sharp.target.h == h)
+		return &sharp.target;
+	if (!make_texture(&sharp.target, w, h, GL_RGBA8, GL_UNSIGNED_BYTE)) {
+		sharp_fail("no picture of that size");
+		return NULL;
+	}
+	return &sharp.target;
+}
+
+void gfx_sharp_3d_drawn(void *key)
+{
+	sharp.drawn_key = key;
+	sharp.drawn++;
+}
+
+void *gfx_sharp_3d_take(void)
+{
+	void *key = sharp.drawn == 1 ? sharp.drawn_key : NULL;
+	sharp.drawn = 0;
+	sharp.drawn_key = NULL;
+	return key;
+}
+
+// A shader's source read from the game's folder or the data folder, or NULL.
+static GLchar *try_read_shader(const char *path)
+{
+	GLchar *source = SDL_LoadFile(path, NULL);
+	if (!source) {
+		char full_path[PATH_MAX];
+		snprintf(full_path, PATH_MAX, XSYS4_DATA_DIR "/%s", path);
+		source = SDL_LoadFile(full_path, NULL);
+	}
+	return source;
+}
+
+// The layered present over a filter: the filter's file with PRESENT_LAYERED, then
+// present_layered.f.glsl. A failure is logged and leaves the shader empty.
+static bool load_layered(struct layered_shader *ls, const char *filter_path)
+{
+	GLchar *filter = try_read_shader(filter_path);
+	GLchar *layered = try_read_shader("shaders/present_layered.f.glsl");
+	if (!filter || !layered) {
+		WARNING("3D at the window's size: %s or present_layered.f.glsl not found", filter_path);
+		SDL_free(filter);
+		SDL_free(layered);
+		return false;
+	}
+	const GLchar *source[4] = { glsl_preamble, "#define PRESENT_LAYERED\n", filter, layered };
+	GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+	glShaderSource(fs, 4, source, NULL);
+	glCompileShader(fs);
+	SDL_free(filter);
+	SDL_free(layered);
+	GLint ok = 0;
+	glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
+	if (!ok) {
+		char log[1024] = "";
+		glGetShaderInfoLog(fs, sizeof log, NULL, log);
+		WARNING("3D at the window's size: %s: %s", filter_path, log);
+		glDeleteShader(fs);
+		return false;
+	}
+	GLuint vs = gfx_load_shader_file("shaders/render.v.glsl", GL_VERTEX_SHADER, NULL);
+	GLuint program = glCreateProgram();
+	glAttachShader(program, vs);
+	glAttachShader(program, fs);
+	glLinkProgram(program);
+	glDeleteShader(vs);
+	glDeleteShader(fs);
+	glGetProgramiv(program, GL_LINK_STATUS, &ok);
+	if (!ok) {
+		WARNING("3D at the window's size: %s did not link", filter_path);
+		glDeleteProgram(program);
+		return false;
+	}
+	ls->s.program = program;
+	ls->s.world_transform = glGetUniformLocation(program, "world_transform");
+	ls->s.view_transform = glGetUniformLocation(program, "view_transform");
+	ls->s.texture = glGetUniformLocation(program, "tex");
+	ls->s.vertex_pos = glGetAttribLocation(program, "vertex_pos");
+	ls->s.vertex_uv = glGetAttribLocation(program, "vertex_uv");
+	ls->s.prepare = NULL;
+	ls->tex_size = glGetUniformLocation(program, "tex_size");
+	ls->white_tex = glGetUniformLocation(program, "white_tex");
+	ls->hires_tex = glGetUniformLocation(program, "hires_tex");
+	ls->hires_rect = glGetUniformLocation(program, "hires_rect");
+	return true;
+}
+
+static struct layered_shader *layered_for(int type)
+{
+	struct layered_shader *ls = &sharp.plain;
+	const char *path = "shaders/present_plain.f.glsl";
+	switch (type) {
+	case GFX_SCALE_BICUBIC:
+		ls = &sharp.bicubic;
+		path = "shaders/present_bicubic.f.glsl";
+		break;
+	case GFX_SCALE_LANCZOS:
+		ls = &sharp.lanczos;
+		path = "shaders/present_lanczos.f.glsl";
+		break;
+	case GFX_SCALE_XBRZ:
+		ls = &sharp.xbrz;
+		path = "shaders/present_xbrz.f.glsl";
+		break;
+	default:
+		break;
+	}
+	if (!ls->s.program && !ls->tried) {
+		ls->tried = true;
+		load_layered(ls, path);
+	}
+	return ls->s.program ? ls : NULL;
+}
+
+struct layered_draw {
+	struct layered_shader *ls;
+	GLuint hires;
+};
+
+static void prepare_layered(possibly_unused struct gfx_render_job *job, void *data)
+{
+	struct layered_draw *d = data;
+	glUniform2f(d->ls->tex_size, (float)sharp.layer[0].w, (float)sharp.layer[0].h);
+	glUniform4fv(d->ls->hires_rect, 1, sharp.rect);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, sharp.layer[1].handle);
+	glUniform1i(d->ls->white_tex, 1);
+	glActiveTexture(GL_TEXTURE2);
+	glBindTexture(GL_TEXTURE_2D, d->hires);
+	glUniform1i(d->ls->hires_tex, 2);
+	glActiveTexture(GL_TEXTURE0);
+}
+
+// The two layers through a layered shader, each sampled with filter (GL_LINEAR or GL_NEAREST).
+static void draw_layered(struct layered_shader *ls, GLuint hires, GLint filter, GLfloat *world, GLfloat *viewt)
+{
+	for (int i = 0; i < 2; i++) {
+		glBindTexture(GL_TEXTURE_2D, sharp.layer[i].handle);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+	}
+	glBindTexture(GL_TEXTURE_2D, 0);
+	struct layered_draw d = { ls, hires };
+	ls->s.prepare = prepare_layered;
+	struct gfx_render_job job = {
+		.shader = &ls->s,
+		.shape = GFX_RECTANGLE,
+		.texture = sharp.layer[0].handle,
+		.world_transform = world,
+		.view_transform = viewt,
+		.data = &d
+	};
+	glDisable(GL_BLEND);
+	gfx_render(&job);
+	glEnable(GL_BLEND);
+	glActiveTexture(GL_TEXTURE2);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glActiveTexture(GL_TEXTURE0);
+}
+
+static void attach_main_surface(void)
+{
+	glBindFramebuffer(GL_FRAMEBUFFER, main_surface_fb);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, main_surface.handle, 0);
+	glViewport(0, 0, sdl.w, sdl.h);
+	sharp.in_pass = false;
+}
+
+bool gfx_layer_pass(int pass)
+{
+	if (sharp.broken || pass < 0 || pass > 1)
+		return false;
+	if (pass == 0) {
+		// The shaders this frame needs, before anything is drawn.
+		if (!layered_for(GFX_SCALE_STANDARD) || !layered_for(scaling_type)) {
+			sharp_fail("its shaders did not load");
+			return false;
+		}
+	}
+	if (!sharp.layer_ok || sharp.layer[0].w != sdl.w || sharp.layer[0].h != sdl.h) {
+		sharp.layer_ok = false;
+		for (int i = 0; i < 2; i++) {
+			if (!make_texture(&sharp.layer[i], sdl.w, sdl.h, GL_RGBA16F, GL_FLOAT)) {
+				sharp_fail("no float picture");
+				return false;
+			}
+		}
+		glBindFramebuffer(GL_FRAMEBUFFER, main_surface_fb);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sharp.layer[0].handle, 0);
+		GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		attach_main_surface();
+		if (status != GL_FRAMEBUFFER_COMPLETE) {
+			sharp_fail("a float picture cannot be drawn into");
+			return false;
+		}
+		sharp.layer_ok = true;
+	}
+	glBindFramebuffer(GL_FRAMEBUFFER, main_surface_fb);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sharp.layer[pass].handle, 0);
+	glViewport(0, 0, sdl.w, sdl.h);
+	sharp.in_pass = true;
+	return true;
+}
+
+void gfx_layer_cancel(void)
+{
+	attach_main_surface();
+	sharp.armed = false;
+}
+
+void gfx_layer_scene_drawn(void)
+{
+	if (!sharp.in_pass)
+		sharp.armed = false;
+}
+
+void gfx_layer_finish(struct texture *x, Rectangle *rect)
+{
+	attach_main_surface();
+	struct layered_shader *ls = layered_for(GFX_SCALE_STANDARD);
+	if (!ls || !x || !x->handle || !sharp.target.handle) {
+		sharp.armed = false;
+		return;
+	}
+	sharp.rect[0] = (float)rect->x / sdl.w;
+	sharp.rect[1] = (float)rect->y / sdl.h;
+	sharp.rect[2] = (float)(rect->x + rect->w) / sdl.w;
+	sharp.rect[3] = (float)(rect->y + rect->h) / sdl.h;
+
+	// The game's picture: black + (white - black) * the view at the game's size, one pixel each.
+	static mat4 identity = GLM_MAT4_IDENTITY_INIT;
+	static mat4 fbo_transform = MAT4(
+		2, 0, 0, -1,
+		0, 2, 0, -1,
+		0, 0, 1,  0,
+		0, 0, 0,  1);
+	draw_layered(ls, x->handle, GL_NEAREST, identity[0], fbo_transform[0]);
+	sharp.armed = true;
+
+	// Once per size of the 3D's picture (a resize draws one frame at the old size first).
+	if (sharp.target.w != sharp.logged_w || sharp.target.h != sharp.logged_h || sharp.logged_scale < 0.f) {
+		float s = (float)sharp.target.w / x->w;
+		rq_log("3D at the window's size: %dx%d (scale %.2f)", sharp.target.w, sharp.target.h, s);
+		sharp.logged_scale = s;
+		sharp.logged_w = sharp.target.w;
+		sharp.logged_h = sharp.target.h;
+	}
+}
+
+void gfx_window_info(struct gfx_window_info *info)
+{
+	memset(info, 0, sizeof *info);
+	if (!sdl.window)
+		return;
+	SDL_GetWindowSize(sdl.window, &info->w, &info->h);
+	SDL_GL_GetDrawableSize(sdl.window, &info->px_w, &info->px_h);
+	info->view_x = sdl.viewport.x;
+	info->view_y = sdl.viewport.y;
+	info->view_w = sdl.viewport.w;
+	info->view_h = sdl.viewport.h;
+	info->fullscreen = gfx_is_fullscreen();
+	info->sharp_3d = sharp.on && !sharp.broken;
+	info->sharp_3d_shown = sharp.shown;
+	if (sharp.shown) {
+		info->sharp_3d_w = sharp.target.w;
+		info->sharp_3d_h = sharp.target.h;
+	}
+}
+
+// The window's size in points, out of full screen; the view is fitted again at the size event.
+bool gfx_set_window_size(int w, int h)
+{
+	if (!sdl.window || w < 64 || h < 48 || w > 16384 || h > 16384)
+		return false;
+	if (gfx_is_fullscreen())
+		gfx_set_fullscreen(false);
+	SDL_RestoreWindow(sdl.window);
+	SDL_SetWindowSize(sdl.window, w, h);
+	gfx_update_screen_scale();
+	return true;
+}
+
+// The viewport of the window's back buffer, as drawn, saved as a PNG (rows top first).
+int gfx_save_window(const char *path)
+{
+	int w = sdl.viewport.w, h = sdl.viewport.h;
+	if (w <= 0 || h <= 0)
+		return 0;
+	uint8_t *pixels = xmalloc((size_t)w * h * 4);
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+	glPixelStorei(GL_PACK_ALIGNMENT, 1);
+	glReadPixels(sdl.viewport.x, sdl.viewport.y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, main_surface_fb);
+	// The window's alpha is not the picture's: opaque, as shown (the writer writes RGBA).
+	for (size_t i = 3; i < (size_t)w * h * 4; i += 4)
+		pixels[i] = 255;
+	uint8_t *row = xmalloc((size_t)w * 4);
+	for (int y = 0; y < h / 2; y++) {
+		uint8_t *a = pixels + (size_t)y * w * 4, *b = pixels + (size_t)(h - 1 - y) * w * 4;
+		memcpy(row, a, (size_t)w * 4);
+		memcpy(a, b, (size_t)w * 4);
+		memcpy(b, row, (size_t)w * 4);
+	}
+	free(row);
+	struct cg cg = {
+		.type = ALCG_UNKNOWN,
+		.metrics = {
+			.w = w,
+			.h = h,
+			.bpp = 24,
+			.has_pixel = true,
+			.has_alpha = false,
+			.pixel_pitch = w * 3,
+			.alpha_pitch = 1
+		},
+		.pixels = pixels
+	};
+	FILE *fp = file_open_utf8(path, "wb");
+	if (!fp) {
+		WARNING("Failed to open %s: %s", display_utf0(path), strerror(errno));
+		free(pixels);
+		return 0;
+	}
+	int r = cg_write(&cg, ALCG_PNG, fp);
+	fclose(fp);
+	free(pixels);
+	return r;
+}
+
 void gfx_swap(void)
 {
 	// A move to a monitor of another scale changes the drawable's pixels while the window keeps
@@ -576,15 +998,26 @@ void gfx_swap(void)
 	glBindTexture(GL_TEXTURE_2D, view->handle);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mag);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, minf);
-	struct gfx_render_job job = {
-		.shader = present,
-		.shape = GFX_RECTANGLE,
-		.texture = view->handle,
-		.world_transform = mw_transform[0],
-		.view_transform = wv_transform[0],
-		.data = view
-	};
-	gfx_render(&job);
+	// The 3D at the window's size (2.67.0): the frame's two layers and the view's own picture.
+	struct layered_shader *ls = sharp.armed && sharp.on && view == &main_surface
+		? layered_for(scaling_type) : NULL;
+	sharp.shown = ls != NULL;
+	if (ls) {
+		draw_layered(ls, sharp.target.handle, mag, mw_transform[0], wv_transform[0]);
+	} else {
+		struct gfx_render_job job = {
+			.shader = present,
+			.shape = GFX_RECTANGLE,
+			.texture = view->handle,
+			.world_transform = mw_transform[0],
+			.view_transform = wv_transform[0],
+			.data = view
+		};
+		gfx_render(&job);
+	}
+#ifdef RQ_MODLOADER
+	rq_ui_before_swap();
+#endif
 
 	rq_prof_begin(RQ_PROF_SWAP);
 	SDL_GL_SwapWindow(sdl.window);

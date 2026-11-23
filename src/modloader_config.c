@@ -4,7 +4,8 @@
  * hooks are Lua (src/lua/config.lua, built into the exe). C does what Lua cannot:
  * it adds the tab button to the game's button group (a ref argument), tells
  * the Discord row on Other 2 to stay off while that page stands in for the Mods page,
- * and reads and sets the window's magnification filter for Other 2's radio.
+ * and reads and sets the window's magnification filter for Other 2's radio and the 3D at the
+ * window's size for its checkbox.
  */
 
 #ifdef RQ_MODLOADER
@@ -157,6 +158,19 @@ static int l_filter(lua_State *L)
 	return 1;
 }
 
+/* sharp([on]): the 3D drawn at the window's size, set first when a boolean is given, and saved
+ * as the title bar's menu saves it. */
+static int l_sharp(lua_State *L)
+{
+	if (!lua_isnoneornil(L, 1)) {
+		int on = lua_toboolean(L, 1);
+		if (on != rq_get_sharp_3d())
+			rq_set_sharp_3d(on);
+	}
+	lua_pushboolean(L, rq_get_sharp_3d());
+	return 1;
+}
+
 /* Runs config.lua with rq, the calls above and as_mod (modloader_roster.c); sets rq.config. */
 void rq_config_open(lua_State *L, int rq_index)
 {
@@ -170,7 +184,8 @@ void rq_config_open(lua_State *L, int rq_index)
 	lua_pushcfunction(L, l_mods);
 	lua_pushcfunction(L, rq_lua_as_mod);
 	lua_pushcfunction(L, l_filter);
-	if (lua_pcall(L, 5, 1, 0) != LUA_OK) {
+	lua_pushcfunction(L, l_sharp);
+	if (lua_pcall(L, 6, 1, 0) != LUA_OK) {
 		rq_log("config: %s", lua_tostring(L, -1));
 		lua_pop(L, 1);
 		return;

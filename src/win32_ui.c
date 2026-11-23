@@ -13,6 +13,7 @@
 
 #define RQ_FILTER_MENU_BASE 0xE100
 #define RQ_FILTER_COUNT 5
+#define RQ_SHARP_3D_MENU 0xE110
 
 /* The window's system menu once the filters are in it. */
 static HMENU filter_menu;
@@ -27,6 +28,12 @@ void win32_ui_mark_scaling(int type)
 			   RQ_FILTER_MENU_BASE + type, MF_BYCOMMAND);
 }
 
+void win32_ui_mark_sharp_3d(int on)
+{
+	if (filter_menu)
+		CheckMenuItem(filter_menu, RQ_SHARP_3D_MENU, MF_BYCOMMAND | (on ? MF_CHECKED : MF_UNCHECKED));
+}
+
 static void SDLCALL win_msg_hook(void *userdata, void *hWnd, unsigned int message,
 				 Uint64 wParam, Sint64 lParam)
 {
@@ -38,6 +45,8 @@ static void SDLCALL win_msg_hook(void *userdata, void *hWnd, unsigned int messag
 	unsigned cmd = (unsigned)wParam;
 	if (cmd >= RQ_FILTER_MENU_BASE && cmd < RQ_FILTER_MENU_BASE + RQ_FILTER_COUNT)
 		rq_set_scaling((int)(cmd - RQ_FILTER_MENU_BASE));
+	else if (cmd == RQ_SHARP_3D_MENU)
+		rq_set_sharp_3d(!rq_get_sharp_3d());
 }
 
 void win32_ui_init(SDL_Window *window)
@@ -60,8 +69,11 @@ void win32_ui_init(SDL_Window *window)
 				    L"Filter: Lanczos");
 			AppendMenuW(sys, MF_STRING, RQ_FILTER_MENU_BASE + 4,
 				    L"Filter: xBRZ");
+			AppendMenuW(sys, MF_STRING, RQ_SHARP_3D_MENU,
+				    L"3D at the window's size");
 			filter_menu = sys;
 			win32_ui_mark_scaling(rq_get_scaling());
+			win32_ui_mark_sharp_3d(rq_get_sharp_3d());
 		}
 	}
 	SDL_SetWindowsMessageHook(win_msg_hook, NULL);
@@ -105,6 +117,11 @@ void win32_ui_init(SDL_Window *window)
 void win32_ui_mark_scaling(int type)
 {
 	(void)type;
+}
+
+void win32_ui_mark_sharp_3d(int on)
+{
+	(void)on;
 }
 
 void rq_focus_sdl_window(SDL_Window *window)

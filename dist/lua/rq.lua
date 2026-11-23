@@ -996,10 +996,17 @@ function ui.aim(id) end
 ---The shot is taken later, so poll `rq.ui.shot_result` from `rq.on_frame` or a coroutine. The folders
 ---in the path must already exist.
 ---
+---By default the shot is the game's picture, 1024 by 768, whatever the window's size. With
+---`window = true` it is the window as shown, at its own pixels: the picture enlarged by the chosen
+---filter, the 3D drawn at the window's size when that setting is on (`rq.ui.window`), without the
+---bars around it in full screen. While the game is paused from the pipe the window shot is the frame
+---on screen.
+---
 ---Raises an error before the game runs, when the path leaves the mod's folder, or while another shot
 ---is still waiting.
 ---
 ---Since: 0.21.0
+---Changed: 2.67.0 `opts.window`.
 ---
 ---```lua
 ---rq.ui.shot("shots/camp.png")
@@ -1009,8 +1016,70 @@ function ui.aim(id) end
 ---end)
 ---```
 ---@param path string A path inside the mod's folder.
+---@param opts? rq.UiShotOpts How to take it. Default: the game's picture.
 ---@see rq.ui.shot_result
-function ui.shot(path) end
+---@see rq.ui.window
+function ui.shot(path, opts) end
+
+---Options of `rq.ui.shot`.
+---
+---Since: 2.67.0
+---@class rq.UiShotOpts
+---@field window? boolean true for the window as shown, at its own pixels. Default false: the game's 1024 by 768 picture.
+
+---Returns the window's size, the game's picture in it, and how the 3D is drawn.
+---
+---The game draws a 1024 by 768 picture, which the window shows enlarged by the filter chosen on
+---Config's Other 2. The 3D (a fight's field, a quest's map) is drawn at the window's own pixels when
+---the window is larger than the game's picture and the setting "3D at the window's size" is on
+---(Config's Other 2 and the title bar's menu; on by default): `sharp_3d_shown` says whether the last
+---frame showed it so. It is not when the window is no larger, two 3D views show at once, or a
+---transition or a movie is drawn.
+---
+---Since: 2.67.0
+---
+---```lua
+---local w = rq.ui.window()
+---rq.log(("window %dx%d, scale %.2f, sharp 3D %s"):format(w.pixels_w, w.pixels_h, w.scale,
+---  tostring(w.sharp_3d_shown)))
+---```
+---@return rq.UiWindow window The window now.
+---@see rq.ui.set_window_size
+function ui.window() end
+
+---What `rq.ui.window` returns.
+---
+---Since: 2.67.0
+---@class rq.UiWindow
+---@field w integer The window's inside width, in points (pixels on a monitor at 100%).
+---@field h integer The window's inside height, in points.
+---@field pixels_w integer Its width in pixels: `w` times the monitor's scale.
+---@field pixels_h integer Its height in pixels.
+---@field view {x: integer, y: integer, w: integer, h: integer} Where the game's picture is drawn, in the window's pixels: all of it, or between bars when the window's shape is not 4 by 3.
+---@field scale number The picture's enlargement: `view.w` over 1024.
+---@field fullscreen boolean The window fills the screen.
+---@field sharp_3d boolean The setting "3D at the window's size" is on (and works on this computer).
+---@field sharp_3d_shown boolean The last frame showed the 3D at the window's size.
+---@field sharp_3d_w? integer The 3D's picture's width then, in pixels; nil when not shown.
+---@field sharp_3d_h? integer Its height.
+
+---Sets the window's inside size, in points, out of full screen.
+---
+---The game's picture is fitted again at the next frame. The window may be larger than the screen.
+---For agents and tests: a mod should leave the window's size to the player.
+---
+---Raises an error for a size under 64 by 48 or over 16384.
+---
+---Since: 2.67.0
+---
+---```lua
+---rq.ui.set_window_size(2048, 1536)  -- twice the game's picture on a monitor at 100%
+---```
+---@param w integer Width in points.
+---@param h integer Height in points.
+---@return boolean ok false when there is no window yet.
+---@see rq.ui.window
+function ui.set_window_size(w, h) end
 
 ---Returns how the last `rq.ui.shot` ended, once.
 ---
@@ -10165,7 +10234,7 @@ rq = {}
 ---
 ---Since: 0.2.0
 ---@type string
-rq.version = "2.66.2"
+rq.version = "2.67.0"
 
 rq.units = units
 rq.items = items
@@ -13108,6 +13177,7 @@ function Sprite:halt() end
 ---One row of `rq.sprite.scene`.
 ---
 ---Since: 1.9.0
+---Changed: 2.67.0 `plugin`.
 ---@class rq.SceneRow
 ---@field kind "sprite"|"part"|"mod"|"other" What it is: a game sprite, a game part, a mod sprite.
 ---@field no integer The sprite or part number; a mod sprite's id.
@@ -13120,6 +13190,7 @@ function Sprite:halt() end
 ---@field cg integer The CG it shows; 0 for none.
 ---@field part? string A part's kind: cg, text, flash and so on.
 ---@field mod? string The mod of a mod sprite.
+---@field plugin? string What draws a game sprite's picture, when it is not a CG: "ReignEngine" for a 3D view.
 
 ---Sprites a mod makes once and changes later, drawn among the game's own in z order.
 ---
