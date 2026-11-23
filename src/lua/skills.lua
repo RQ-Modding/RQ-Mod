@@ -37,6 +37,18 @@
 --   rq.chara.on_has_skill      (2.55.0) the game's check for a skill, ＣＳ番号取得, answered "no" by a
 --                              mod: one hook per skill number with rq.ain.hook's `only`, so the
 --                              game's checks for other skills never enter Lua
+--   forms                      (2.66.0) skills that take each other's place in one row, keeping its
+--                              level, record and hotbar place (rq.skill.form_of, forms): the game's
+--                              Melee Attack N and Thrust Attack N built in (Ｃ再計算 swaps them with
+--                              Spear Knowledge ★★ by the weapon). The buy list sells the form a
+--                              character holds (a before hook on スキルポン); learnable's steps,
+--                              price and learn find a skill's row through its forms
+--   the tries' recalculation   (2.66.0) learnable's after and price run キャラ_再計算 after each
+--                              step inside priv.keep, as the skill window does after each purchase,
+--                              with the globals Ｃ再計算 writes outside the character kept too;
+--                              on_recalc, edit's on_recalc and on_offer are told (preview).
+--                              learnable's third value: the rows after the steps. learn recalculates
+--                              after each purchase
 --
 -- Built on public calls (rq.ain.call, global, set_global, global_len, hook) and two private ones:
 -- priv.keep (modloader_scene.c) and priv.forget_quiet (modloader_roster.c), so on_forget does not
@@ -112,6 +124,73 @@ local function step_of(skill)
   return skill == 384 and 3 or 1
 end
 
+-- ---- forms (2.66.0) ----
+-- FAMILY[skill] is the list of the skill's forms, lowest first, one table shared by the family, so
+-- two skills are forms of each other when FAMILY[a] == FAMILY[b].
+local FAMILY = {}
+
+local function join(a, b)
+  local fa, fb = FAMILY[a] or { a }, FAMILY[b] or { b }
+  if fa == fb then return end
+  local out, seen = {}, {}
+  for _, list in ipairs({ fa, fb }) do
+    for _, id in ipairs(list) do
+      if not seen[id] then
+        seen[id] = true
+        out[#out + 1] = id
+      end
+    end
+  end
+  table.sort(out)
+  for _, id in ipairs(out) do FAMILY[id] = out end
+end
+
+-- Ｃ再計算: Melee Attack 1 to 5 and Thrust Attack 1 to 5, by Spear Knowledge ★★ and the weapon.
+for _, p in ipairs({ { 100, 101 }, { 102, 103 }, { 104, 105 }, { 106, 107 }, { 578, 579 } }) do
+  join(p[1], p[2])
+end
+
+local function same_family(a, b)
+  return a == b or (FAMILY[a] ~= nil and FAMILY[a] == FAMILY[b])
+end
+
+-- The character's row of a skill or, when it holds none, of one of its forms: the row and the
+-- skill in it; nil when it holds none of them.
+local function form_row(iic, skill)
+  local r = row_of(iic, skill)
+  if r then return r, skill end
+  local fam = FAMILY[skill]
+  if not fam then return nil end
+  for _, id in ipairs(fam) do
+    if id ~= skill then
+      r = row_of(iic, id)
+      if r then return r, id end
+    end
+  end
+  return nil
+end
+
+local function need_number(v, name, what)
+  if not int(v) or v < 1 or v > 1000 then
+    error(name .. ": " .. what .. " is a skill number, 1 to 1000", 3)
+  end
+end
+
+function rq.skill.form_of(skill, base)
+  -- The game's skill table is empty while the mods load: only the range is checked.
+  need_number(skill, "rq.skill.form_of", "skill")
+  need_number(base, "rq.skill.form_of", "base")
+  if skill == base then error("rq.skill.form_of: a skill is not a form of itself", 2) end
+  join(skill, base)
+end
+
+function rq.skill.forms(skill)
+  need_number(skill, "rq.skill.forms", "skill")
+  local out = {}
+  for i, id in ipairs(FAMILY[skill] or { skill }) do out[i] = id end
+  return out
+end
+
 -- ---- the Boosts (2.48.0) ----
 -- Ｃ再計算, in the third world only (◆ワールド 3): a Boost at rank 4 sets its flag (FA[38] to
 -- FA[45]); the first of a pair sets 1, the second (455 to 457, which the list sells once the first is
@@ -135,14 +214,6 @@ end
 
 local function boost_kept(iic, b)
   return keeps_boosts() and call("ＣＦＡ", iic, b.fa, -1) >= b.step
-end
-
--- What Ｃ再計算 does to the flag of a Boost now at rank n (inside priv.keep only).
-local function mark_boost(iic, skill, n)
-  local b = BOOST_OF[skill]
-  if not b or n < RANK_MAX or not keeps_boosts() then return end
-  local f = call("ＣＦＡ", iic, b.fa, -1)
-  if f == b.step - 1 then call("ＣＦＡ", iic, b.fa, b.step) end
 end
 
 local function rows(iic)
@@ -263,25 +334,44 @@ local function read_list(iic)
   return out
 end
 
--- The price of a skill's next step in the list the game just filled: points, or nil and why.
+-- The price of a skill's next step in the list the game just filled: points and the skill the list
+-- sells (the skill, or one of its forms, 2.66.0), or nil and why.
 local function list_price(skill)
-  for _, r in ipairs(read_list(nil)) do
+  local list = read_list(nil)
+  local found
+  for _, r in ipairs(list) do
     if r.skill == skill then
-      if r.points > 0 then return r.points end
-      return nil, "condition", r.why
+      found = r
+      break
     end
   end
-  return nil, "not sold"
+  if not found and FAMILY[skill] then
+    for _, r in ipairs(list) do
+      if same_family(r.skill, skill) then
+        found = r
+        break
+      end
+    end
+  end
+  if not found then return nil, "not sold" end
+  if found.points > 0 then return found.points, found.skill end
+  return nil, "condition", found.why
 end
 
 local function fill(iic)
   call("Ｔ購入スキル登録", iic)
 end
 
--- Runs fn with on_forget quiet, the character and the buy list put back after.
-local function trying(paths, fn)
+-- Tries on a kept character running (2.66.0): what on_recalc's and on_offer's preview say.
+local previewing = 0
+
+-- Runs fn with on_forget quiet, the character and the buy list put back after. preview: the paths
+-- keep the character, so the callbacks fn makes the game run are told it is a try.
+local function trying(paths, fn, preview)
   priv.forget_quiet(true)
+  if preview then previewing = previewing + 1 end
   local res = table.pack(pcall(priv.keep, paths, fn))
+  if preview then previewing = previewing - 1 end
   priv.forget_quiet(false)
   if not res[1] then error(res[2], 0) end
   return table.unpack(res, 2, res.n)
@@ -294,9 +384,43 @@ local function with_list(extra)
   return paths
 end
 
--- Sets a skill to step n on the character (inside priv.keep only): 0 takes the row away.
+-- The globals Ｃ再計算 writes outside the character: its sums of the base stats and of what the gear
+-- adds, and two flags (2.66.0). A try that recalculates keeps them with the character.
+local SCRATCH = { "◆疾風突き", "◆身体ブースト" }
+for _, s in ipairs({ "体力", "攻撃力", "防御力", "魔法力", "魔抵力", "命中率", "回避率", "衝撃率",
+  "耐性率", "必殺率", "素早さ" }) do
+  SCRATCH[#SCRATCH + 1] = "◆基本／" .. s
+  SCRATCH[#SCRATCH + 1] = "◆適応／" .. s
+end
+local scratch_paths -- those the game has, found once
+
+local function with_chara(iic)
+  if not scratch_paths then
+    scratch_paths = {}
+    for _, name in ipairs(SCRATCH) do
+      if pcall(g, name) then
+        scratch_paths[#scratch_paths + 1] = { name }
+      else
+        logf("no global %s to keep in a try", name)
+      end
+    end
+  end
+  local paths = with_list({ "Ｃ", iic })
+  for _, p in ipairs(scratch_paths) do paths[#paths + 1] = p end
+  return paths
+end
+
+-- The game's recalculation in a try (2.66.0), as the skill window runs it after each purchase and
+-- erasure (T_SkillPoint: キャラ_再計算): the rows it swaps (Thrust Attack, a mod's forms), the Boosts'
+-- flags, the mods' on_recalc.
+local function settle(iic)
+  call("キャラ_再計算", iic, false)
+end
+
+-- Sets a skill to step n on the character (inside priv.keep only): 0 takes the row away. The row of
+-- a form the character holds counts as the skill's (2.66.0); its form is the recalculation's to pick.
 local function set_n(iic, skill, n)
-  local row = row_of(iic, skill)
+  local row, held = form_row(iic, skill)
   if n == 0 then
     if row then call("ＣＳ初期化", iic, row) end
     return true
@@ -305,7 +429,7 @@ local function set_n(iic, skill, n)
     row = call("ＣＳ追加", iic, skill, n)
     return row and row > 0
   end
-  local t = stype(skill)
+  local t = stype(held)
   if t == 10 then
     call("ＣＳ使用回数最大", iic, row, n)
   else
@@ -324,10 +448,11 @@ local function price(iic, skill, from, to)
   local top = t == 10 and USES_MAX or RANK_MAX
   if to > top then return nil, "max" end
   local inc = step_of(skill)
-  return trying(with_list({ "Ｃ", iic }), function()
+  return trying(with_chara(iic), function()
     local sum, k = 0, from
     while k < to do
       if not set_n(iic, skill, k) then return nil, "room" end
+      settle(iic)
       fill(iic)
       local p, why, text = list_price(skill)
       if not p then return nil, why, text end
@@ -335,7 +460,7 @@ local function price(iic, skill, from, to)
       k = k + inc
     end
     return sum
-  end)
+  end, true)
 end
 
 -- ---- the starting set ----
@@ -354,7 +479,7 @@ local function base_set(iic)
     if fa15 ~= 0 then call("ＣＳ追加", iic, fa15, 0) end
     call("スキル／モルルン被害者追加", iic)
     return rows(iic)
-  end)
+  end, true)
 end
 
 -- ---- the purchase record ----
@@ -375,6 +500,10 @@ local function base_n(iic, skill)
   end
   for _, s in ipairs(set_) do
     if s.id == skill then return s.n end
+  end
+  -- A row that shows a form of a starting skill started as that skill (2.66.0).
+  for _, s in ipairs(set_) do
+    if same_family(s.id, skill) then return s.n end
   end
   return 0
 end
@@ -521,6 +650,57 @@ local function has_install(skill)
   end })
 end
 
+-- ---- the buy list sells the form held (2.66.0) ----
+-- スキルポン(iic, iis, cost, text) lists one skill and prices it from the character's row of that
+-- number (one point more at 3, 5 and 7 uses). For a skill the character does not hold while it holds
+-- a form of it, the form is listed instead: the held row is priced and raised, and no list sells a
+-- second row of one family (the game sold Melee Attack as a new row beside a Thrust Attack left by an
+-- erased Spear Knowledge).
+hook("スキルポン", { before = function(h)
+  local iic, iis = h.args[1], h.args[2]
+  if not int(iis) or not FAMILY[iis] or not exists(iic) then return end
+  if row_of(iic, iis) then return end
+  local _, held = form_row(iic, iis)
+  if held then h.args[2] = held end
+end })
+
+-- ---- preview (2.66.0) ----
+-- The callbacks the game runs inside a try (learnable's after, price, base_skills) are told so: a
+-- second argument to on_recalc and edit's on_recalc, ctx.preview in on_offer.
+local c_on_recalc = chara.on_recalc
+function chara.on_recalc(fn)
+  if type(fn) ~= "function" then return c_on_recalc(fn) end
+  return c_on_recalc(function(iic)
+    return fn(iic, previewing > 0)
+  end)
+end
+
+local c_on_offer = chara.on_offer
+function chara.on_offer(fn)
+  if type(fn) ~= "function" then return c_on_offer(fn) end
+  return c_on_offer(function(ctx)
+    if type(ctx) == "table" then ctx.preview = previewing > 0 end
+    return fn(ctx)
+  end)
+end
+
+-- edit keeps the patch table and reads on_recalc from it at each recalculation: the function is
+-- swapped in place for one that passes preview (once per function).
+local edit_wrapped = setmetatable({}, { __mode = "k" })
+local c_edit = chara.edit
+function chara.edit(who, patch)
+  if type(patch) == "table" and type(patch.on_recalc) == "function"
+      and not edit_wrapped[patch.on_recalc] then
+    local fn = patch.on_recalc
+    local wrapped = function(iic)
+      return fn(iic, previewing > 0)
+    end
+    edit_wrapped[wrapped] = true
+    patch.on_recalc = wrapped
+  end
+  return c_edit(who, patch)
+end
+
 -- ---- the calls ----
 
 function chara.on_has_skill(skill, fn)
@@ -583,23 +763,36 @@ local function read_steps(opts)
   return out
 end
 
+-- The third value (2.66.0): the rows after the steps, as rq.chara.slots gives them.
+-- The recalculation follows a step that can change what it decides: a ranked skill's (a knowledge,
+-- a Boost: the forms, the Boosts' flags) and an erasure; the uses of a skill change neither, so a
+-- run of them waits for one recalculation before the list. A planner replays its steps in every
+-- list it asks for (Loadouts: a healer's build, 33 lists of up to 20 steps, took 817 ms with one
+-- after each step, 601 ms with this).
 function chara.learnable(iic, opts)
   need_chara(iic, "rq.chara.learnable")
   local steps = read_steps(opts)
   if not steps or #steps == 0 then
     return trying(with_list(), function()
       fill(iic)
-      return read_list(iic), free_rows(iic)
+      return read_list(iic), free_rows(iic), chara.slots(iic)
     end)
   end
-  return trying(with_list({ "Ｃ", iic }), function()
+  return trying(with_chara(iic), function()
+    local waiting = false
     for i, st in ipairs(steps) do
       if not set_n(iic, st.skill, st.n) then return nil, i end
-      mark_boost(iic, st.skill, st.n)
+      if st.n == 0 or stype(st.skill) ~= 10 then
+        settle(iic)
+        waiting = false
+      else
+        waiting = true
+      end
     end
+    if waiting then settle(iic) end
     fill(iic)
-    return read_list(iic), free_rows(iic)
-  end)
+    return read_list(iic), free_rows(iic), chara.slots(iic)
+  end, true)
 end
 
 function chara.boosts(iic)
@@ -752,7 +945,9 @@ function chara.learn(iic, skill, opts)
   if learning then error("rq.chara.learn: already learning", 2) end
   local t = stype(skill)
   if not buyable(t) then return false, "not sold" end
-  local cur = n_of(iic, skill)
+  -- The row of the skill or of a form the character holds (2.66.0).
+  local frow, held = form_row(iic, skill)
+  local cur = frow and n_at(iic, frow, held) or 0
   local inc = step_of(skill)
   local to = opts.to
   if to == nil then to = cur + inc end
@@ -770,20 +965,21 @@ function chara.learn(iic, skill, opts)
   local spent, k = 0, cur
   local ok, err = pcall(function()
     while k < to do
-      local p, w, tx = trying(with_list(), function()
+      -- form: the skill the list sells, the skill or one of its forms (2.66.0)
+      local p, form, tx = trying(with_list(), function()
         fill(iic)
         return list_price(skill)
       end)
       if not p then
-        why, text = w, tx
+        why, text = form, tx
         return
       end
       if not pay then chara.add_skill_points(iic, p) end
       local done
       if k == 0 then
-        done = call("キャラスキル_新規追加", iic, skill, p, false)
+        done = call("キャラスキル_新規追加", iic, form, p, false)
       else
-        done = call("キャラスキル_更新", iic, skill, p)
+        done = call("キャラスキル_更新", iic, form, p)
       end
       if not done then
         if not pay then chara.add_skill_points(iic, -p) end
@@ -792,10 +988,11 @@ function chara.learn(iic, skill, opts)
       end
       if pay then spent = spent + p end
       k = k + inc
+      -- After each purchase, as the skill window does (2.66.0; once at the end before).
+      call("キャラ_再計算", iic, not call("クエスト_攻略中"))
     end
   end)
   learning = nil
-  if k ~= cur then call("キャラ_再計算", iic, not call("クエスト_攻略中")) end
   if not ok then error(err, 0) end
   if k < to then return false, why or "refused", text end
   return true, spent
