@@ -308,10 +308,22 @@ void mouse_get_pos(int *x, int *y)
 	mouse_get_pos_raw(x, y);
 }
 
+/* The window's points against the drawable's pixels (the view is in pixels, the mouse in points:
+ * they differ on a monitor scaled above 100% in Windows, see gfx_init). */
+static void window_scale(double *sx, double *sy)
+{
+	int ww = 0, wh = 0, dw = 0, dh = 0;
+	SDL_GetWindowSize(sdl.window, &ww, &wh);
+	SDL_GL_GetDrawableSize(sdl.window, &dw, &dh);
+	*sx = ww > 0 && dw > 0 ? (double)dw / ww : 1.0;
+	*sy = wh > 0 && dh > 0 ? (double)dh / wh : 1.0;
+}
+
 /* Where the mouse is, also while a mod page captures it. */
 void mouse_get_pos_raw(int *x, int *y)
 {
 	int wx, wy;
+	double sx, sy;
 	if (forced_mouse) {
 		*x = forced_x;
 		*y = forced_y;
@@ -319,18 +331,20 @@ void mouse_get_pos_raw(int *x, int *y)
 	}
 	SDL_PumpEvents();
 	SDL_GetMouseState(&wx, &wy);
-	*x = (wx - sdl.viewport.x) * sdl.w / sdl.viewport.w;
-	*y = (wy - sdl.viewport.y) * sdl.h / sdl.viewport.h;
+	window_scale(&sx, &sy);
+	*x = (int)((wx * sx - sdl.viewport.x) * sdl.w / sdl.viewport.w);
+	*y = (int)((wy * sy - sdl.viewport.y) * sdl.h / sdl.viewport.h);
 }
 
 void mouse_set_pos(int x, int y)
 {
-	int wx, wy;
+	double px, py, sx, sy;
 	if (!sdl.window || sdl.w <= 0 || sdl.h <= 0 || sdl.viewport.w <= 0 || sdl.viewport.h <= 0)
 		return;
-	wx = x * sdl.viewport.w / sdl.w + sdl.viewport.x;
-	wy = y * sdl.viewport.h / sdl.h + sdl.viewport.y;
-	SDL_WarpMouseInWindow(sdl.window, wx, wy);
+	px = (x + 0.5) * sdl.viewport.w / sdl.w + sdl.viewport.x;
+	py = (y + 0.5) * sdl.viewport.h / sdl.h + sdl.viewport.y;
+	window_scale(&sx, &sy);
+	SDL_WarpMouseInWindow(sdl.window, (int)(px / sx), (int)(py / sy));
 }
 
 void mouse_force_pos(int x, int y)

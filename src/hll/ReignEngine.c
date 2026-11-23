@@ -1736,11 +1736,20 @@ static bool ReignEngine_SetTextureResolutionLevel(int plugin, int level)
 	return true;
 }
 
+// Config's 3D tab, Texture Filtering: 0 point sampling, 1 bilinear, 2 to 4 anisotropic 4X, 8X,
+// 16X. The renderer sets it on each model's textures as it draws them (src/3d/renderer.c).
 static bool ReignEngine_SetTextureFilterMode(int plugin, int mode)
 {
 	struct RE_plugin *p = RE_get_plugin(plugin);
 	if (!p)
 		return false;
+	static int logged = -1;
+	if (mode != logged) {
+		static const char *names[] = { "point sampling", "bilinear", "anisotropic 4x",
+			"anisotropic 8x", "anisotropic 16x" };
+		rq_log("3D texture filtering: %s", mode >= 0 && mode <= 4 ? names[mode] : "bilinear");
+		logged = mode;
+	}
 	p->texture_filter_mode = mode;
 	return true;
 }

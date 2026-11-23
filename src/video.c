@@ -323,6 +323,13 @@ int gfx_init(void)
 	uint32_t flags = SDL_INIT_VIDEO | SDL_INIT_AUDIO;
 	if (config.joypad)
 		flags |= SDL_INIT_GAMECONTROLLER;
+#ifdef _WIN32
+	// On a monitor scaled above 100% in Windows, Windows stretched the whole window of a program
+	// that does not know the scale, which blurred everything. In DPI-scaled points the window keeps
+	// its size on the screen while the game is drawn into the screen's own pixels; the mouse is in
+	// points (mouse_get_pos_raw in input.c turns it into pixels).
+	SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "1");
+#endif
 	if (SDL_Init(flags) < 0)
 		ERROR("SDL_Init failed: %s", SDL_GetError());
 
@@ -440,10 +447,15 @@ void gfx_toggle_fullscreen(void)
 	gfx_set_fullscreen(!gfx_is_fullscreen());
 }
 
+// The drawable's size when the view was last fitted to it.
+static int drawable_w, drawable_h;
+
 void gfx_update_screen_scale(void)
 {
 	int display_w, display_h;
 	SDL_GL_GetDrawableSize(sdl.window, &display_w, &display_h);
+	drawable_w = display_w;
+	drawable_h = display_h;
 
 	if (display_w * sdl.h == display_h * sdl.w) {
 		// The aspect ratios are the same, just scale appropriately.
@@ -524,6 +536,13 @@ static void gfx_update_frame_rate_counter(void)
 
 void gfx_swap(void)
 {
+	// A move to a monitor of another scale changes the drawable's pixels while the window keeps
+	// its size in points, which may send no size event.
+	int dw, dh;
+	SDL_GL_GetDrawableSize(sdl.window, &dw, &dh);
+	if (dw != drawable_w || dh != drawable_h)
+		gfx_update_screen_scale();
+
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glViewport(sdl.viewport.x, sdl.viewport.y, sdl.viewport.w, sdl.viewport.h);
 	gfx_clear();
